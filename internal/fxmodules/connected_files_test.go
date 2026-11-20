@@ -231,3 +231,98 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 		g.Expect(data).To(Equal([]byte(body)))
 	}
 }
+
+func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) {
+	g := NewWithT(t)
+	const materialBody = "opaque evidence payload"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/courses/123/courseWork":
+			fmt.Fprint(w, `{"courseWork":[{"id":"unknown-task","title":"Report"}]}`)
+		case "/v1/courses/123/courseWork/unknown-task/studentSubmissions":
+			fmt.Fprint(w, `{"studentSubmissions":[{"id":"unknown-submission","state":"TURNED_IN","assignmentSubmission":{"attachments":[{"driveFile":{"id":"unknown-material","title":"mystery.bin","alternateLink":"https://drive.google.com/file/d/unknown-material/view"}}]}}]}`)
+		case "/drive/v3/files/unknown-material":
+			if r.URL.Query().Get("alt") == "media" {
+				fmt.Fprint(w, materialBody)
+				return
+			}
+			fmt.Fprint(w, `{"id":"unknown-material","name":"mystery.bin","mimeType":"application/octet-stream","size":"22","webViewLink":"https://drive.google.com/open?id=unknown-material"}`)
+		default:
+			t.Errorf("unexpected request: %s", r.URL)
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	dir := t.TempDir()
+	databasePath := filepath.Join(dir, "state.db")
+	t.Setenv("SQLITE_DATABASE_PATH", databasePath)
+	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", server.URL+"/v1")
+	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "fixture-classroom-token")
+	t.Setenv("GOOGLE_DRIVE_BASE_URL", server.URL+"/drive/v3")
+	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "")
+	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET", "")
+	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
+	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
+
+	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ScenarioService, ports.TaskBindingRepository, ports.SubmissionRepository) {
+		var (
+			poller    *application.PollingService
+			courses   cli.ClassroomService
+			scenarios cli.ScenarioService
+			bindings  ports.TaskBindingRepository
+			repo      ports.SubmissionRepository
+		)
+		app := fx.New(fx.NopLogger, PlatformModule, StorageModule, ClassroomStorageModule, ApplicationModule, PollingModule,
+			fx.Decorate(func(_ ports.MaterialRetriever, cfg config.DriveConfig) (ports.MaterialRetriever, error) {
+				tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-drive-token"})
+				return drive.NewMaterialRetrieverWithTokenSource(cfg, tokens)
+			}),
+			fx.Populate(&poller, &courses, &scenarios, &bindings, &repo))
+		return app, poller, courses, scenarios, bindings, repo
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	app, poller, courses, scenarios, bindings, repo := newApp()
+	g.Expect(app.Start(ctx)).To(Succeed())
+	g.Expect(courses.Add(ctx, "123")).To(Succeed())
+	g.Expect(scenarios.Add(ctx, "science-report")).To(Succeed())
+	g.Expect(poller.Refresh(ctx)).To(Succeed())
+	g.Expect(bindings.Bind(ctx, "science-report", "unknown-task")).To(Succeed())
+	g.Expect(poller.Refresh(ctx)).To(Succeed())
+
+	active, err := bindings.Active(ctx)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(active).To(HaveLen(1))
+	stored, err := repo.ListByTask(ctx, active[0].Task.ID)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(stored).To(HaveLen(1))
+	g.Expect(stored[0].Materials).To(HaveLen(1))
+	material := stored[0].Materials[0]
+	g.Expect(material.ParseOutcomes).To(HaveLen(1))
+	outcome := material.ParseOutcomes[0]
+	g.Expect(outcome.Source.ScenarioName).To(Equal("science-report"))
+	g.Expect(outcome.Source.ScenarioType).To(Equal("ScienceReportScenario"))
+	g.Expect(outcome.Result.Issue).To(Equal(submission.AnalysisLowConfidence))
+	g.Expect(outcome.Result.Analysis).NotTo(BeNil())
+	g.Expect(outcome.Result.Analysis.Proposal.DocumentType).To(Equal("supporting_evidence"))
+	g.Expect(outcome.Result.Analysis.Proposal.Fields["document_meaning"]).To(Equal("supporting evidence for the bound scenario"))
+	g.Expect(outcome.Result.Analysis.Proposal.Fields["scenario_name"]).To(Equal("science-report"))
+	g.Expect(outcome.Result.Analysis.LowConfidence).To(BeTrue())
+	g.Expect(outcome.EligibleForAggregation()).To(BeFalse())
+	g.Expect(app.Stop(ctx)).To(Succeed())
+
+	app, _, _, _, _, repo = newApp()
+	g.Expect(app.Start(ctx)).To(Succeed())
+	defer func() { g.Expect(app.Stop(context.Background())).To(Succeed()) }()
+	reloaded, err := repo.ListByTask(ctx, active[0].Task.ID)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(reloaded).To(HaveLen(1))
+	g.Expect(reloaded[0].Materials).To(HaveLen(1))
+	reloadedOutcome := reloaded[0].Materials[0].ParseOutcomes[0]
+	g.Expect(reloadedOutcome.Source.ScenarioType).To(Equal("ScienceReportScenario"))
+	g.Expect(reloadedOutcome.Result.Analysis.Proposal.DocumentType).To(Equal("supporting_evidence"))
+	g.Expect(reloadedOutcome.Result.Analysis.Proposal.Fields["scenario_name"]).To(Equal("science-report"))
+	g.Expect(reloadedOutcome.Result.Analysis.LowConfidence).To(BeTrue())
+	g.Expect(reloadedOutcome.EligibleForAggregation()).To(BeFalse())
+}

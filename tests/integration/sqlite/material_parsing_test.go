@@ -163,4 +163,69 @@ var _ = Describe("persisted material parsing", func() {
 		Expect(got.Parsing).To(BeNil())
 		Expect(got.ParseOutcomes).To(ConsistOf(submission.MaterialParse{Source: firstSource, Result: legacy}, a, b, revised))
 	})
+
+	It("retains invalid and low-confidence analysis proposals without making them eligible after restart", func(ctx SpecContext) {
+		app, db := start(ctx, path)
+		origin := fixtures.MaterialOrigin()
+		tasks := storage.NewTaskRepository(db)
+		Expect(tasks.Register(ctx, task.Task{Provider: "google-classroom", CourseID: origin.CourseID, ExternalID: origin.TaskExternalID, Title: "Report"})).To(Succeed())
+		registered, err := tasks.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(registered).To(HaveLen(1))
+
+		repo := storage.NewSubmissionRepository(db)
+		current := submission.Submission{TaskID: registered[0].ID, ExternalID: origin.SubmissionExternalID, State: submission.Submitted}
+		invalidMaterial := fixtures.SubmittedMaterial()
+		invalidMaterial.ExternalID, invalidMaterial.Name, invalidMaterial.LocalPath = "invalid-analysis", "Invalid analysis", "snapshots/invalid"
+		invalidProposal := submission.ExtractionProposal{
+			SchemaVersion: "material-analysis.legacy", DocumentType: "appendix",
+			Fields:               map[string]any{"title": "Candidate", "tags": []any{"invalid", "retained"}},
+			IsSupportingEvidence: true, Confidence: 0.99,
+		}
+		invalid := submission.MaterialParse{
+			Source: invalidMaterial.DocumentSource(origin),
+			Result: submission.ParseResult{Issue: submission.AnalysisInvalid, Analysis: &submission.AnalysisResult{Proposal: invalidProposal}},
+		}
+
+		lowMaterial := fixtures.SubmittedMaterial()
+		lowMaterial.ExternalID, lowMaterial.Name, lowMaterial.LocalPath = "low-analysis", "Low confidence analysis", "snapshots/low"
+		appendix := 12
+		lowProposal := submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, Appendix: &appendix, DocumentType: "supporting-evidence",
+			Fields:               map[string]any{"authors": []any{"Ada", "Grace"}, "peer_reviewed": true},
+			IsSupportingEvidence: true, Confidence: 0.5,
+		}
+		low := submission.MaterialParse{
+			Source: lowMaterial.DocumentSource(origin),
+			Result: submission.ParseResult{Issue: submission.AnalysisLowConfidence, Analysis: &submission.AnalysisResult{
+				Proposal: lowProposal, Validated: true, LowConfidence: true,
+			}},
+		}
+		invalidMaterial.ParseOutcomes = []submission.MaterialParse{invalid}
+		lowMaterial.ParseOutcomes = []submission.MaterialParse{low}
+		current.Materials = []submission.Material{invalidMaterial, lowMaterial}
+		Expect(repo.Upsert(ctx, current)).To(Succeed())
+		Expect(invalid.EligibleForAggregation()).To(BeFalse())
+		Expect(low.EligibleForAggregation()).To(BeFalse())
+		Expect(app.Stop(ctx)).To(Succeed())
+
+		_, db = start(ctx, path)
+		stored, err := storage.NewSubmissionRepository(db).ListByTask(ctx, current.TaskID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored).To(HaveLen(1))
+		Expect(stored[0].Materials).To(HaveLen(2))
+
+		gotInvalid, gotLow := stored[0].Materials[0].ParseOutcomes[0], stored[0].Materials[1].ParseOutcomes[0]
+		Expect(gotInvalid).To(Equal(invalid))
+		Expect(gotInvalid.Result.Analysis).NotTo(BeNil())
+		Expect(gotInvalid.Result.Analysis.Proposal.Fields).To(Equal(invalidProposal.Fields))
+		Expect(gotInvalid.Result.Analysis.Proposal.IsSupportingEvidence).To(BeTrue())
+		Expect(gotInvalid.EligibleForAggregation()).To(BeFalse())
+		Expect(gotLow).To(Equal(low))
+		Expect(gotLow.Result.Analysis).NotTo(BeNil())
+		Expect(gotLow.Result.Analysis.Proposal.Fields).To(Equal(lowProposal.Fields))
+		Expect(gotLow.Result.Analysis.Proposal.IsSupportingEvidence).To(BeTrue())
+		Expect(gotLow.Result.Analysis.LowConfidence).To(BeTrue())
+		Expect(gotLow.EligibleForAggregation()).To(BeFalse())
+	})
 })

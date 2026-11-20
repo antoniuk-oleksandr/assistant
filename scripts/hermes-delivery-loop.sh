@@ -78,7 +78,7 @@ for issue in $(seq "$start_issue" "$end_issue"); do
         exit 1
     fi
 
-    run_phase "issue-${issue}-delivery" "Deliver the approved implementation for GitHub issue #${issue} on the current branch. This is a fresh delivery session: inspect the complete diff and run required checks, then commit the complete change, push the branch, create a linked pull request targeting main with Closes #${issue}, merge it using GitHub MCP, verify the PR is merged and closed, mark the corresponding GitHub Project item Done, switch the local checkout to main, and pull origin/main. Do not ask for approval and do not use gh. Stop and report the exact operation if any delivery step fails."
+    run_phase "issue-${issue}-delivery" "Deliver the approved implementation for GitHub issue #${issue} on the current branch. Act as hermes-delivery and read /workspace/.agents/skills/hermes-delivery/SKILL.md. This is a fresh, non-delegating delivery session: do not invoke delegate_task or any Developer, Tester, or Reviewer agent. Trust the prior APPROVED review; do not run go test, go vet, or any other validation command. Inspect the complete diff, then commit the complete change, push the branch, create a linked pull request targeting main with Closes #${issue}, merge it using GitHub MCP, verify the PR is merged and closed, mark the corresponding GitHub Project item Done, switch the local checkout to main, and pull origin/main. Do not ask for approval and do not use gh. Stop and report the exact operation if any delivery step fails."
 
     if [[ -n "$(git status --porcelain)" ]]; then
         echo "delivery left a dirty worktree for issue #$issue" >&2

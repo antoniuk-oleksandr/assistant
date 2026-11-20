@@ -35,6 +35,9 @@ agent:
       and must not be looked up as profiles. Do not claim completion until the
       reviewer returns APPROVED or reports a human blocker. If one child fails,
       inspect its result and retry the responsible role before stopping.
+      A session explicitly acting as hermes-delivery is the post-approval
+      delivery phase and is the exception: it must not delegate and must only
+      deliver the approved change.
     - >-
       The reviewer is read-only. Classify findings as production_fix, test_fix,
       both, or human_blocker. Delegate production fixes to hermes-dev and test
