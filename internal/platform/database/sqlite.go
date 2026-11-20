@@ -167,6 +167,11 @@ const createReminders = `CREATE TABLE IF NOT EXISTS reminders (
     UNIQUE (task_id, person_id, channel, kind)
 )`
 
+const createTeachers = `CREATE TABLE IF NOT EXISTS teachers (
+ id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, classroom_id TEXT, status TEXT NOT NULL CHECK(status IN ('active','disabled')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(email))`
+const createNotificationChannels = `CREATE TABLE IF NOT EXISTS notification_channels (
+ id INTEGER PRIMARY KEY, teacher_id INTEGER NOT NULL REFERENCES teachers(id), kind TEXT NOT NULL, destination TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('active','disabled')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(kind,destination))`
+
 const createMaterialParses = `CREATE TABLE IF NOT EXISTS material_parses (
     material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
     scenario_id INTEGER NOT NULL,
@@ -228,6 +233,12 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createReminders); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite reminder schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createTeachers); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite teacher schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createNotificationChannels); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite notification channel schema: %w", err), db.Close())
 			}
 			if err := migrateMaterialColumns(ctx, db); err != nil {
 				return errors.Join(fmt.Errorf("migrate SQLite material columns: %w", err), db.Close())
