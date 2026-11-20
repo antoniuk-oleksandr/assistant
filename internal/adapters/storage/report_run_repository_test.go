@@ -18,18 +18,19 @@ import (
 
 var _ = Describe("SQLite report run repository", func() {
 	var (
-		db      *sql.DB
-		repo    ports.ReportRunRepository
-		outputs ports.ReportOutputRepository
-		results ports.ReportResultRepository
+		db         *sql.DB
+		repo       ports.ReportRunRepository
+		outputs    ports.ReportOutputRepository
+		results    ports.ReportResultRepository
+		deliveries ports.ReportDeliveryRepository
 	)
 
 	BeforeEach(func(ctx SpecContext) {
 		app := fx.New(
 			fx.NopLogger,
 			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
-			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository, storage.NewReportResultRepository),
-			fx.Populate(&db, &repo, &outputs, &results),
+			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository, storage.NewReportResultRepository, storage.NewReportDeliveryRepository),
+			fx.Populate(&db, &repo, &outputs, &results, &deliveries),
 		)
 		Expect(app.Start(ctx)).To(Succeed())
 		DeferCleanup(app.Stop)
@@ -164,5 +165,36 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(db.Close()).To(Succeed())
 		value := report.NewResult(1, 1, 1, scenario.ReportData{}, time.Now())
 		Expect(results.Create(ctx, &value)).To(MatchError(ContainSubstring("insert report result")))
+	})
+
+	It("persists delivery status and lists deliveries by result", func(ctx SpecContext) {
+		run := report.NewRun(1, 1, time.Now())
+		Expect(repo.Create(ctx, &run)).To(Succeed())
+		value := report.NewResult(run.ID, 1, 1, scenario.ReportData{}, time.Now())
+		Expect(results.Create(ctx, &value)).To(Succeed())
+		now := time.Now().UTC()
+		delivery := report.Delivery{ResultID: value.ID, Channel: "email", Destination: "teacher@example.com", Status: report.DeliverySent, AttemptedAt: &now, CreatedAt: now}
+		Expect(deliveries.Create(ctx, &delivery)).To(Succeed())
+		items, err := deliveries.GetByResult(ctx, value.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0].Status).To(Equal(report.DeliverySent))
+		found, err := deliveries.GetByResultTarget(ctx, value.ID, "email", "teacher@example.com")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found.ID).To(Equal(delivery.ID))
+		delivery.Status = report.DeliveryFailed
+		delivery.Error = "unavailable"
+		Expect(deliveries.Update(ctx, &delivery)).To(Succeed())
+	})
+
+	It("reports delivery repository errors after database close", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+		value := report.Delivery{ResultID: 1, Channel: "email", Destination: "teacher@example.com", Status: report.DeliveryPending, CreatedAt: time.Now()}
+		Expect(deliveries.Create(ctx, &value)).To(MatchError(ContainSubstring("insert report delivery")))
+		Expect(deliveries.Update(ctx, &value)).To(MatchError(ContainSubstring("update report delivery")))
+		_, err := deliveries.GetByResult(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("list report deliveries")))
+		_, err = deliveries.GetByResultTarget(ctx, 1, "email", "teacher@example.com")
+		Expect(err).To(MatchError(ContainSubstring("find report delivery")))
 	})
 })
