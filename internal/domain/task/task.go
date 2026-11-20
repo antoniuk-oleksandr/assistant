@@ -22,6 +22,7 @@ type Task struct {
 	Title             string
 	Description       string
 	CreatedAtExternal string
+	UpdatedAtExternal string
 	DueAt             string
 	Status            Status
 }

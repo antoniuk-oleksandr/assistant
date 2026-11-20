@@ -7,6 +7,7 @@ import (
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
+	"github.com/alex/assistent/internal/platform/locking"
 	cli "github.com/alex/assistent/internal/presentation/cobra"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
@@ -14,16 +15,16 @@ import (
 )
 
 var PlatformModule = fx.Module("platform",
-	fx.Provide(config.Load, config.Database, database.NewSQLite),
+	fx.Provide(config.Load, config.Database, database.NewSQLite, locking.NewProcessLock),
 )
 
-var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository))
+var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository))
 
 var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.NewClassroomCourseRepository))
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	application.NewPollingService,
+	application.NewPersistentPollingService,
 	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))

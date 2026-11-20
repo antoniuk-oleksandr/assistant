@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alex/assistent/internal/domain/submission"
 )
@@ -121,6 +122,22 @@ func TestSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *testing.T)
 	material := item.Materials[0]
 	if material.ExternalID != "file-1" || material.Name != "report.docx" || material.MIMEType != "application/docx" || material.SourceURI != "https://drive/file-1" || material.Role != "supporting_evidence" || material.Status != submission.Pending {
 		t.Fatalf("material mapping = %#v", material)
+	}
+}
+
+func TestSubmissionSourceListsTasksChangedSinceCheckpoint(t *testing.T) {
+	client := &fakeClassroomClient{coursework: []CourseWork{
+		{ID: "old", UpdateTime: "2026-01-01T00:00:00Z"},
+		{ID: "new", UpdateTime: "2026-01-03T00:00:00Z"},
+		{ID: "unknown", UpdateTime: "not-a-time"},
+	}}
+	source := NewSubmissionSourceWithClient(client)
+	items, err := source.ListTasksSince(context.Background(), "course-1", time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("ListTasksSince() error = %v", err)
+	}
+	if got := []string{items[0].ExternalID, items[1].ExternalID}; !reflect.DeepEqual(got, []string{"new", "unknown"}) {
+		t.Fatalf("changed tasks = %#v", got)
 	}
 }
 

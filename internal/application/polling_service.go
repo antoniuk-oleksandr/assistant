@@ -22,10 +22,15 @@ type PollingService struct {
 	tasks       ports.TaskRepository
 	bindings    ports.TaskBindingRepository
 	submissions ports.SubmissionRepository
+	state       ports.PollingStateRepository
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions}
+	return NewPersistentPollingService(courses, source, tasks, bindings, submissions, noopPollingState{})
+}
+
+func NewPersistentPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state}
 }
 
 func (s *PollingService) Refresh(ctx context.Context) error {
@@ -51,7 +56,11 @@ func (s *PollingService) Run(ctx context.Context, interval time.Duration) error 
 	if interval <= 0 {
 		return fmt.Errorf("polling interval must be greater than zero: %s", interval)
 	}
-	if err := s.Refresh(ctx); err != nil {
+	checkpoint, err := s.state.LastCheckpoint(ctx)
+	if err != nil {
+		return err
+	}
+	if err := s.refreshAndCheckpoint(ctx, checkpoint); err != nil {
 		return err
 	}
 	ticker := time.NewTicker(interval)
@@ -61,15 +70,57 @@ func (s *PollingService) Run(ctx context.Context, interval time.Duration) error 
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			if err := s.Refresh(ctx); err != nil {
+			checkpoint, err = s.state.LastCheckpoint(ctx)
+			if err != nil {
+				return err
+			}
+			if err := s.refreshAndCheckpoint(ctx, checkpoint); err != nil {
 				return err
 			}
 		}
 	}
 }
 
+func (s *PollingService) refreshAndCheckpoint(ctx context.Context, checkpoint time.Time) error {
+	if err := s.refreshSince(ctx, checkpoint); err != nil {
+		return err
+	}
+	return s.state.SaveCheckpoint(ctx, time.Now().UTC())
+}
+
+func (s *PollingService) refreshSince(ctx context.Context, checkpoint time.Time) error {
+	courses, err := s.courses.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list courses for polling: %w", err)
+	}
+	for _, course := range courses {
+		if course.Status != classroom.Active {
+			continue
+		}
+		if err := s.refreshCourseSince(ctx, course.ExternalID, checkpoint); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type noopPollingState struct{}
+
+func (noopPollingState) LastCheckpoint(context.Context) (time.Time, error) { return time.Time{}, nil }
+func (noopPollingState) SaveCheckpoint(context.Context, time.Time) error   { return nil }
+
 func (s *PollingService) refreshCourse(ctx context.Context, courseID string) error {
-	items, err := s.source.ListTasks(ctx, courseID)
+	return s.refreshCourseSince(ctx, courseID, time.Time{})
+}
+
+func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string, checkpoint time.Time) error {
+	var items []task.Task
+	var err error
+	if incremental, ok := s.source.(ports.IncrementalSubmissionSource); ok {
+		items, err = incremental.ListTasksSince(ctx, courseID, checkpoint)
+	} else {
+		items, err = s.source.ListTasks(ctx, courseID)
+	}
 	if err != nil {
 		return fmt.Errorf("list tasks for course %q: %w", courseID, err)
 	}

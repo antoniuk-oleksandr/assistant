@@ -29,6 +29,7 @@ type pollingSource struct {
 	tasks            map[string][]task.Task
 	submissions      map[string][][]submission.Submission
 	taskCalls        []string
+	sinceCalls       []time.Time
 	subCalls         []string
 	taskErr          error
 	subErr           error
@@ -42,6 +43,11 @@ func (s *pollingSource) ListTasks(_ context.Context, courseID string) ([]task.Ta
 		s.cancel()
 	}
 	return s.tasks[courseID], s.taskErr
+}
+
+func (s *pollingSource) ListTasksSince(ctx context.Context, courseID string, checkpoint time.Time) ([]task.Task, error) {
+	s.sinceCalls = append(s.sinceCalls, checkpoint)
+	return s.ListTasks(ctx, courseID)
 }
 
 func (s *pollingSource) ListSubmissions(_ context.Context, taskID string) ([]submission.Submission, error) {
@@ -98,6 +104,27 @@ func (r pollingBindingRepository) Active(context.Context) ([]task.Binding, error
 type pollingSubmissionRepository struct {
 	items []submission.Submission
 	err   error
+}
+
+type pollingStateRepository struct {
+	checkpoint time.Time
+	lastCalls  int
+	saved      []time.Time
+	lastErr    error
+	saveErr    error
+}
+
+func (r *pollingStateRepository) LastCheckpoint(context.Context) (time.Time, error) {
+	r.lastCalls++
+	return r.checkpoint, r.lastErr
+}
+
+func (r *pollingStateRepository) SaveCheckpoint(_ context.Context, checkpoint time.Time) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
+	r.saved = append(r.saved, checkpoint)
+	return nil
 }
 
 func (r *pollingSubmissionRepository) Upsert(_ context.Context, item submission.Submission) error {
@@ -256,6 +283,41 @@ var _ = Describe("polling service", func() {
 		Expect(service.Run(pollingCtx, time.Millisecond)).To(Succeed())
 		Expect(time.Since(started)).To(BeNumerically("<", time.Second))
 		Expect(source.taskCalls).To(HaveLen(2))
+	})
+
+	It("loads the previous checkpoint and saves a new checkpoint only after a successful cycle", func(ctx SpecContext) {
+		checkpoint := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+		state := &pollingStateRepository{checkpoint: checkpoint}
+		item := task.Task{ID: 1, ExternalID: "task-1", CourseID: "course-1"}
+		pollingCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		source := &pollingSource{
+			tasks:            map[string][]task.Task{"course-1": {item}},
+			cancelOnTaskCall: 1,
+			cancel:           cancel,
+		}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+
+		Expect(service.Run(pollingCtx, time.Hour)).To(Succeed())
+		Expect(state.lastCalls).To(Equal(1))
+		Expect(state.saved).To(HaveLen(1))
+		Expect(state.saved[0]).To(BeTemporally(">=", checkpoint))
+		Expect(source.sinceCalls).To(Equal([]time.Time{checkpoint}))
+	})
+
+	It("does not advance the checkpoint when a polling cycle fails", func(ctx SpecContext) {
+		state := &pollingStateRepository{checkpoint: time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			&pollingSource{taskErr: errors.New("provider unavailable")}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+
+		Expect(service.Run(ctx, time.Hour)).To(MatchError(ContainSubstring("list tasks for course \"course-1\": provider unavailable")))
+		Expect(state.lastCalls).To(Equal(1))
+		Expect(state.saved).To(BeEmpty())
 	})
 
 	It("rejects a zero polling interval before refreshing", func(ctx SpecContext) {

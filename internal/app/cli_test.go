@@ -37,4 +37,14 @@ var _ = Describe("RunCLI", func() {
 		Expect(os.WriteFile(".env", []byte("INVALID=\"unterminated\n"), 0600)).To(Succeed())
 		Expect(app.RunCLI(ctx, []string{"scenario", "list"})).NotTo(Succeed())
 	})
+
+	It("returns a polling startup error for a canceled background context", func(ctx SpecContext) {
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		Expect(app.RunCLI(canceled, nil)).NotTo(Succeed())
+	})
+
+	It("returns a command error for an unknown CLI command", func(ctx SpecContext) {
+		Expect(app.RunCLI(ctx, []string{"unknown-command"})).NotTo(Succeed())
+	})
 })
