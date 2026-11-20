@@ -60,6 +60,10 @@ agent:
       --ff-only origin main before selecting the next Todo item. Re-read the
       project after every transition; do not rely on a cached item count and do
       not stop while Todo items remain unless a genuine blocker is reported.
+      After creating each pull request, the Delivery role must poll its head's
+      combined CI status through GitHub MCP exactly once every five seconds,
+      wait while checks are pending, stop on failed checks, and merge only
+      after all required checks pass.
 
 mcp_servers:
   github:

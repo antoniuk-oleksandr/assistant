@@ -17,13 +17,17 @@ Inspect the complete current diff and perform the delivery lifecycle:
 1. commit the complete approved change;
 2. push the current branch;
 3. create a pull request targeting `main` with `Closes #<issue>`;
-4. merge the pull request through GitHub MCP;
-5. verify that the pull request is merged and closed;
-6. attempt to mark the corresponding GitHub Project item Done;
-7. regardless of Project API success or failure, switch the local checkout to
+4. poll the PR head's combined CI status through GitHub MCP exactly once every
+   five seconds; wait while checks are pending, stop and report the failed
+   checks if any check fails, and continue only after all required checks pass;
+5. merge the pull request through GitHub MCP;
+6. verify that the pull request is merged and closed;
+7. attempt to mark the corresponding GitHub Project item Done;
+8. regardless of Project API success or failure, switch the local checkout to
    `main` and run `git pull --ff-only origin main`;
-8. report any Project update failure after the checkout has completed.
+9. report any Project update failure after the checkout has completed.
 
 Do not use `gh`, ask for approval, or modify the implementation. Once the PR
 has merged, a Project API failure must not prevent the checkout and pull. If a
-pre-merge operation fails, report the exact failed operation and error.
+pre-merge operation fails, report the exact failed operation and error. Do not
+merge a PR with pending or failed CI.
