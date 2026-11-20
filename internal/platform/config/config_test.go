@@ -26,6 +26,7 @@ var _ = Describe("configuration loading", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(loaded.Database.SQLitePath).To(Equal(config.DefaultSQLitePath))
 		Expect(config.Database(loaded)).To(Equal(loaded.Database))
+		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
 	})
 
 	It("loads a path from .env and lets the process environment override it", func() {
@@ -69,6 +70,19 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 		Expect(os.Setenv(config.SQLitePathEnv, "  ")).To(Succeed())
 		_, err := config.Load()
 		Expect(err).To(MatchError("SQLITE_DATABASE_PATH must be a non-empty file path"))
+	})
+
+	It("loads Google Sheets report settings", func() {
+		GinkgoT().Setenv("GOOGLE_SHEETS_BASE_URL", "https://sheets.example.invalid/v4")
+		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_CLIENT_ID", "client")
+		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET", "secret")
+		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN", "refresh")
+		GinkgoT().Setenv("GOOGLE_SHEETS_REPORT_TITLE", "Department report")
+		GinkgoT().Setenv("REPORT_RENDERER", "google-sheets")
+		loaded, err := config.Load()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Sheets(loaded)).To(Equal(config.SheetsConfig{BaseURL: "https://sheets.example.invalid/v4", ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh", Title: "Department report"}))
+		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
 	})
 
 	It("rejects an invalid dotenv file", func() {

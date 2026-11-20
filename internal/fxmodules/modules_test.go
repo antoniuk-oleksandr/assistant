@@ -58,6 +58,10 @@ func (fxPollingSource) ListSubmissions(context.Context, string) ([]submission.Su
 }
 
 var _ = Describe("application modules", func() {
+	BeforeEach(func() {
+		GinkgoT().Setenv("REPORT_RENDERER", "local-xlsx")
+	})
+
 	It("registers the compiled science report implementation", func() {
 		implementation, err := compiledScenarios().Resolve("science-report")
 		Expect(err).NotTo(HaveOccurred())
@@ -105,6 +109,7 @@ var _ = Describe("application modules", func() {
 			db         *sql.DB
 		)
 		GinkgoT().Setenv("SQLITE_DATABASE_PATH", filepath.Join(GinkgoT().TempDir(), "state.db"))
+		GinkgoT().Setenv("REPORT_RENDERER", "local-xlsx")
 		app := fx.New(
 			fx.NopLogger,
 			PlatformModule, StorageModule, ClassroomStorageModule, ApplicationModule, PollingModule,

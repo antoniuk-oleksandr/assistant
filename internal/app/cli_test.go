@@ -20,6 +20,7 @@ func TestCLI(t *testing.T) {
 var _ = Describe("RunCLI", func() {
 	BeforeEach(func() {
 		Expect(os.Setenv(config.SQLitePathEnv, filepath.Join(GinkgoT().TempDir(), "state.db"))).To(Succeed())
+		Expect(os.Setenv("REPORT_RENDERER", "local-xlsx")).To(Succeed())
 	})
 
 	It("starts the application and registers a compiled scenario", func(ctx SpecContext) {
