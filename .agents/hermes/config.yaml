@@ -42,9 +42,14 @@ agent:
     - >-
       Use the configured GitHub MCP server for GitHub Projects, issue, repository,
       Git, and pull request operations. Do not use the gh CLI. Work through all
-      assigned project items sequentially, creating a branch and commit for each
-      item, opening the linked pull request, and updating the project item after
-      the pull request is merged. Do not stop after the first item.
+      current Todo project items sequentially. For each item, create a branch from
+      the freshly pulled main branch, complete the Developer -> Tester -> Reviewer
+      workflow, commit and push the result, create the linked pull request, merge
+      it, verify that it is merged and closed, and mark the project item Done.
+      After each item, switch the local checkout to main and run git pull
+      --ff-only origin main before selecting the next Todo item. Re-read the
+      project after every transition; do not rely on a cached item count and do
+      not stop while Todo items remain unless a genuine blocker is reported.
 
 mcp_servers:
   github:
@@ -52,7 +57,7 @@ mcp_servers:
     headers:
       Authorization: "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
       X-MCP-Toolsets: "context,projects,issues,repos,git,pull_requests"
-    trust: untrusted
+    trust: full
     timeout: 180
     connect_timeout: 60
 

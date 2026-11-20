@@ -76,10 +76,17 @@ Start the full project workflow with:
 just hermes-tasks
 ```
 
-This asks Hermes to read project #2 through MCP and complete all 16 issues in
-dependency order. GitHub MCP write tools are configured as `untrusted`, so
-Hermes requires approval before write operations such as pushing or creating a
-pull request.
+This starts the unattended delivery loop. Hermes re-reads project #2 before
+each iteration, selects one current Todo item, runs Developer → Tester →
+Reviewer, commits and pushes an approved branch, creates and merges the linked
+pull request, marks the project item Done, then switches to `main` and pulls
+before selecting the next item. The run stops only when no Todo items remain or
+when it reports a concrete blocker.
+
+GitHub MCP is configured with full trust and the task session runs with Hermes
+YOLO mode enabled, so this command does not wait for approval buttons. This is
+deliberately autonomous and should only be run when changes, merges, and project
+updates are authorized.
 
 The Hermes agent is instructed to use the installed Graphify skill for repository orientation. Graphify is a development tool only; it is not included in the Go application or its Windows executable.
 
@@ -122,7 +129,7 @@ configured model/provider services. This is separate from host filesystem
 access. Do not mount GitHub tokens, SSH keys, or credential directories into
 the container.
 
-Implementation tasks use the sequential Developer → Tester → Reviewer workflow. The Reviewer is read-only and routes fixes back to Developer or Tester. No commits, pushes, pull requests, Slack, GitHub Project, DynamoDB, Terraform, or delivery infrastructure are part of this local setup.
+Implementation tasks use the sequential Developer → Tester → Reviewer workflow. The Reviewer is read-only and routes fixes back to Developer or Tester. After approval, the parent orchestrator commits, pushes, opens and merges the linked pull request, marks the GitHub Project item Done, and synchronizes the local checkout with `main` before continuing. No Slack, DynamoDB, or Terraform infrastructure is involved.
 
 ## Configuration
 

@@ -18,6 +18,7 @@ services:
       - sh
       - -c
       - >-
+        cp /workspace/.agents/hermes/config.yaml /opt/data/config.yaml &&
         /opt/hermes/bin/hermes skills trust /workspace &&
         exec /opt/hermes/bin/hermes gateway run
     stdin_open: true
@@ -25,10 +26,10 @@ services:
     environment:
       HERMES_UID: "${HERMES_UID:-1000}"
       HERMES_GID: "${HERMES_GID:-1000}"
-      HERMES_WRITE_SAFE_ROOT: /workspace
+      HERMES_WRITE_SAFE_ROOT: /workspace:/opt/data
+      HERMES_YOLO_MODE: "1"
     ports:
       - "127.0.0.1:8642:8642"
     volumes:
       - ../..:/workspace
       - ${HERMES_DATA_DIR:-${HOME}/.hermes/assistent}:/opt/data
-      - ../../.agents/hermes/config.yaml:/opt/data/config.yaml:ro
