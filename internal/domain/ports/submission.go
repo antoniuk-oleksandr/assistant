@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"time"
 
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
@@ -12,6 +13,11 @@ import (
 type SubmissionSource interface {
 	ListTasks(context.Context, string) ([]task.Task, error)
 	ListSubmissions(context.Context, string) ([]submission.Submission, error)
+}
+
+type IncrementalSubmissionSource interface {
+	SubmissionSource
+	ListTasksSince(context.Context, string, time.Time) ([]task.Task, error)
 }
 
 type SubmissionRepository interface {

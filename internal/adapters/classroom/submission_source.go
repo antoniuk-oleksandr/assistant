@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
@@ -93,7 +94,7 @@ func NewSubmissionSource() ports.SubmissionSource {
 	return NewSubmissionSourceWithClient(NewHTTPClassroomClient(HTTPConfigFromEnvironment(), http.DefaultClient))
 }
 
-func NewSubmissionSourceWithClient(client ClassroomClient) ports.SubmissionSource {
+func NewSubmissionSourceWithClient(client ClassroomClient) ports.IncrementalSubmissionSource {
 	return &SubmissionSource{client: client, courses: make(map[string]string)}
 }
 
@@ -112,6 +113,21 @@ func (s *SubmissionSource) ListTasks(ctx context.Context, courseID string) ([]ta
 		result = append(result, toTask(item, courseID))
 	}
 	return result, nil
+}
+
+func (s *SubmissionSource) ListTasksSince(ctx context.Context, courseID string, checkpoint time.Time) ([]task.Task, error) {
+	items, err := s.ListTasks(ctx, courseID)
+	if err != nil || checkpoint.IsZero() {
+		return items, err
+	}
+	filtered := items[:0]
+	for _, item := range items {
+		updated, parseErr := time.Parse(time.RFC3339, item.UpdatedAtExternal)
+		if parseErr != nil || updated.After(checkpoint) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered, nil
 }
 
 func (s *SubmissionSource) ListSubmissions(ctx context.Context, taskID string) ([]submission.Submission, error) {
@@ -133,7 +149,7 @@ func (s *SubmissionSource) ListSubmissions(ctx context.Context, taskID string) (
 }
 
 func toTask(item CourseWork, courseID string) task.Task {
-	return task.Task{Provider: "google-classroom", ExternalID: item.ID, CourseID: courseID, Title: item.Title, Description: item.Description, CreatedAtExternal: item.CreationTime, DueAt: dueAt(item.DueDate, item.DueTime), Status: task.Discovered}
+	return task.Task{Provider: "google-classroom", ExternalID: item.ID, CourseID: courseID, Title: item.Title, Description: item.Description, CreatedAtExternal: item.CreationTime, UpdatedAtExternal: item.UpdateTime, DueAt: dueAt(item.DueDate, item.DueTime), Status: task.Discovered}
 }
 
 func toSubmission(item StudentSubmission) submission.Submission {

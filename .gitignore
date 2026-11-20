@@ -43,3 +43,7 @@ Thumbs.db
 # Docker overrides and local state
 docker-compose.override.yml
 .docker/
+
+# Generated local analysis output
+graphify-out/
+infra/local/__pycache__/

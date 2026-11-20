@@ -59,6 +59,12 @@ const createScenarioTasks = `CREATE TABLE IF NOT EXISTS scenario_tasks (
     PRIMARY KEY (scenario_id, task_id)
 )`
 
+const createPollState = `CREATE TABLE IF NOT EXISTS poll_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    last_check_timestamp TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)`
+
 const createSubmissions = `CREATE TABLE IF NOT EXISTS submissions (
     id INTEGER PRIMARY KEY,
     task_id INTEGER NOT NULL REFERENCES tasks(id),
@@ -116,6 +122,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createScenarioTasks); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite task binding schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createPollState); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite polling state schema: %w", err), db.Close())
 			}
 			if _, err := db.ExecContext(ctx, createSubmissions); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite submission schema: %w", err), db.Close())

@@ -29,11 +29,25 @@ type pollingSource struct {
 	tasks            map[string][]task.Task
 	submissions      map[string][][]submission.Submission
 	taskCalls        []string
+	sinceCalls       []time.Time
 	subCalls         []string
 	taskErr          error
 	subErr           error
 	cancelOnTaskCall int
 	cancel           context.CancelFunc
+}
+
+type nonIncrementalPollingSource struct {
+	tasks       map[string][]task.Task
+	submissions map[string][]submission.Submission
+}
+
+func (s *nonIncrementalPollingSource) ListTasks(_ context.Context, courseID string) ([]task.Task, error) {
+	return s.tasks[courseID], nil
+}
+
+func (s *nonIncrementalPollingSource) ListSubmissions(_ context.Context, taskID string) ([]submission.Submission, error) {
+	return s.submissions[taskID], nil
 }
 
 func (s *pollingSource) ListTasks(_ context.Context, courseID string) ([]task.Task, error) {
@@ -42,6 +56,11 @@ func (s *pollingSource) ListTasks(_ context.Context, courseID string) ([]task.Ta
 		s.cancel()
 	}
 	return s.tasks[courseID], s.taskErr
+}
+
+func (s *pollingSource) ListTasksSince(ctx context.Context, courseID string, checkpoint time.Time) ([]task.Task, error) {
+	s.sinceCalls = append(s.sinceCalls, checkpoint)
+	return s.ListTasks(ctx, courseID)
 }
 
 func (s *pollingSource) ListSubmissions(_ context.Context, taskID string) ([]submission.Submission, error) {
@@ -100,6 +119,34 @@ type pollingSubmissionRepository struct {
 	err   error
 }
 
+type pollingStateRepository struct {
+	checkpoint   time.Time
+	lastCalls    int
+	saved        []time.Time
+	lastErr      error
+	lastErrAfter int
+	saveErr      error
+}
+
+func (r *pollingStateRepository) LastCheckpoint(context.Context) (time.Time, error) {
+	r.lastCalls++
+	if r.lastErrAfter > 0 && r.lastCalls > r.lastErrAfter {
+		return time.Time{}, r.lastErr
+	}
+	if r.lastErrAfter > 0 {
+		return r.checkpoint, nil
+	}
+	return r.checkpoint, r.lastErr
+}
+
+func (r *pollingStateRepository) SaveCheckpoint(_ context.Context, checkpoint time.Time) error {
+	if r.saveErr != nil {
+		return r.saveErr
+	}
+	r.saved = append(r.saved, checkpoint)
+	return nil
+}
+
 func (r *pollingSubmissionRepository) Upsert(_ context.Context, item submission.Submission) error {
 	if r.err != nil {
 		return r.err
@@ -115,6 +162,18 @@ var _ ports.SubmissionSource = (*pollingSource)(nil)
 var _ ports.SubmissionRepository = (*pollingSubmissionRepository)(nil)
 
 var _ = Describe("polling service", func() {
+	It("supports sources without incremental polling", func(ctx SpecContext) {
+		item := task.Task{ID: 31, ExternalID: "task-1", CourseID: "course-1"}
+		source := &nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}}
+		tasks := &pollingTaskRepository{}
+		service := application.NewPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			source, tasks, pollingBindingRepository{}, &pollingSubmissionRepository{},
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(tasks.registered).To(ConsistOf(item))
+	})
+
 	It("excludes disabled courses and inactive task bindings from submission polling", func(ctx SpecContext) {
 		activeTask := task.Task{ID: 21, ExternalID: "task-active", CourseID: "course-active"}
 		inactiveTask := task.Task{ID: 22, ExternalID: "task-inactive", CourseID: "course-active"}
@@ -258,6 +317,41 @@ var _ = Describe("polling service", func() {
 		Expect(source.taskCalls).To(HaveLen(2))
 	})
 
+	It("loads the previous checkpoint and saves a new checkpoint only after a successful cycle", func(ctx SpecContext) {
+		checkpoint := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+		state := &pollingStateRepository{checkpoint: checkpoint}
+		item := task.Task{ID: 1, ExternalID: "task-1", CourseID: "course-1"}
+		pollingCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		source := &pollingSource{
+			tasks:            map[string][]task.Task{"course-1": {item}},
+			cancelOnTaskCall: 1,
+			cancel:           cancel,
+		}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+
+		Expect(service.Run(pollingCtx, time.Hour)).To(Succeed())
+		Expect(state.lastCalls).To(Equal(1))
+		Expect(state.saved).To(HaveLen(1))
+		Expect(state.saved[0]).To(BeTemporally(">=", checkpoint))
+		Expect(source.sinceCalls).To(Equal([]time.Time{checkpoint}))
+	})
+
+	It("does not advance the checkpoint when a polling cycle fails", func(ctx SpecContext) {
+		state := &pollingStateRepository{checkpoint: time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			&pollingSource{taskErr: errors.New("provider unavailable")}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+
+		Expect(service.Run(ctx, time.Hour)).To(MatchError(ContainSubstring("list tasks for course \"course-1\": provider unavailable")))
+		Expect(state.lastCalls).To(Equal(1))
+		Expect(state.saved).To(BeEmpty())
+	})
+
 	It("rejects a zero polling interval before refreshing", func(ctx SpecContext) {
 		service := application.NewPollingService(
 			pollingCourseRepository{err: errors.New("refresh must not run")},
@@ -274,5 +368,30 @@ var _ = Describe("polling service", func() {
 		)
 
 		Expect(service.Run(ctx, -time.Second)).To(MatchError("polling interval must be greater than zero: -1s"))
+	})
+
+	It("propagates checkpoint and save errors", func(ctx SpecContext) {
+		state := &pollingStateRepository{lastErr: errors.New("checkpoint failed")}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+		Expect(service.Run(ctx, time.Hour)).To(MatchError("checkpoint failed"))
+
+		state = &pollingStateRepository{saveErr: errors.New("save failed")}
+		service = application.NewPersistentPollingService(
+			pollingCourseRepository{}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+		Expect(service.Run(ctx, time.Hour)).To(MatchError("save failed"))
+	})
+
+	It("returns a checkpoint error from a later polling tick", func(ctx SpecContext) {
+		state := &pollingStateRepository{lastErr: errors.New("second checkpoint failed"), lastErrAfter: 1}
+		pollingCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
+		)
+		Expect(service.Run(pollingCtx, time.Millisecond)).To(MatchError("second checkpoint failed"))
+		Expect(state.lastCalls).To(Equal(2))
 	})
 })
