@@ -179,6 +179,13 @@ var _ = Describe("scenario commands", func() {
 		Expect(command.Execute()).To(MatchError("output failed"))
 	})
 
+	It("propagates errors while writing a scenario row", func() {
+		command := cli.NewScenarioCommand(&serviceStub{items: []application.ScenarioResult{{Name: "science-report", Status: "active"}}})
+		command.SetOut(rejectOutputWriter{rejected: "science-report"})
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
+	})
+
 	It("assembles a root command with the scenario command", func() {
 		root := cli.NewRootCommand(cli.NewScenarioCommand(&serviceStub{}))
 		root.SetArgs([]string{"scenario", "add", "science-report"})
