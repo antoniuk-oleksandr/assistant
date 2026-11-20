@@ -75,6 +75,27 @@ var _ = Describe("SQLite scenario selection", func() {
 		Expect(repo.Remove(ctx, science.Name)).To(MatchError(scenario.ErrNotFound))
 	})
 
+	It("removes active bindings and resets their task status", func(ctx SpecContext) {
+		Expect(repo.Create(ctx, science)).To(Succeed())
+		_, err := db.ExecContext(ctx, `INSERT INTO tasks
+			(provider, external_task_id, course_id, title, discovered_at, last_seen_at, status)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`, "google-classroom", "task-1", "course-1", "Report",
+			"2026-11-20T00:00:00Z", "2026-11-20T00:00:00Z", "bound")
+		Expect(err).NotTo(HaveOccurred())
+		_, err = db.ExecContext(ctx, `INSERT INTO scenario_tasks (scenario_id, task_id, bound_at, status)
+			SELECT id, ?, ?, ? FROM scenarios WHERE name = ?`, 1, "2026-11-20T00:00:00Z", "active", science.Name)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(repo.Remove(ctx, science.Name)).To(Succeed())
+
+		var taskStatus string
+		Expect(db.QueryRowContext(ctx, "SELECT status FROM tasks WHERE id = 1").Scan(&taskStatus)).To(Succeed())
+		Expect(taskStatus).To(Equal("discovered"))
+		var bindingCount int
+		Expect(db.QueryRowContext(ctx, "SELECT count(*) FROM scenario_tasks").Scan(&bindingCount)).To(Succeed())
+		Expect(bindingCount).To(Equal(0))
+	})
+
 	It("translates database and mapping failures", func(ctx SpecContext) {
 		var db *sql.DB
 		var localRepo ports.ScenarioRepository

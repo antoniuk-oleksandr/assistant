@@ -33,6 +33,25 @@ func (s *classroomServiceStub) Remove(_ context.Context, reference string) error
 	return s.err
 }
 
+type rejectOutputWriter struct{ rejected string }
+
+func (w rejectOutputWriter) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte(w.rejected)) {
+		return 0, errors.New("row output failed")
+	}
+	return len(data), nil
+}
+
+type failOnWriteWriter struct{ writes int }
+
+func (w *failOnWriteWriter) Write(data []byte) (int, error) {
+	w.writes++
+	if w.writes == 2 {
+		return 0, errors.New("row output failed")
+	}
+	return len(data), nil
+}
+
 var _ = Describe("classroom commands", func() {
 	It("invokes add and remove with their references", func() {
 		for _, tc := range []struct {
@@ -74,6 +93,21 @@ var _ = Describe("classroom commands", func() {
 		command.SetOut(failingWriter{})
 		command.SetArgs([]string{"list"})
 		Expect(command.Execute()).To(MatchError("output failed"))
+	})
+
+	It("propagates errors while writing a classroom row", func() {
+		command := cli.NewClassroomCommand(&classroomServiceStub{items: []application.ClassroomCourseResult{{ExternalID: "123", SourceReference: "source", Status: "active"}}})
+		command.SetOut(rejectOutputWriter{rejected: "123"})
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
+	})
+
+	It("propagates a writer failure on a later classroom row", func() {
+		writer := &failOnWriteWriter{}
+		command := cli.NewClassroomCommand(&classroomServiceStub{items: []application.ClassroomCourseResult{{ExternalID: "123", SourceReference: "source", Status: "active"}, {ExternalID: "456", SourceReference: "source", Status: "active"}}})
+		command.SetOut(writer)
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
 	})
 
 	It("rejects missing arguments", func() {
