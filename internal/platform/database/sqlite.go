@@ -25,6 +25,16 @@ const createScenarios = `CREATE TABLE IF NOT EXISTS scenarios (
     last_run_at TEXT
 )`
 
+const createClassroomCourses = `CREATE TABLE IF NOT EXISTS classroom_courses (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    external_course_id TEXT UNIQUE NOT NULL,
+    source_reference TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)`
+
 func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, error) {
 	dsn, err := fileDSN(cfg.SQLitePath)
 	if err != nil {
@@ -39,6 +49,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 		OnStart: func(ctx context.Context) error {
 			if _, err := db.ExecContext(ctx, createScenarios); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite scenario schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createClassroomCourses); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite classroom course schema: %w", err), db.Close())
 			}
 			return nil
 		},

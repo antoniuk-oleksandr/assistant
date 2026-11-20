@@ -13,6 +13,12 @@ func NewRootCommand(scenarioCommand *cobra.Command) *RootCommand {
 	return &RootCommand{Command: root}
 }
 
+func NewRootCommandWithClassroom(scenarioCommand *cobra.Command, classroomCommand *ClassroomCommand) *RootCommand {
+	root := NewRootCommand(scenarioCommand)
+	root.AddCommand(classroomCommand.Command)
+	return root
+}
+
 type RootCommand struct {
 	*cobra.Command
 }
