@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/alex/assistent/internal/adapters/storage"
+	"github.com/alex/assistent/internal/domain/notification"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
@@ -23,14 +24,15 @@ var _ = Describe("SQLite report run repository", func() {
 		outputs    ports.ReportOutputRepository
 		results    ports.ReportResultRepository
 		deliveries ports.ReportDeliveryRepository
+		reminders  ports.ReminderRepository
 	)
 
 	BeforeEach(func(ctx SpecContext) {
 		app := fx.New(
 			fx.NopLogger,
 			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
-			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository, storage.NewReportResultRepository, storage.NewReportDeliveryRepository),
-			fx.Populate(&db, &repo, &outputs, &results, &deliveries),
+			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository, storage.NewReportResultRepository, storage.NewReportDeliveryRepository, storage.NewReminderRepository),
+			fx.Populate(&db, &repo, &outputs, &results, &deliveries, &reminders),
 		)
 		Expect(app.Start(ctx)).To(Succeed())
 		DeferCleanup(app.Stop)
@@ -196,6 +198,46 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(err).To(MatchError(ContainSubstring("list report deliveries")))
 		_, err = deliveries.GetByResultTarget(ctx, 1, "email", "teacher@example.com")
 		Expect(err).To(MatchError(ContainSubstring("find report delivery")))
+	})
+
+	It("persists, updates, and deduplicates missing-submission reminders", func(ctx SpecContext) {
+		item := notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Status: notification.Sent, CreatedAt: time.Now()}
+		Expect(reminders.Create(ctx, &item)).To(Succeed())
+		found, err := reminders.Get(ctx, 1, "person-1", "email", "missing_submission")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(found.ID).To(Equal(item.ID))
+		Expect(reminders.Create(ctx, &notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Status: notification.Pending, CreatedAt: time.Now()})).To(MatchError(ContainSubstring("UNIQUE constraint failed")))
+		found.Status = notification.Failed
+		found.Error = "unavailable"
+		Expect(reminders.Update(ctx, &found)).To(Succeed())
+		items, err := reminders.ListByTask(ctx, 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0].Status).To(Equal(notification.Failed))
+	})
+
+	It("reports reminder repository errors after database close", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+		item := notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Status: notification.Pending, CreatedAt: time.Now()}
+		Expect(reminders.Update(ctx, &item)).To(MatchError(ContainSubstring("update reminder")))
+		_, err := reminders.Get(ctx, 1, "person-1", "email", "missing_submission")
+		Expect(err).To(MatchError(ContainSubstring("find reminder")))
+		_, err = reminders.ListByTask(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("list reminders")))
+	})
+
+	It("rejects malformed reminder timestamps", func(ctx SpecContext) {
+		_, err := db.ExecContext(ctx, `INSERT INTO reminders (task_id, person_id, channel, destination, kind, status, attempted_at, created_at) VALUES (1, 'person-2', 'email', 'bad@example.com', 'missing_submission', 'pending', 'bad-time', '2026-01-01T00:00:00Z')`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = reminders.ListByTask(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+	})
+
+	It("reports missing reminder and update targets", func(ctx SpecContext) {
+		_, err := reminders.Get(ctx, 1, "unknown", "email", "missing_submission")
+		Expect(err).To(MatchError(ContainSubstring("reminder not found")))
+		item := notification.Reminder{ID: 999, Status: notification.Sent}
+		Expect(reminders.Update(ctx, &item)).To(MatchError("reminder 999 not found"))
 	})
 
 	It("reports missing delivery targets and malformed delivery timestamps", func(ctx SpecContext) {
