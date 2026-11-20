@@ -14,8 +14,9 @@ import (
 )
 
 type reminderRepository struct {
-	items                []notification.Reminder
-	lookupErr, updateErr error
+	items                  []notification.Reminder
+	lookupErr, updateErr   error
+	getIDErr, listRetryErr error
 }
 
 func (r *reminderRepository) Create(_ context.Context, item *notification.Reminder) error {
@@ -44,6 +45,23 @@ func (r *reminderRepository) Get(_ context.Context, taskID int64, personID, chan
 		}
 	}
 	return notification.Reminder{}, ports.ErrReminderNotFound
+}
+func (r *reminderRepository) GetByID(_ context.Context, id int64) (notification.Reminder, error) {
+	if r.getIDErr != nil {
+		return notification.Reminder{}, r.getIDErr
+	}
+	for _, item := range r.items {
+		if item.ID == id {
+			return item, nil
+		}
+	}
+	return notification.Reminder{}, ports.ErrReminderNotFound
+}
+func (r *reminderRepository) ListRetryable(context.Context, time.Time) ([]notification.Reminder, error) {
+	if r.listRetryErr != nil {
+		return nil, r.listRetryErr
+	}
+	return r.items, nil
 }
 func (r *reminderRepository) ListByTask(context.Context, int64) ([]notification.Reminder, error) {
 	return r.items, nil

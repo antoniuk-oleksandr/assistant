@@ -158,8 +158,10 @@ const createReminders = `CREATE TABLE IF NOT EXISTS reminders (
     channel TEXT NOT NULL,
     destination TEXT NOT NULL,
     kind TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')),
+    status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed', 'dead_letter')),
     error_message TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at TEXT,
     attempted_at TEXT,
     created_at TEXT NOT NULL,
     UNIQUE (task_id, person_id, channel, kind)

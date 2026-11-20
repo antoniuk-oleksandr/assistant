@@ -169,6 +169,14 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(results.Create(ctx, &value)).To(MatchError(ContainSubstring("insert report result")))
 	})
 
+	It("reports missing and closed report result updates", func(ctx SpecContext) {
+		value := report.NewResult(1, 1, 1, scenario.ReportData{}, time.Now())
+		value.ID = 999
+		Expect(results.Update(ctx, &value)).To(MatchError("report result 999 not found"))
+		Expect(db.Close()).To(Succeed())
+		Expect(results.Update(ctx, &value)).To(MatchError(ContainSubstring("update report result")))
+	})
+
 	It("persists delivery status and lists deliveries by result", func(ctx SpecContext) {
 		run := report.NewRun(1, 1, time.Now())
 		Expect(repo.Create(ctx, &run)).To(Succeed())
@@ -238,6 +246,34 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(err).To(MatchError(ContainSubstring("reminder not found")))
 		item := notification.Reminder{ID: 999, Status: notification.Sent}
 		Expect(reminders.Update(ctx, &item)).To(MatchError("reminder 999 not found"))
+	})
+
+	It("loads reminders by id and lists due retryable reminders", func(ctx SpecContext) {
+		now := time.Now().UTC()
+		item := notification.Reminder{TaskID: 1, PersonID: "retry", Channel: "email", Destination: "retry@example.com", Kind: "missing_submission", Status: notification.Failed, Attempts: 1, CreatedAt: now}
+		Expect(reminders.Create(ctx, &item)).To(Succeed())
+		loaded, err := reminders.GetByID(ctx, item.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(loaded.Attempts).To(Equal(1))
+		due := now.Add(-time.Second)
+		loaded.NextAttemptAt = &due
+		Expect(reminders.Update(ctx, &loaded)).To(Succeed())
+		dueItems, err := reminders.ListRetryable(ctx, now)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(dueItems).To(HaveLen(1))
+		Expect(dueItems[0].ID).To(Equal(item.ID))
+		_, err = reminders.GetByID(ctx, 999)
+		Expect(err).To(MatchError(ContainSubstring("reminder not found")))
+	})
+
+	It("reports malformed reminder records and retry query errors", func(ctx SpecContext) {
+		_, err := db.ExecContext(ctx, `INSERT INTO reminders (task_id, person_id, channel, destination, kind, status, created_at) VALUES (1, 'person-3', 'email', 'bad@example.com', 'missing_submission', 'failed', 'bad-time')`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = reminders.GetByID(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		Expect(db.Close()).To(Succeed())
+		_, err = reminders.ListRetryable(ctx, time.Now())
+		Expect(err).To(MatchError(ContainSubstring("list retryable reminders")))
 	})
 
 	It("reports missing delivery targets and malformed delivery timestamps", func(ctx SpecContext) {
