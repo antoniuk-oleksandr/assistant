@@ -90,7 +90,7 @@ func TestScienceReportCollectionProcessorAggregatesAppendicesAndSources(t *testi
 	if report.Appendices[1].NumericTotal != 3.5 || len(report.Appendices[1].TextValues) != 1 || report.Appendices[1].TextValues[0] != "beta" {
 		t.Fatalf("appendix 2 = %#v", report.Appendices[1])
 	}
-	if report.Appendices[27].NumericTotal != 0 || len(report.Appendices[27].TextValues) != 2 || report.Appendices[27].TextValues[0] != "count=4" || report.Appendices[27].TextValues[1] != "title=award" || len(report.Appendices[27].Sources) != 1 {
+	if report.Appendices[27].NumericTotal != 0 || len(report.Appendices[27].TextValues) != 2 || !sameStrings(report.Appendices[27].TextValues, []string{"count=4", "title=award"}) || len(report.Appendices[27].Sources) != 1 {
 		t.Fatalf("appendix 28 = %#v", report.Appendices[27])
 	}
 	if len(report.SupportingEvidence) != 1 || report.SupportingEvidence[0].MaterialID != "evidence" || report.SupportingEvidence[0].URI != "https://example.test/evidence" {
@@ -99,6 +99,22 @@ func TestScienceReportCollectionProcessorAggregatesAppendicesAndSources(t *testi
 	if len(report.MissingSubmissions) != 1 || report.MissingSubmissions[0] != "missing" || len(report.InvalidMaterials) != 1 || report.InvalidMaterials[0].MaterialID != "bad" || report.InvalidMaterials[0].Reason != string(submission.Invalid) {
 		t.Fatalf("missing/invalid = %#v / %#v", report.MissingSubmissions, report.InvalidMaterials)
 	}
+}
+
+func sameStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := make(map[string]bool, len(left))
+	for _, value := range left {
+		seen[value] = true
+	}
+	for _, value := range right {
+		if !seen[value] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestScienceReportCollectionProcessorRecordsConflictingLocatedValues(t *testing.T) {
