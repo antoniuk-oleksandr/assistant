@@ -35,6 +35,30 @@ const createClassroomCourses = `CREATE TABLE IF NOT EXISTS classroom_courses (
     updated_at TEXT NOT NULL
 )`
 
+const createTasks = `CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY,
+    provider TEXT NOT NULL,
+    external_task_id TEXT NOT NULL,
+    course_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    created_at_external TEXT,
+    due_at TEXT,
+    discovered_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('discovered', 'bound', 'closed', 'ignored')),
+    UNIQUE(provider, course_id, external_task_id)
+)`
+
+const createScenarioTasks = `CREATE TABLE IF NOT EXISTS scenario_tasks (
+    scenario_id INTEGER NOT NULL REFERENCES scenarios(id),
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    bound_at TEXT NOT NULL,
+    unbound_at TEXT,
+    status TEXT NOT NULL CHECK (status IN ('active', 'disabled')),
+    PRIMARY KEY (scenario_id, task_id)
+)`
+
 func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, error) {
 	dsn, err := fileDSN(cfg.SQLitePath)
 	if err != nil {
@@ -52,6 +76,12 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createClassroomCourses); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite classroom course schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createTasks); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite task schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createScenarioTasks); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite task binding schema: %w", err), db.Close())
 			}
 			return nil
 		},

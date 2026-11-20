@@ -7,6 +7,7 @@ import (
 
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/application"
+	"github.com/alex/assistent/internal/domain/classroom"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
@@ -87,5 +88,27 @@ var _ = Describe("SQLite classroom course registration", func() {
 
 	It("rejects disabling an unregistered course", func(ctx SpecContext) {
 		Expect(service.Remove(ctx, "900423945297")).To(MatchError(ContainSubstring("InvalidClassroomCourseReference")))
+	})
+
+	It("returns database errors when the database is closed", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+
+		Expect(repo.Register(ctx, classroom.Course{ExternalID: "900423945297", SourceReference: "900423945297"})).To(MatchError(ContainSubstring("register classroom course \"900423945297\": sql: database is closed")))
+		Expect(repo.List(ctx)).Error().To(MatchError(ContainSubstring("list classroom courses: sql: database is closed")))
+		Expect(repo.Disable(ctx, "900423945297")).To(MatchError(ContainSubstring("disable classroom course \"900423945297\": sql: database is closed")))
+	})
+
+	It("returns mapping errors while listing malformed persisted timestamps", func(ctx SpecContext) {
+		Expect(repo.Register(ctx, classroom.Course{ExternalID: "900423945297", SourceReference: "900423945297"})).To(Succeed())
+		_, err := repo.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(db.ExecContext(ctx, `UPDATE classroom_courses SET created_at='invalid'`)).Error().NotTo(HaveOccurred())
+		_, err = repo.List(ctx)
+		Expect(err).To(MatchError(ContainSubstring("map classroom course")))
+
+		Expect(db.ExecContext(ctx, `UPDATE classroom_courses SET created_at='2026-01-02T03:04:05Z', updated_at='invalid'`)).Error().NotTo(HaveOccurred())
+		_, err = repo.List(ctx)
+		Expect(err).To(MatchError(ContainSubstring("map classroom course")))
 	})
 })

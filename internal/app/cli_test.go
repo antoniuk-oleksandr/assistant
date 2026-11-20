@@ -30,4 +30,11 @@ var _ = Describe("RunCLI", func() {
 	It("returns the application error for an unknown scenario", func(ctx SpecContext) {
 		Expect(app.RunCLI(context.WithValue(ctx, struct{}{}, "value"), []string{"scenario", "add", "unknown"})).To(MatchError(`ScenarioNotFound: "unknown"`))
 	})
+
+	It("returns an Fx startup error when configuration is invalid", func(ctx SpecContext) {
+		Expect(os.Unsetenv(config.SQLitePathEnv)).To(Succeed())
+		Expect(os.Chdir(GinkgoT().TempDir())).To(Succeed())
+		Expect(os.WriteFile(".env", []byte("INVALID=\"unterminated\n"), 0600)).To(Succeed())
+		Expect(app.RunCLI(ctx, []string{"scenario", "list"})).NotTo(Succeed())
+	})
 })

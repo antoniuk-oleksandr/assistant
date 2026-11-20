@@ -46,4 +46,10 @@ var _ = Describe("configuration loading", func() {
 		_, err := config.Load()
 		Expect(err).To(MatchError("SQLITE_DATABASE_PATH must be a non-empty file path"))
 	})
+
+	It("rejects an invalid dotenv file", func() {
+		Expect(os.WriteFile(".env", []byte("INVALID=\"unterminated\n"), 0600)).To(Succeed())
+		_, err := config.Load()
+		Expect(err).To(MatchError("could not load .env"))
+	})
 })

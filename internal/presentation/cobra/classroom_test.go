@@ -69,6 +69,13 @@ var _ = Describe("classroom commands", func() {
 		Expect(command.Execute()).To(MatchError("service failed"))
 	})
 
+	It("propagates classroom list output errors", func() {
+		command := cli.NewClassroomCommand(&classroomServiceStub{items: []application.ClassroomCourseResult{{ExternalID: "123", SourceReference: "source", Status: "active"}}})
+		command.SetOut(failingWriter{})
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(MatchError("output failed"))
+	})
+
 	It("rejects missing arguments", func() {
 		command := cli.NewClassroomCommand(&classroomServiceStub{})
 		for _, action := range []string{"add", "remove"} {

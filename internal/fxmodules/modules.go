@@ -16,13 +16,13 @@ var PlatformModule = fx.Module("platform",
 	fx.Provide(config.Load, config.Database, database.NewSQLite),
 )
 
-var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository))
+var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository))
 
 var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.NewClassroomCourseRepository))
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	fx.Annotate(application.NewScenarioService, fx.As(new(cli.ScenarioService))),
+	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
 

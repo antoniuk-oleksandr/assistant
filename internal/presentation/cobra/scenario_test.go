@@ -24,6 +24,31 @@ type serviceStub struct {
 	calls []string
 }
 
+type bindingServiceStub struct {
+	items []application.TaskBindingResult
+	err   error
+	calls []string
+}
+
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
+
+func (s *bindingServiceStub) BindTask(_ context.Context, scenarioName, taskID string) error {
+	s.calls = append(s.calls, "bind:"+scenarioName+":"+taskID)
+	return s.err
+}
+
+func (s *bindingServiceStub) UnbindTask(_ context.Context, taskID string) error {
+	s.calls = append(s.calls, "unbind:"+taskID)
+	return s.err
+}
+
+func (s *bindingServiceStub) ListTaskBindings(_ context.Context, scenarioName string) ([]application.TaskBindingResult, error) {
+	s.calls = append(s.calls, "task-list:"+scenarioName)
+	return s.items, s.err
+}
+
 func (s *serviceStub) Add(_ context.Context, name string) error {
 	s.calls = append(s.calls, "add:"+name)
 	return s.err
@@ -85,6 +110,14 @@ var _ = Describe("scenario commands", func() {
 		command = cli.NewScenarioCommand(service)
 		command.SetArgs([]string{"list"})
 		Expect(command.Execute()).To(MatchError("service failed"))
+
+		service = &serviceStub{items: []application.ScenarioResult{{Name: "new", Status: "disabled", CreatedAt: created, UpdatedAt: created}}}
+		command = cli.NewScenarioCommand(service)
+		command.SetOut(&output)
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(Succeed())
+		Expect(output.String()).To(ContainSubstring("new"))
+		Expect(output.String()).To(ContainSubstring("-"))
 	})
 
 	It("rejects missing action arguments", func() {
@@ -93,6 +126,57 @@ var _ = Describe("scenario commands", func() {
 			command.SetArgs([]string{action})
 			Expect(command.Execute()).To(MatchError(ContainSubstring("accepts 1 arg(s)")))
 		}
+	})
+
+	It("validates and invokes task binding commands", func() {
+		service := &bindingServiceStub{}
+		command := cli.NewScenarioCommand(&serviceStub{}, service)
+		for _, tc := range []struct {
+			args []string
+			call string
+		}{
+			{[]string{"task-bind", "science-report", "coursework-1"}, "bind:science-report:coursework-1"},
+			{[]string{"task-unbind", "coursework-1"}, "unbind:coursework-1"},
+		} {
+			command.SetArgs(tc.args)
+			Expect(command.Execute()).To(Succeed())
+		}
+		Expect(service.calls).To(Equal([]string{"bind:science-report:coursework-1", "unbind:coursework-1"}))
+
+		for _, args := range [][]string{{"task-bind", "science-report"}, {"task-unbind"}, {"task-list"}} {
+			command.SetArgs(args)
+			Expect(command.Execute()).To(MatchError(ContainSubstring("accepts")))
+		}
+	})
+
+	It("prints task-list output and propagates binding errors", func() {
+		service := &bindingServiceStub{items: []application.TaskBindingResult{{TaskID: "coursework-1", CourseID: "course-1", Title: "Report", Status: "active"}}}
+		command := cli.NewScenarioCommand(&serviceStub{}, service)
+		var output bytes.Buffer
+		command.SetOut(&output)
+		command.SetArgs([]string{"task-list", "science-report"})
+		Expect(command.Execute()).To(Succeed())
+		Expect(output.String()).To(ContainSubstring("TASK ID"))
+		Expect(output.String()).To(ContainSubstring("coursework-1"))
+		Expect(output.String()).To(ContainSubstring("course-1"))
+		Expect(output.String()).To(ContainSubstring("Report"))
+		Expect(output.String()).To(ContainSubstring("active"))
+		Expect(service.calls).To(Equal([]string{"task-list:science-report"}))
+
+		service.err = errors.New("binding failed")
+		command = cli.NewScenarioCommand(&serviceStub{}, service)
+		command.SetArgs([]string{"task-list", "science-report"})
+		Expect(command.Execute()).To(MatchError("binding failed"))
+
+		command = cli.NewScenarioCommand(&serviceStub{}, &bindingServiceStub{})
+		command.SetOut(failingWriter{})
+		command.SetArgs([]string{"task-list", "science-report"})
+		Expect(command.Execute()).To(MatchError("output failed"))
+
+		command = cli.NewScenarioCommand(&serviceStub{items: []application.ScenarioResult{{Name: "new"}}})
+		command.SetOut(failingWriter{})
+		command.SetArgs([]string{"list"})
+		Expect(command.Execute()).To(MatchError("output failed"))
 	})
 
 	It("assembles a root command with the scenario command", func() {
