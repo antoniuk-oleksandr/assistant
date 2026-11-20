@@ -10,11 +10,16 @@ import (
 // MaterialParsing selects the first matching parser in registration order.
 // Register context-specific strategies ahead of general format parsers.
 type MaterialParsing struct {
-	parsers []ports.DocumentParser
+	parsers  []ports.DocumentParser
+	analyzer ports.MaterialAnalyzer
 }
 
 func NewMaterialParsing(parsers ...ports.DocumentParser) *MaterialParsing {
 	return &MaterialParsing{parsers: append([]ports.DocumentParser(nil), parsers...)}
+}
+
+func NewMaterialParsingWithAnalyzer(analyzer ports.MaterialAnalyzer, parsers ...ports.DocumentParser) *MaterialParsing {
+	return &MaterialParsing{parsers: append([]ports.DocumentParser(nil), parsers...), analyzer: analyzer}
 }
 
 // Parse returns a per-material outcome, not a polling error, for unsupported
@@ -43,6 +48,24 @@ func (s *MaterialParsing) Parse(ctx context.Context, item submission.Material, o
 		}
 		document.Source = source
 		result.Document = &document
+		return result, nil
+	}
+	if s.analyzer != nil {
+		proposal, err := s.analyzer.Analyze(ctx, item, origin)
+		if ctx.Err() != nil {
+			return submission.ParseResult{}, ctx.Err()
+		}
+		if err != nil {
+			return submission.ParseResult{Issue: submission.ParseFailed}, nil
+		}
+		analysis, err := submission.ValidateExtractionProposal(proposal)
+		if err != nil {
+			return submission.ParseResult{Issue: submission.AnalysisInvalid, Analysis: &analysis}, nil
+		}
+		result := submission.ParseResult{Analysis: &analysis}
+		if analysis.LowConfidence {
+			result.Issue = submission.AnalysisLowConfidence
+		}
 		return result, nil
 	}
 	return submission.ParseResult{Issue: submission.UnsupportedMaterial}, nil

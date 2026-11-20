@@ -1,5 +1,11 @@
 package submission
 
+import (
+	"fmt"
+	"math"
+	"strings"
+)
+
 // ParseContext identifies the binding and the submission associated with a
 // material. Parsers can use it alongside the material's role and appendix.
 type ParseContext struct {
@@ -14,9 +20,60 @@ type ParseContext struct {
 type ParseIssue string
 
 const (
-	UnsupportedMaterial ParseIssue = "unsupported_material"
-	ParseFailed         ParseIssue = "parse_failed"
+	UnsupportedMaterial   ParseIssue = "unsupported_material"
+	ParseFailed           ParseIssue = "parse_failed"
+	AnalysisInvalid       ParseIssue = "analysis_invalid"
+	AnalysisLowConfidence ParseIssue = "analysis_low_confidence"
 )
+
+const (
+	AnalysisSchemaVersion     = "material-analysis.v1"
+	MinimumAnalysisConfidence = 0.75
+)
+
+// ExtractionProposal is the versioned, provider-neutral contract returned by
+// unknown-material analyzers. Fields remain structured JSON so candidate
+// values can be retained without being accepted as facts.
+type ExtractionProposal struct {
+	SchemaVersion        string         `json:"schema_version"`
+	Appendix             *int           `json:"appendix,omitempty"`
+	DocumentType         string         `json:"document_type"`
+	Fields               map[string]any `json:"fields"`
+	IsSupportingEvidence bool           `json:"is_supporting_evidence"`
+	Confidence           float64        `json:"confidence"`
+}
+
+// AnalysisResult records validation separately from the analyzer's proposal.
+// A result is eligible for aggregation only when both checks pass.
+type AnalysisResult struct {
+	Proposal      ExtractionProposal `json:"proposal"`
+	Validated     bool               `json:"validated"`
+	LowConfidence bool               `json:"low_confidence"`
+}
+
+func (r AnalysisResult) EligibleForAggregation() bool {
+	validated, err := ValidateExtractionProposal(r.Proposal)
+	return err == nil && r.Validated && validated.Validated && !validated.LowConfidence
+}
+
+func ValidateExtractionProposal(proposal ExtractionProposal) (AnalysisResult, error) {
+	if proposal.SchemaVersion != AnalysisSchemaVersion {
+		return AnalysisResult{Proposal: proposal}, fmt.Errorf("unsupported analysis schema %q", proposal.SchemaVersion)
+	}
+	if strings.TrimSpace(proposal.DocumentType) == "" {
+		return AnalysisResult{Proposal: proposal}, fmt.Errorf("analysis document type is required")
+	}
+	if proposal.Appendix != nil && (*proposal.Appendix < 1 || *proposal.Appendix > 28) {
+		return AnalysisResult{Proposal: proposal}, fmt.Errorf("analysis appendix must be between 1 and 28")
+	}
+	if proposal.Fields == nil {
+		return AnalysisResult{Proposal: proposal}, fmt.Errorf("analysis fields are required")
+	}
+	if math.IsNaN(proposal.Confidence) || math.IsInf(proposal.Confidence, 0) || proposal.Confidence < 0 || proposal.Confidence > 1 {
+		return AnalysisResult{Proposal: proposal}, fmt.Errorf("analysis confidence must be between 0 and 1")
+	}
+	return AnalysisResult{Proposal: proposal, Validated: true, LowConfidence: proposal.Confidence < MinimumAnalysisConfidence}, nil
+}
 
 // ParseResult describes the parse of the downloaded snapshot, independently
 // of later retrieval attempts. A nil result means parsing was not attempted.
@@ -24,6 +81,14 @@ type ParseResult struct {
 	ParserType string          `json:"parser_type,omitempty"`
 	Issue      ParseIssue      `json:"issue,omitempty"`
 	Document   *ParsedDocument `json:"document,omitempty"`
+	Analysis   *AnalysisResult `json:"analysis,omitempty"`
+}
+
+func (r ParseResult) EligibleForAggregation() bool {
+	if r.Analysis != nil {
+		return r.Analysis.EligibleForAggregation()
+	}
+	return r.Document != nil && r.Issue == ""
 }
 
 // MaterialParse records the outcome for one binding and snapshot. An empty
@@ -31,6 +96,10 @@ type ParseResult struct {
 type MaterialParse struct {
 	Source DocumentSource `json:"source"`
 	Result ParseResult    `json:"result"`
+}
+
+func (m MaterialParse) EligibleForAggregation() bool {
+	return m.Result.EligibleForAggregation()
 }
 
 type ParsedDocument struct {

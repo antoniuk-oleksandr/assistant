@@ -36,7 +36,7 @@ var PollingModule = fx.Module("polling",
 )
 
 func newMaterialParsing() *application.MaterialParsing {
-	return application.NewMaterialParsing(parser.Strategies()...)
+	return application.NewMaterialParsingWithAnalyzer(parser.NewMaterialAnalyzer(), parser.Strategies()...)
 }
 
 var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))

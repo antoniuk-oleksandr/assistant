@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/alex/assistent/internal/application"
@@ -15,6 +16,12 @@ import (
 	. "github.com/onsi/gomega"
 	"go.uber.org/mock/gomock"
 )
+
+type materialAnalyzerFunc func(context.Context, submission.Material, submission.ParseContext) (submission.ExtractionProposal, error)
+
+func (f materialAnalyzerFunc) Analyze(ctx context.Context, item submission.Material, origin submission.ParseContext) (submission.ExtractionProposal, error) {
+	return f(ctx, item, origin)
+}
 
 func TestMaterialParsing(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -81,6 +88,115 @@ var _ = Describe("Material parsing", func() {
 		Expect(err).To(MatchError(context.Canceled))
 		Expect(result).To(Equal(submission.ParseResult{}))
 	})
+
+	It("records an analyzer failure as a parse issue", func() {
+		analyzer := materialAnalyzerFunc(func(context.Context, submission.Material, submission.ParseContext) (submission.ExtractionProposal, error) {
+			return submission.ExtractionProposal{}, errors.New("analysis unavailable")
+		})
+
+		result, err := application.NewMaterialParsingWithAnalyzer(analyzer).Parse(ctx, item, origin)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal(submission.ParseResult{Issue: submission.ParseFailed}))
+	})
+
+	It("returns cancellation rather than recording an analyzer failure", func() {
+		analyzer := materialAnalyzerFunc(func(ctx context.Context, _ submission.Material, _ submission.ParseContext) (submission.ExtractionProposal, error) {
+			return submission.ExtractionProposal{}, ctx.Err()
+		})
+		ctx, cancel := context.WithCancel(ctx)
+		cancel()
+
+		result, err := application.NewMaterialParsingWithAnalyzer(analyzer).Parse(ctx, item, origin)
+		Expect(err).To(MatchError(context.Canceled))
+		Expect(result).To(Equal(submission.ParseResult{}))
+	})
+
+	DescribeTable("validates analysis for an unknown material before aggregation",
+		func(proposal submission.ExtractionProposal, expectedIssue submission.ParseIssue, expectedValidated, expectedLowConfidence, expectedEligible bool) {
+			analyzer := materialAnalyzerFunc(func(context.Context, submission.Material, submission.ParseContext) (submission.ExtractionProposal, error) {
+				return proposal, nil
+			})
+
+			result, err := application.NewMaterialParsingWithAnalyzer(analyzer).Parse(ctx, item, origin)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Issue).To(Equal(expectedIssue))
+			Expect(result.EligibleForAggregation()).To(Equal(expectedEligible))
+			if expectedValidated {
+				Expect(result.Analysis).NotTo(BeNil())
+				Expect(result.Analysis.Validated).To(BeTrue())
+				Expect(result.Analysis.LowConfidence).To(Equal(expectedLowConfidence))
+				Expect(result.Analysis.Proposal.Fields).To(Equal(proposal.Fields))
+			} else {
+				Expect(result.Analysis).NotTo(BeNil())
+				Expect(result.Analysis.Validated).To(BeFalse())
+				Expect(result.Analysis.Proposal).To(Equal(proposal))
+			}
+		},
+		Entry("accepts validated high-confidence structured analysis", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+			Fields: map[string]any{"title": "Research award"}, Confidence: 0.9,
+		}, submission.ParseIssue(""), true, false, true),
+		Entry("retains validated low-confidence analysis but excludes it", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+			Fields: map[string]any{"title": "Research award"}, Confidence: 0.5,
+		}, submission.AnalysisLowConfidence, true, true, false),
+		Entry("excludes an unvalidated analysis", submission.ExtractionProposal{
+			SchemaVersion: "unknown", DocumentType: "certificate",
+			Fields: map[string]any{"title": "Research award"}, Confidence: 0.9,
+		}, submission.AnalysisInvalid, false, false, false),
+	)
+
+	DescribeTable("rejects malformed proposals even when analyzer flags claim validity",
+		func(proposal submission.ExtractionProposal) {
+			result := submission.ParseResult{Analysis: &submission.AnalysisResult{
+				Proposal: proposal, Validated: true, LowConfidence: false,
+			}}
+			Expect(result.EligibleForAggregation()).To(BeFalse())
+		},
+		Entry("missing schema version", submission.ExtractionProposal{
+			DocumentType: "certificate", Fields: map[string]any{"title": "Award"}, Confidence: 0.9,
+		}),
+		Entry("missing document type", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, Fields: map[string]any{"title": "Award"}, Confidence: 0.9,
+		}),
+		Entry("nil fields", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate", Confidence: 0.9,
+		}),
+		Entry("appendix below range", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, Appendix: intPointer(0), DocumentType: "certificate",
+			Fields: map[string]any{"title": "Award"}, Confidence: 0.9,
+		}),
+		Entry("appendix above range", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, Appendix: intPointer(29), DocumentType: "certificate",
+			Fields: map[string]any{"title": "Award"}, Confidence: 0.9,
+		}),
+		Entry("NaN confidence", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+			Fields: map[string]any{"title": "Award"}, Confidence: math.NaN(),
+		}),
+		Entry("positive infinity confidence", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+			Fields: map[string]any{"title": "Award"}, Confidence: math.Inf(1),
+		}),
+		Entry("negative infinity confidence", submission.ExtractionProposal{
+			SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+			Fields: map[string]any{"title": "Award"}, Confidence: math.Inf(-1),
+		}),
+	)
+
+	DescribeTable("validates confidence boundaries",
+		func(confidence float64, expectedLowConfidence bool) {
+			result, err := submission.ValidateExtractionProposal(submission.ExtractionProposal{
+				SchemaVersion: submission.AnalysisSchemaVersion, DocumentType: "certificate",
+				Fields: map[string]any{"title": "Award"}, Confidence: confidence,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Validated).To(BeTrue())
+			Expect(result.LowConfidence).To(Equal(expectedLowConfidence))
+		},
+		Entry("minimum accepted confidence", submission.MinimumAnalysisConfidence, false),
+		Entry("just below minimum confidence", submission.MinimumAnalysisConfidence-0.001, true),
+	)
 
 	DescribeTable("stores failures and unsupported attachments, continues parsing, and skips unsubmitted or inaccessible files", func(scenarioID int64) {
 		origin.ScenarioID = scenarioID
@@ -155,3 +271,7 @@ var _ = Describe("Material parsing", func() {
 		Expect(polling.Refresh(ctx)).To(Succeed())
 	}, Entry("legacy unscoped outcomes", int64(0)), Entry("binding-scoped outcomes", int64(17)))
 })
+
+func intPointer(value int) *int {
+	return &value
+}
