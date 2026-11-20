@@ -32,6 +32,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	fx.Annotate(application.NewScenarioCollectionServiceWithRendererAndResult),
 	fx.Annotate(application.NewScenarioServiceWithCourseBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
+	fx.Annotate(application.NewCourseTaskService, fx.As(new(cli.CourseTaskService))),
 ))
 
 var PollingModule = fx.Module("polling",
@@ -42,7 +43,7 @@ func newMaterialParsing() *application.MaterialParsing {
 	return application.NewMaterialParsingWithAnalyzer(parser.NewMaterialAnalyzer(), parser.Strategies()...)
 }
 
-var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))
+var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommandWithBindings, cli.NewClassroomCommandWithTasks, cli.NewRootCommandWithClassroom))
 
 func compiledScenarios() scenario.Registry {
 	return scenario.NewRegistryWithProcessors(

@@ -55,6 +55,13 @@ func NewScenarioCommand(service ScenarioService, bindingServices ...ScenarioTask
 	return command
 }
 
+// NewScenarioCommandWithBindings is the explicit constructor used by Fx. Fx
+// does not infer variadic dependencies, so the runtime command must require
+// the binding service directly.
+func NewScenarioCommandWithBindings(service ScenarioService, binding ScenarioTaskBindingService) *cobra.Command {
+	return NewScenarioCommand(service, binding)
+}
+
 func listCourseBindings(cmd *cobra.Command, service ScenarioTaskBindingService, name string) error {
 	items, err := service.ListCourseBindings(cmd.Context(), name)
 	if err != nil {
