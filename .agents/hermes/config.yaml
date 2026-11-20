@@ -10,6 +10,8 @@ model:
 
 delegation:
   max_concurrent_children: 3
+  oneshot_max_children: 3
+  subagent_auto_approve: true
 
 agent:
   max_turns: 150
@@ -25,9 +27,13 @@ agent:
       repository and its documents. Prefer graphify query/explain/path results
       for codebase relationships, then inspect the authoritative source files.
     - >-
-      For every implementation task, act as the parent orchestrator and delegate
-      sequentially to hermes-dev, hermes-tester, and hermes-reviewer. Do not claim
-      completion until the reviewer returns APPROVED or reports a human blocker.
+      For every implementation task, act as the parent orchestrator and use exactly
+      three sequential built-in delegate_task children: first the Developer, then
+      the Tester, then the Reviewer. The role names refer to the project skills
+      hermes-dev, hermes-tester, and hermes-reviewer; they are not Hermes profiles
+      and must not be looked up as profiles. Do not claim completion until the
+      reviewer returns APPROVED or reports a human blocker. If one child fails,
+      inspect its result and retry the responsible role before stopping.
     - >-
       The reviewer is read-only. Classify findings as production_fix, test_fix,
       both, or human_blocker. Delegate production fixes to hermes-dev and test
