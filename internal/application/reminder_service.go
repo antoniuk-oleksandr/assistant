@@ -73,7 +73,10 @@ func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissi
 		attempted := s.clock()
 		reminder.AttemptedAt = &attempted
 		if err := provider.SendReminder(ctx, reminder); err != nil {
+			reminder.Attempts++
 			reminder.Status, reminder.Error = notification.Failed, err.Error()
+			next := s.clock().Add(retryDelay(reminder.Attempts))
+			reminder.NextAttemptAt = &next
 		} else {
 			reminder.Status, reminder.Error = notification.Sent, ""
 		}
