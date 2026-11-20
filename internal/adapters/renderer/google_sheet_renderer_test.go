@@ -12,7 +12,7 @@ import (
 
 func TestGoogleSheetRendererWritesAggregateAndEvidenceSheets(t *testing.T) {
 	directory := t.TempDir()
-	renderer := NewGoogleSheetRenderer()
+	renderer := NewLocalXLSXRenderer()
 	renderer.directory = directory
 	data := scenario.ReportData{MissingSubmissions: []string{"missing-1"}, SupportingEvidence: []scenario.ReportSource{{SubmissionID: "s1", MaterialID: "e1", Name: "certificate.pdf"}}, Conflicts: []scenario.ReportConflict{{Appendix: 2, Source: scenario.ReportSource{SubmissionID: "s1", MaterialID: "a2"}, Values: []string{"one", "two"}}}}
 	data.Appendices[0].Number = 1
@@ -46,7 +46,7 @@ func TestGoogleSheetRendererWritesAggregateAndEvidenceSheets(t *testing.T) {
 }
 
 func TestGoogleSheetRendererHonorsContextAndDirectoryErrors(t *testing.T) {
-	renderer := NewGoogleSheetRenderer()
+	renderer := NewLocalXLSXRenderer()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := renderer.RenderAndSave(ctx, scenario.ReportData{}); err == nil {

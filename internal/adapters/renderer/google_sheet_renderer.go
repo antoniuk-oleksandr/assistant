@@ -12,18 +12,18 @@ import (
 	"github.com/xuri/excelize/v2"
 )
 
-// GoogleSheetRenderer writes the provider-neutral spreadsheet artifact used by
-// the scientific report. The artifact can be uploaded to Google Sheets by an
-// outer integration without changing scenario or application code.
-type GoogleSheetRenderer struct {
+// LocalXLSXRenderer writes the provider-neutral spreadsheet artifact used by
+// the scientific report. The artifact can be opened or uploaded to Google
+// Sheets without changing scenario or application code.
+type LocalXLSXRenderer struct {
 	directory string
 }
 
-func NewGoogleSheetRenderer() *GoogleSheetRenderer {
-	return &GoogleSheetRenderer{directory: os.TempDir()}
+func NewLocalXLSXRenderer() *LocalXLSXRenderer {
+	return &LocalXLSXRenderer{directory: os.TempDir()}
 }
 
-func (r *GoogleSheetRenderer) RenderAndSave(ctx context.Context, data scenario.ReportData) (report.Output, error) {
+func (r *LocalXLSXRenderer) RenderAndSave(ctx context.Context, data scenario.ReportData) (report.Output, error) {
 	if err := ctx.Err(); err != nil {
 		return report.Output{}, err
 	}

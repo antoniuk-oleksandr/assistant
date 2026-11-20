@@ -24,9 +24,23 @@ type DriveConfig struct {
 	RefreshToken string
 }
 
+type SheetsConfig struct {
+	BaseURL      string
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
+	Title        string
+}
+
+type ReportConfig struct {
+	Renderer string
+}
+
 type Config struct {
 	Database DatabaseConfig
 	Drive    DriveConfig
+	Sheets   SheetsConfig
+	Report   ReportConfig
 }
 
 func Load() (Config, error) {
@@ -55,6 +69,14 @@ func Load() (Config, error) {
 	if materialDir == "" {
 		materialDir = filepath.Join(filepath.Dir(path), "materials")
 	}
+	sheetTitle := get("GOOGLE_SHEETS_REPORT_TITLE")
+	if sheetTitle == "" {
+		sheetTitle = "Scientific activity report"
+	}
+	reportRenderer := get("REPORT_RENDERER")
+	if reportRenderer == "" {
+		reportRenderer = "local-xlsx"
+	}
 	return Config{
 		Database: DatabaseConfig{SQLitePath: path},
 		Drive: DriveConfig{
@@ -64,6 +86,11 @@ func Load() (Config, error) {
 			ClientSecret: get("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"),
 			RefreshToken: get("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"),
 		},
+		Sheets: SheetsConfig{
+			BaseURL: get("GOOGLE_SHEETS_BASE_URL"), ClientID: get("GOOGLE_SHEETS_OAUTH_CLIENT_ID"),
+			ClientSecret: get("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN"), Title: sheetTitle,
+		},
+		Report: ReportConfig{Renderer: reportRenderer},
 	}, nil
 }
 
@@ -72,3 +99,7 @@ func Database(cfg Config) DatabaseConfig {
 }
 
 func Drive(cfg Config) DriveConfig { return cfg.Drive }
+
+func Sheets(cfg Config) SheetsConfig { return cfg.Sheets }
+
+func Report(cfg Config) ReportConfig { return cfg.Report }
