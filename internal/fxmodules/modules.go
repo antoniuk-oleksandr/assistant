@@ -35,7 +35,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing, fx.Annotate(renderer.NewLocalReportRenderer, fx.As(new(ports.ReportRenderer)))),
+	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing, fx.Annotate(renderer.NewGoogleSheetRenderer, fx.As(new(ports.ReportRenderer)))),
 )
 
 func newMaterialParsing() *application.MaterialParsing {
