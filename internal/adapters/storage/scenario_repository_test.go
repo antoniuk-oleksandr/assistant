@@ -1,6 +1,7 @@
 package storage_test
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -68,5 +69,24 @@ var _ = Describe("SQLite scenario selection", func() {
 	It("reports a missing registration on status changes and removal", func(ctx SpecContext) {
 		Expect(repo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(scenario.ErrNotFound))
 		Expect(repo.Remove(ctx, science.Name)).To(MatchError(scenario.ErrNotFound))
+	})
+
+	It("translates database and mapping failures", func(ctx SpecContext) {
+		var db *sql.DB
+		var localRepo ports.ScenarioRepository
+		path := filepath.Join(GinkgoT().TempDir(), "invalid.db")
+		app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: path}),
+			fx.Provide(database.NewSQLite, storage.NewScenarioRepository), fx.Populate(&db, &localRepo))
+		Expect(app.Start(ctx)).To(Succeed())
+		_, err := db.ExecContext(ctx, `INSERT INTO scenarios
+			(name, implementation_type, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`,
+			"invalid", "Scenario", scenario.Active, "bad", "bad")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring(`map scenario "invalid"`)))
+		Expect(app.Stop(ctx)).To(Succeed())
+		Expect(localRepo.Create(ctx, science)).Error().To(MatchError(ContainSubstring("register scenario")))
+		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
+		Expect(localRepo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(ContainSubstring("set status for")))
+		Expect(localRepo.Remove(ctx, science.Name)).To(MatchError(ContainSubstring("remove")))
 	})
 })
