@@ -98,6 +98,32 @@ const createMaterials = `CREATE TABLE IF NOT EXISTS materials (
     created_at TEXT NOT NULL
 )`
 
+const createReportRuns = `CREATE TABLE IF NOT EXISTS report_runs (
+    id INTEGER PRIMARY KEY,
+    scenario_id INTEGER NOT NULL REFERENCES scenarios(id),
+    task_id INTEGER NOT NULL REFERENCES tasks(id),
+    status TEXT NOT NULL CHECK (status IN ('scheduled', 'collecting', 'processing', 'waiting_for_deadline', 'completed', 'failed')),
+    started_at TEXT,
+    finished_at TEXT,
+    is_partial INTEGER NOT NULL DEFAULT 0,
+    result_path TEXT,
+    error_message TEXT,
+    created_at TEXT NOT NULL
+)`
+
+const createReportRunIndexes = `CREATE UNIQUE INDEX IF NOT EXISTS ux_report_runs_one_active
+ON report_runs (scenario_id, task_id)
+WHERE status IN ('scheduled', 'collecting', 'processing', 'waiting_for_deadline')`
+
+const createReportOutputs = `CREATE TABLE IF NOT EXISTS report_outputs (
+    id INTEGER PRIMARY KEY,
+    report_run_id INTEGER NOT NULL REFERENCES report_runs(id),
+    format TEXT NOT NULL,
+    path TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+)`
+
 const createMaterialParses = `CREATE TABLE IF NOT EXISTS material_parses (
     material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
     scenario_id INTEGER NOT NULL,
@@ -141,6 +167,15 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createMaterials); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite material schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createReportRuns); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite report run schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createReportRunIndexes); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite report run indexes: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createReportOutputs); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite report output schema: %w", err), db.Close())
 			}
 			if err := migrateMaterialColumns(ctx, db); err != nil {
 				return errors.Join(fmt.Errorf("migrate SQLite material columns: %w", err), db.Close())

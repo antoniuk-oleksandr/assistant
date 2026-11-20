@@ -7,6 +7,12 @@ FROM nousresearch/hermes-agent:latest
 COPY --from=go-tools /usr/local/go /usr/local/go
 COPY --from=go-tools /go/bin/gopls /usr/local/bin/gopls
 
+# Hermes terminal subprocesses may provide a minimal PATH. Keep Go installed
+# in the image and expose the compiler tools through a directory that remains
+# available in that environment.
+RUN ln -sf /usr/local/go/bin/go /usr/local/bin/go \
+    && ln -sf /usr/local/go/bin/gofmt /usr/local/bin/gofmt
+
 RUN python -m ensurepip --upgrade \
     && python -m pip install --no-cache-dir graphifyy
 
