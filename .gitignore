@@ -1,0 +1,45 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+client_secret.json
+
+# Go build output
+/bin/
+/build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Local application data
+*.db
+*.db-shm
+*.db-wal
+/logs/
+
+# Test and coverage output
+coverage.out
+coverage.html
+coverprofile.out
+
+# Go tooling
+vendor/
+go.work
+go.work.sum
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+
+# Docker overrides and local state
+docker-compose.override.yml
+.docker/
