@@ -1,0 +1,72 @@
+package storage_test
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/alex/assistent/internal/adapters/storage"
+	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/platform/config"
+	"github.com/alex/assistent/internal/platform/database"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"go.uber.org/fx"
+)
+
+func TestScenarioRepository(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "SQLite Scenario Repository")
+}
+
+var _ = Describe("SQLite scenario selection", func() {
+	var repo ports.ScenarioRepository
+
+	science := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
+	other := scenario.Implementation{Name: "other-report", Type: "OtherReportScenario"}
+
+	BeforeEach(func(ctx SpecContext) {
+		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewScenarioRepository), fx.Populate(&repo))
+		Expect(app.Start(ctx)).To(Succeed())
+		DeferCleanup(app.Stop)
+	})
+
+	It("excludes disabled scenarios from the active selection and restores them when enabled", func(ctx SpecContext) {
+		Expect(repo.Create(ctx, science)).To(Succeed())
+		Expect(repo.Create(ctx, other)).To(Succeed())
+		Expect(repo.SetStatus(ctx, science.Name, scenario.Disabled)).To(Succeed())
+		Expect(repo.Create(ctx, science)).To(Succeed())
+
+		all, err := repo.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(all).To(HaveLen(2))
+		Expect(all[0].Implementation).To(Equal(other))
+		Expect(all[0].Status).To(Equal(scenario.Active))
+		Expect(all[1].Implementation).To(Equal(science))
+		Expect(all[1].Status).To(Equal(scenario.Disabled))
+
+		active, err := repo.ListActive(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(active).To(Equal(all[:1]))
+
+		Expect(repo.SetStatus(ctx, science.Name, scenario.Active)).To(Succeed())
+		active, err = repo.ListActive(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(active).To(HaveLen(2))
+		Expect(active[1].ID).To(Equal(all[1].ID))
+		Expect(active[1].Implementation).To(Equal(science))
+		Expect(active[1].Status).To(Equal(scenario.Active))
+		Expect(active[1].CreatedAt).To(Equal(all[1].CreatedAt))
+
+		Expect(repo.Remove(ctx, science.Name)).To(Succeed())
+		remaining, err := repo.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(remaining).To(Equal(all[:1]))
+	})
+
+	It("reports a missing registration on status changes and removal", func(ctx SpecContext) {
+		Expect(repo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(scenario.ErrNotFound))
+		Expect(repo.Remove(ctx, science.Name)).To(MatchError(scenario.ErrNotFound))
+	})
+})
