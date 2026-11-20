@@ -8,6 +8,12 @@ phase_turns="${HERMES_PHASE_MAX_TURNS:-100}"
 compose_file="infra/local/docker-compose.hermes.yaml"
 log_dir="${TMPDIR:-/tmp}/hermes-delivery-$(date +%Y%m%d-%H%M%S)"
 
+if [[ -x /opt/hermes/bin/hermes ]]; then
+    hermes_prefix=(/opt/hermes/bin/hermes)
+else
+    hermes_prefix=(docker compose -f "$compose_file" exec -T hermes /opt/hermes/bin/hermes)
+fi
+
 if [[ ! "$start_issue" =~ ^[0-9]+$ || ! "$end_issue" =~ ^[0-9]+$ || "$start_issue" -gt "$end_issue" ]]; then
     echo "usage: $0 [start_issue] [end_issue]" >&2
     exit 2
@@ -28,8 +34,7 @@ run_phase() {
     local log="$log_dir/$name.log"
 
     echo "==> $name"
-    docker compose -f "$compose_file" exec -T hermes \
-        /opt/hermes/bin/hermes chat --yolo --oneshot --quiet \
+    "${hermes_prefix[@]}" chat --yolo --oneshot --quiet \
         --max-turns "$phase_turns" -q "$prompt" 2>&1 | tee "$log"
 }
 

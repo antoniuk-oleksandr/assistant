@@ -94,6 +94,16 @@ updates are authorized.
 
 The Hermes agent is instructed to use the installed Graphify skill for repository orientation. Graphify is a development tool only; it is not included in the Go application or its Windows executable.
 
+The same compact runner can be started from the dashboard. Open a new chat and
+send this request:
+
+```text
+Run ./scripts/hermes-delivery-loop.sh 8 16 in the terminal and keep the terminal output visible. Do not delegate the workflow yourself; the script starts fresh Hermes sessions for each phase. Do not ask for approval.
+```
+
+When launched from inside the Hermes container, the script invokes the local
+Hermes binary directly. When launched from the host, it uses Docker Compose.
+
 ## Interactive shell
 
 ```bash
