@@ -79,8 +79,8 @@ just hermes-tasks-range 7 16
 ```
 
 This starts the unattended delivery loop. The runner uses a fresh bounded Hermes
-one-shot session for each Developer, Tester, Reviewer, review-fix, and delivery
-phase. It keeps only the reviewer handoff between phases, preventing one parent
+one-shot session for each Developer, Tester, Reviewer, review-fix, and the
+dedicated non-delegating Delivery agent. It keeps only the reviewer handoff between phases, preventing one parent
 conversation from accumulating the entire repository and all prior tool output.
 Each phase still re-reads the required documents and uses Graphify before source
 exploration. The runner commits and pushes an approved branch, creates and merges
