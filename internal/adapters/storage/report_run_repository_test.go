@@ -197,4 +197,17 @@ var _ = Describe("SQLite report run repository", func() {
 		_, err = deliveries.GetByResultTarget(ctx, 1, "email", "teacher@example.com")
 		Expect(err).To(MatchError(ContainSubstring("find report delivery")))
 	})
+
+	It("reports missing delivery targets and malformed delivery timestamps", func(ctx SpecContext) {
+		run := report.NewRun(1, 1, time.Now())
+		Expect(repo.Create(ctx, &run)).To(Succeed())
+		value := report.NewResult(run.ID, 1, 1, scenario.ReportData{}, time.Now())
+		Expect(results.Create(ctx, &value)).To(Succeed())
+		_, err := deliveries.GetByResultTarget(ctx, value.ID, "email", "missing@example.com")
+		Expect(err).To(MatchError(ContainSubstring("report delivery not found")))
+		_, err = db.ExecContext(ctx, `INSERT INTO report_deliveries (result_id, channel, destination, status, attempted_at, created_at) VALUES (?, 'email', 'bad@example.com', 'pending', 'not-a-time', '2026-01-01T00:00:00Z')`, value.ID)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = deliveries.GetByResult(ctx, value.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+	})
 })

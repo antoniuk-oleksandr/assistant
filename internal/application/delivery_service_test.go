@@ -90,6 +90,11 @@ func TestDeliveryServiceRecordsFailuresAndRejectsUnknownProviders(t *testing.T) 
 	if err != nil || len(items) != 1 || items[0].Status != report.DeliveryFailed || items[0].Error != "provider unavailable" {
 		t.Fatalf("items=%#v err=%v", items, err)
 	}
+	provider.err = nil
+	items, err = service.Deliver(context.Background(), report.Result{ID: 8}, []ports.DeliveryTarget{{Channel: "telegram", Destination: "chat-1"}})
+	if err != nil || len(items) != 1 || items[0].Status != report.DeliverySent || provider.calls != 2 {
+		t.Fatalf("retry items=%#v calls=%d err=%v", items, provider.calls, err)
+	}
 	_, err = service.Deliver(context.Background(), report.Result{ID: 8}, []ports.DeliveryTarget{{Channel: "sms", Destination: "x"}})
 	if err == nil {
 		t.Fatal("unknown provider unexpectedly succeeded")
