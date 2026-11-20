@@ -63,19 +63,44 @@ func upsertMaterial(ctx context.Context, tx *sql.Tx, submissionID int64, item su
 	query := `SELECT id FROM materials WHERE submission_id=? AND external_material_id=?`
 	args := []any{submissionID, item.ExternalID}
 	if item.ExternalID == "" {
-		query = `SELECT id FROM materials WHERE submission_id=? AND name=? AND COALESCE(source_uri, '')=?`
+		query = `SELECT id FROM materials WHERE submission_id=? AND external_material_id IS NULL AND name=? AND COALESCE(source_uri, '')=?`
 		args = []any{submissionID, item.Name, item.SourceURI}
 	}
 	err := tx.QueryRowContext(ctx, query, args...).Scan(&id)
 	if err == sql.ErrNoRows {
-		_, err = tx.ExecContext(ctx, `INSERT INTO materials (submission_id, external_material_id, name, mime_type, source_uri, local_path, appendix_number, role, status, created_at) VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, `+sqliteNowUTC+`)`, submissionID, item.ExternalID, item.Name, item.MIMEType, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status)
+		_, err = tx.ExecContext(ctx, `INSERT INTO materials (submission_id, external_material_id, name, mime_type, size_bytes, source_uri, local_path, appendix_number, role, status, created_at)
+VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, `+sqliteNowUTC+`)`, submissionID, item.ExternalID, item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status)
 	} else if err == nil {
-		_, err = tx.ExecContext(ctx, `UPDATE materials SET external_material_id=NULLIF(?, ''), name=?, mime_type=NULLIF(?, ''), source_uri=NULLIF(?, ''), local_path=NULLIF(?, ''), appendix_number=?, role=?, status=? WHERE id=?`, item.ExternalID, item.Name, item.MIMEType, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status, id)
+		err = updateMaterial(ctx, tx, id, item)
 	}
 	if err != nil {
 		return fmt.Errorf("upsert material %q: %w", item.Name, err)
 	}
 	return nil
+}
+
+func updateMaterial(ctx context.Context, tx *sql.Tx, id int64, item submission.Material) error {
+	if item.LocalPath != "" {
+		// A successful read replaces the whole snapshot, including an absent size
+		// (for example, when the file is now a native Workspace document).
+		_, err := tx.ExecContext(ctx, `UPDATE materials SET name=?, mime_type=NULLIF(?, ''),
+size_bytes=?, source_uri=NULLIF(?, ''), local_path=?, appendix_number=?, role=?, status=? WHERE id=?`,
+			item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status, id)
+		return err
+	}
+
+	// Record a failed attempt without changing the last good snapshot. Rows
+	// without a snapshot may still receive new provider metadata. A Classroom
+	// reference without an attempt can fill gaps but cannot reset the outcome.
+	attempted := item.Status != submission.Pending
+	_, err := tx.ExecContext(ctx, `UPDATE materials SET
+name=CASE WHEN local_path IS NULL AND (? OR name='') THEN COALESCE(NULLIF(?, ''), name) ELSE name END,
+mime_type=CASE WHEN local_path IS NULL AND (? OR mime_type IS NULL) THEN COALESCE(NULLIF(?, ''), mime_type) ELSE mime_type END,
+size_bytes=CASE WHEN local_path IS NULL AND (? OR size_bytes IS NULL) THEN COALESCE(?, size_bytes) ELSE size_bytes END,
+source_uri=CASE WHEN local_path IS NULL AND (? OR source_uri IS NULL) THEN COALESCE(NULLIF(?, ''), source_uri) ELSE source_uri END,
+status=CASE WHEN ? THEN ? ELSE status END WHERE id=?`,
+		attempted, item.Name, attempted, item.MIMEType, attempted, item.SizeBytes, attempted, item.SourceURI, attempted, item.Status, id)
+	return err
 }
 
 func (r *SQLiteSubmissionRepository) ListByTask(ctx context.Context, taskID int64) ([]submission.Submission, error) {
@@ -112,7 +137,7 @@ func (r *SQLiteSubmissionRepository) ListByTask(ctx context.Context, taskID int6
 }
 
 func (r *SQLiteSubmissionRepository) materials(ctx context.Context, submissionID int64) ([]models.MaterialRow, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, submission_id, COALESCE(external_material_id,''), name, COALESCE(mime_type,''), COALESCE(source_uri,''), COALESCE(local_path,''), appendix_number, role, status FROM materials WHERE submission_id=? ORDER BY id`, submissionID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, submission_id, COALESCE(external_material_id,''), name, COALESCE(mime_type,''), size_bytes, COALESCE(source_uri,''), COALESCE(local_path,''), appendix_number, role, status FROM materials WHERE submission_id=? ORDER BY id`, submissionID)
 	if err != nil {
 		return nil, fmt.Errorf("list materials: %w", err)
 	}
@@ -120,7 +145,7 @@ func (r *SQLiteSubmissionRepository) materials(ctx context.Context, submissionID
 	result := make([]models.MaterialRow, 0)
 	for rows.Next() {
 		var row models.MaterialRow
-		if err := rows.Scan(&row.ID, &row.SubmissionID, &row.ExternalID, &row.Name, &row.MIMEType, &row.SourceURI, &row.LocalPath, &row.AppendixNumber, &row.Role, &row.Status); err != nil {
+		if err := rows.Scan(&row.ID, &row.SubmissionID, &row.ExternalID, &row.Name, &row.MIMEType, &row.SizeBytes, &row.SourceURI, &row.LocalPath, &row.AppendixNumber, &row.Role, &row.Status); err != nil {
 			return nil, fmt.Errorf("scan material: %w", err)
 		}
 		result = append(result, row)

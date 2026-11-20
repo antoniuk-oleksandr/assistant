@@ -10,5 +10,6 @@ type SubmissionRow struct {
 type MaterialRow struct {
 	ID, SubmissionID                                               int64
 	ExternalID, Name, MIMEType, SourceURI, LocalPath, Role, Status string
+	SizeBytes                                                      *int64
 	AppendixNumber                                                 *int
 }

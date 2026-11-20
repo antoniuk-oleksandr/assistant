@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alex/assistent/internal/adapters/googlefiles"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
@@ -68,10 +69,17 @@ type Assignment struct {
 
 type Attachment struct {
 	DriveFile *DriveFileAttachment `json:"driveFile"`
+	Link      *LinkAttachment      `json:"link"`
 }
 
 type DriveFileAttachment struct {
+	DriveFile
 	File DriveFile `json:"driveFile"`
+}
+
+type LinkAttachment struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
 }
 
 type DriveFile struct {
@@ -157,18 +165,44 @@ func toSubmission(item StudentSubmission) submission.Submission {
 	if submittedAt == "" {
 		submittedAt = item.CreationTime
 	}
-	result := submission.Submission{ExternalID: item.ID, SubmitterID: item.UserID, State: submission.State(strings.ToLower(item.State)), SubmittedAt: submittedAt, CreatedAt: item.CreationTime, UpdatedAt: item.UpdateTime, Late: item.Late}
-	if result.State == "turned_in" {
-		result.State = submission.Submitted
-	}
+	result := submission.Submission{ExternalID: item.ID, SubmitterID: item.UserID, State: submissionState(item.State), SubmittedAt: submittedAt, CreatedAt: item.CreationTime, UpdatedAt: item.UpdateTime, Late: item.Late}
 	for _, attachment := range item.Assignment.Attachments {
-		if attachment.DriveFile == nil {
-			continue
+		if file, ok := attachedFile(attachment); ok {
+			result.Materials = append(result.Materials, submission.Material{ExternalID: file.ID, Name: file.Title, MIMEType: file.MIMEType, SourceURI: file.AlternateURL, Role: "supporting_evidence", Status: submission.Pending})
 		}
-		file := attachment.DriveFile.File
-		result.Materials = append(result.Materials, submission.Material{ExternalID: file.ID, Name: file.Title, MIMEType: file.MIMEType, SourceURI: file.AlternateURL, Role: "supporting_evidence", Status: submission.Pending})
 	}
 	return result
+}
+
+func submissionState(state string) submission.State {
+	switch strings.ToUpper(state) {
+	case "NEW":
+		return submission.New
+	case "CREATED", "RECLAIMED_BY_STUDENT":
+		return submission.Created
+	case "TURNED_IN", "SUBMITTED":
+		return submission.Submitted
+	case "RETURNED":
+		return submission.Returned
+	default:
+		return submission.Unknown
+	}
+}
+
+func attachedFile(attachment Attachment) (DriveFile, bool) {
+	if drive := attachment.DriveFile; drive != nil {
+		// Accept the flat Classroom Material representation and the nested form.
+		if drive.DriveFile.ID != "" {
+			return drive.DriveFile, true
+		}
+		return drive.File, true
+	}
+	if link := attachment.Link; link != nil {
+		if ref := googlefiles.ParseURL(link.URL); ref.ID != "" {
+			return DriveFile{ID: ref.ID, Title: link.Title, AlternateURL: link.URL}, true
+		}
+	}
+	return DriveFile{}, false
 }
 
 func dueAt(date *Date, clock *Time) string {

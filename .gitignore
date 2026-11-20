@@ -15,6 +15,7 @@ client_secret.json
 *.test
 
 # Local application data
+/data/materials/
 *.db
 *.db-shm
 *.db-wal

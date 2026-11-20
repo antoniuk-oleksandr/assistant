@@ -12,7 +12,7 @@ test:
 	go test ./...
 
 coverage:
-	go test ./... -coverprofile=coverage.out
+	go test ./... -coverpkg=./cmd/assistent,./internal/... -coverprofile=coverage.out
 	go tool cover -func=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 

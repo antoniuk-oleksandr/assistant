@@ -88,6 +88,7 @@ const createMaterials = `CREATE TABLE IF NOT EXISTS materials (
     external_material_id TEXT,
     name TEXT NOT NULL,
     mime_type TEXT,
+    size_bytes INTEGER CHECK (size_bytes >= 0),
     source_uri TEXT,
     local_path TEXT,
     appendix_number INTEGER,
@@ -132,6 +133,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			if _, err := db.ExecContext(ctx, createMaterials); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite material schema: %w", err), db.Close())
 			}
+			if err := migrateMaterialSize(ctx, db); err != nil {
+				return errors.Join(fmt.Errorf("migrate SQLite material size: %w", err), db.Close())
+			}
 			if _, err := db.ExecContext(ctx, createSubmissionIndexes); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite submission indexes: %w", err), db.Close())
 			}
@@ -140,6 +144,24 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 		OnStop: func(context.Context) error { return db.Close() },
 	})
 	return db, nil
+}
+
+func migrateMaterialSize(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('materials') WHERE name = 'size_bytes')`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE materials ADD COLUMN size_bytes INTEGER CHECK (size_bytes >= 0)`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func fileDSN(path string) (string, error) {

@@ -2,6 +2,7 @@ package fxmodules
 
 import (
 	"github.com/alex/assistent/internal/adapters/classroom"
+	"github.com/alex/assistent/internal/adapters/drive"
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/scenario"
@@ -15,7 +16,7 @@ import (
 )
 
 var PlatformModule = fx.Module("platform",
-	fx.Provide(config.Load, config.Database, database.NewSQLite, locking.NewProcessLock),
+	fx.Provide(config.Load, config.Database, config.Drive, database.NewSQLite, locking.NewProcessLock),
 )
 
 var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository))
@@ -24,13 +25,13 @@ var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.N
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	application.NewPersistentPollingService,
+	application.NewPollingServiceWithMaterials,
 	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(classroom.NewSubmissionSource),
+	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever),
 )
 
 var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))

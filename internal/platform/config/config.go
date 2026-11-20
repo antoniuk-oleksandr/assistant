@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -15,8 +16,17 @@ type DatabaseConfig struct {
 	SQLitePath string
 }
 
+type DriveConfig struct {
+	BaseURL      string
+	MaterialDir  string
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
+}
+
 type Config struct {
 	Database DatabaseConfig
+	Drive    DriveConfig
 }
 
 func Load() (Config, error) {
@@ -35,9 +45,30 @@ func Load() (Config, error) {
 	if strings.TrimSpace(path) == "" || strings.ContainsRune(path, 0) {
 		return Config{}, errors.New("SQLITE_DATABASE_PATH must be a non-empty file path")
 	}
-	return Config{Database: DatabaseConfig{SQLitePath: path}}, nil
+	get := func(key string) string {
+		if value, ok := os.LookupEnv(key); ok {
+			return value
+		}
+		return values[key]
+	}
+	materialDir := get("GOOGLE_DRIVE_MATERIAL_DIR")
+	if materialDir == "" {
+		materialDir = filepath.Join(filepath.Dir(path), "materials")
+	}
+	return Config{
+		Database: DatabaseConfig{SQLitePath: path},
+		Drive: DriveConfig{
+			BaseURL:      get("GOOGLE_DRIVE_BASE_URL"),
+			MaterialDir:  materialDir,
+			ClientID:     get("GOOGLE_DRIVE_OAUTH_CLIENT_ID"),
+			ClientSecret: get("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"),
+			RefreshToken: get("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"),
+		},
+	}, nil
 }
 
 func Database(cfg Config) DatabaseConfig {
 	return cfg.Database
 }
+
+func Drive(cfg Config) DriveConfig { return cfg.Drive }
