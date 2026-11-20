@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// ErrNotFound is returned when a scenario is not compiled or registered.
 var ErrNotFound = errors.New("ScenarioNotFound")
 
 // NotFound identifies the missing compiled implementation or SQLite registration.
