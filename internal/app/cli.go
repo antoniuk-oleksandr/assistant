@@ -15,6 +15,7 @@ func RunCLI(ctx context.Context, args []string) (err error) {
 		fx.WithLogger(fxmodules.NewFxLogger),
 		fxmodules.PlatformModule,
 		fxmodules.StorageModule,
+		fxmodules.ClassroomStorageModule,
 		fxmodules.ApplicationModule,
 		fxmodules.CLIModule,
 		fx.Populate(&root),

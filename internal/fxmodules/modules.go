@@ -18,12 +18,15 @@ var PlatformModule = fx.Module("platform",
 
 var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository))
 
+var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.NewClassroomCourseRepository))
+
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
 	fx.Annotate(application.NewScenarioService, fx.As(new(cli.ScenarioService))),
+	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
 
-var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewRootCommand))
+var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))
 
 func compiledScenarios() scenario.Registry {
 	return scenario.NewRegistry(scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"})
