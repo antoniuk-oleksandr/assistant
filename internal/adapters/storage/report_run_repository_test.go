@@ -8,6 +8,7 @@ import (
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
 	. "github.com/onsi/ginkgo/v2"
@@ -20,14 +21,15 @@ var _ = Describe("SQLite report run repository", func() {
 		db      *sql.DB
 		repo    ports.ReportRunRepository
 		outputs ports.ReportOutputRepository
+		results ports.ReportResultRepository
 	)
 
 	BeforeEach(func(ctx SpecContext) {
 		app := fx.New(
 			fx.NopLogger,
 			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
-			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository),
-			fx.Populate(&db, &repo, &outputs),
+			fx.Provide(database.NewSQLite, storage.NewReportRunRepository, storage.NewReportOutputRepository, storage.NewReportResultRepository),
+			fx.Populate(&db, &repo, &outputs, &results),
 		)
 		Expect(app.Start(ctx)).To(Succeed())
 		DeferCleanup(app.Stop)
@@ -134,5 +136,33 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(repo.Create(ctx, &run)).To(Succeed())
 		Expect(db.Close()).To(Succeed())
 		Expect(outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: "local-package", Path: "report.json", CreatedAt: time.Now()})).To(MatchError(ContainSubstring("insert report output")))
+	})
+
+	It("persists versioned structured results and processing status", func(ctx SpecContext) {
+		run := report.NewRun(1, 1, time.Now())
+		Expect(repo.Create(ctx, &run)).To(Succeed())
+		value := report.NewResult(run.ID, 1, 1, scenario.ReportData{ScenarioID: 1, TaskID: 1, MissingSubmissions: []string{"staff-2"}}, time.Now())
+		Expect(results.Create(ctx, &value)).To(Succeed())
+		stored, err := results.GetLatestByRun(ctx, run.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(stored.ID).To(Equal(value.ID))
+		Expect(stored.Version).To(Equal(1))
+		Expect(stored.Status).To(Equal(report.ResultProcessing))
+		Expect(stored.Data.MissingSubmissions).To(Equal([]string{"staff-2"}))
+		stored.Complete(report.ResultPartial, time.Now(), "partial")
+		Expect(results.Update(ctx, &stored)).To(Succeed())
+		updated, err := results.GetLatestByRun(ctx, run.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(updated.Status).To(Equal(report.ResultPartial))
+		Expect(updated.Partial).To(BeTrue())
+		Expect(updated.ErrorMessage).To(Equal("partial"))
+	})
+
+	It("reports result lookup and persistence errors", func(ctx SpecContext) {
+		_, err := results.GetLatestByRun(ctx, 999)
+		Expect(err).To(MatchError(ContainSubstring("report result not found")))
+		Expect(db.Close()).To(Succeed())
+		value := report.NewResult(1, 1, 1, scenario.ReportData{}, time.Now())
+		Expect(results.Create(ctx, &value)).To(MatchError(ContainSubstring("insert report result")))
 	})
 })

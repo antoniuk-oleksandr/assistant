@@ -22,14 +22,14 @@ var PlatformModule = fx.Module("platform",
 	fx.Provide(config.Load, config.Database, config.Drive, database.NewSQLite, locking.NewProcessLock),
 )
 
-var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository, storage.NewReportRunRepository, fx.Annotate(storage.NewReportOutputRepository, fx.As(new(ports.ReportOutputRepository)))))
+var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository, storage.NewReportRunRepository, fx.Annotate(storage.NewReportOutputRepository, fx.As(new(ports.ReportOutputRepository))), fx.Annotate(storage.NewReportResultRepository, fx.As(new(ports.ReportResultRepository)))))
 
 var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.NewClassroomCourseRepository))
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
 	application.NewPollingServiceWithScenarioCollection,
-	fx.Annotate(application.NewScenarioCollectionServiceWithRenderer),
+	fx.Annotate(application.NewScenarioCollectionServiceWithRendererAndResult),
 	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
