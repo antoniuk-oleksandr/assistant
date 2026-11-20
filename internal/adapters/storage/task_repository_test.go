@@ -29,6 +29,17 @@ var _ = Describe("SQLite task bindings", func() {
 		DeferCleanup(app.Stop)
 	})
 
+	It("returns database errors from task and binding operations", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+		item := task.Task{ExternalID: "task-1"}
+		Expect(tasks.Register(ctx, item)).To(MatchError(ContainSubstring("register task \"task-1\"")))
+		Expect(tasks.List(ctx)).Error().To(MatchError(ContainSubstring("list tasks")))
+		Expect(bindings.Bind(ctx, "scenario", "task-1")).Error().To(MatchError(ContainSubstring("find active scenario")))
+		Expect(bindings.Unbind(ctx, "task-1")).Error().To(MatchError(ContainSubstring("find task")))
+		Expect(bindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list task bindings")))
+		Expect(bindings.Active(ctx)).Error().To(MatchError(ContainSubstring("list task bindings")))
+	})
+
 	It("registers assignments idempotently and only returns active bindings", func(ctx SpecContext) {
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(scenarios.Create(ctx, implementation)).To(Succeed())

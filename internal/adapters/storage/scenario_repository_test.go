@@ -34,6 +34,15 @@ var _ = Describe("SQLite scenario selection", func() {
 		DeferCleanup(app.Stop)
 	})
 
+	It("returns database errors from scenario operations", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+		Expect(repo.Create(ctx, science)).To(MatchError(ContainSubstring("register scenario")))
+		Expect(repo.List(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
+		Expect(repo.ListActive(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
+		Expect(repo.SetStatus(ctx, science.Name, scenario.Active)).To(MatchError(ContainSubstring("set status for scenario")))
+		Expect(repo.Remove(ctx, science.Name)).To(MatchError(ContainSubstring("remove scenario")))
+	})
+
 	It("excludes disabled scenarios from the active selection and restores them when enabled", func(ctx SpecContext) {
 		Expect(repo.Create(ctx, science)).To(Succeed())
 		Expect(repo.Create(ctx, other)).To(Succeed())

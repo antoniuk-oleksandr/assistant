@@ -141,6 +141,71 @@ func TestSubmissionSourceListsTasksChangedSinceCheckpoint(t *testing.T) {
 	}
 }
 
+func TestSubmissionSourceListsAllTasksWithoutCheckpoint(t *testing.T) {
+	client := &fakeClassroomClient{coursework: []CourseWork{{ID: "first"}, {ID: "second"}}}
+	source := NewSubmissionSourceWithClient(client)
+	items, err := source.ListTasksSince(context.Background(), "course-1", time.Time{})
+	if err != nil {
+		t.Fatalf("ListTasksSince() error = %v", err)
+	}
+	if got := []string{items[0].ExternalID, items[1].ExternalID}; !reflect.DeepEqual(got, []string{"first", "second"}) {
+		t.Fatalf("tasks = %#v", got)
+	}
+}
+
+func TestSubmissionSourceMapsDateWithoutTime(t *testing.T) {
+	client := &fakeClassroomClient{coursework: []CourseWork{{ID: "task-1", DueDate: &Date{Year: 2026, Month: 11, Day: 20}}}}
+	source := NewSubmissionSourceWithClient(client)
+	items, err := source.ListTasks(context.Background(), "course-1")
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	if items[0].DueAt != "2026-11-20" {
+		t.Fatalf("DueAt = %q", items[0].DueAt)
+	}
+}
+
+func TestSubmissionSourceLeavesDueDateEmptyWhenNoDateIsProvided(t *testing.T) {
+	source := NewSubmissionSourceWithClient(&fakeClassroomClient{coursework: []CourseWork{{ID: "task-1"}}})
+	items, err := source.ListTasks(context.Background(), "course-1")
+	if err != nil {
+		t.Fatalf("ListTasks() error = %v", err)
+	}
+	if items[0].DueAt != "" {
+		t.Fatalf("DueAt = %q, want empty", items[0].DueAt)
+	}
+}
+
+func TestHTTPClassroomClientReportsMalformedBaseURL(t *testing.T) {
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "://bad-url"}, http.DefaultClient)
+	_, err := client.ListCourseWork(context.Background(), "course-1")
+	if err == nil || !strings.Contains(err.Error(), "build Classroom request") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestHTTPClassroomClientReportsInvalidContext(t *testing.T) {
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "https://classroom.example/v1"}, http.DefaultClient)
+	_, err := client.ListCourseWork(nil, "course-1")
+	if err == nil || !strings.Contains(err.Error(), "create Classroom request") {
+		t.Fatalf("error = %v, want request creation error", err)
+	}
+}
+
+func TestHTTPClassroomClientReportsSubmissionAndTransportErrors(t *testing.T) {
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "http://example.test"}, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("network unavailable")
+	})})
+	_, err := client.ListStudentSubmissions(context.Background(), "course-1", "task-1")
+	if err == nil || !strings.Contains(err.Error(), "request Classroom API:") || !strings.Contains(err.Error(), "network unavailable") {
+		t.Fatalf("submission error = %v", err)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 func TestSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t *testing.T) {
 	client := &fakeClassroomClient{
 		coursework:  []CourseWork{{ID: "task-1"}},
@@ -191,6 +256,12 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	}
 	if got := NewHTTPClassroomClient(HTTPConfig{}, nil); got == nil {
 		t.Fatal("NewHTTPClassroomClient() returned nil")
+	}
+}
+
+func TestNewSubmissionSourceUsesDefaultHTTPClient(t *testing.T) {
+	if source := NewSubmissionSource(); source == nil {
+		t.Fatal("NewSubmissionSource() returned nil")
 	}
 }
 

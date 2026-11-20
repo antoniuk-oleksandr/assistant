@@ -2,6 +2,7 @@ package locking_test
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -28,5 +29,34 @@ func TestProcessLockRejectsDuplicateAndAllowsAcquireAfterRelease(t *testing.T) {
 	}
 	if err := second.Release(); err != nil {
 		t.Fatalf("second release: %v", err)
+	}
+}
+
+func TestProcessLockReleaseBeforeAcquireIsNoOp(t *testing.T) {
+	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")})
+	if err := lock.Release(); err != nil {
+		t.Fatalf("release before acquire: %v", err)
+	}
+}
+
+func TestProcessLockReportsLockDirectoryErrors(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(parent, []byte("file"), 0600); err != nil {
+		t.Fatalf("write parent file: %v", err)
+	}
+	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(parent, "state.db")})
+	if err := lock.Acquire(); err == nil {
+		t.Fatal("Acquire() unexpectedly succeeded")
+	}
+}
+
+func TestProcessLockReportsLockFileErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.db")
+	if err := os.Mkdir(path+".lock", 0700); err != nil {
+		t.Fatalf("create lock path: %v", err)
+	}
+	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: path})
+	if err := lock.Acquire(); err == nil {
+		t.Fatal("Acquire() unexpectedly succeeded")
 	}
 }

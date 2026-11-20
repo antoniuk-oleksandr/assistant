@@ -46,4 +46,23 @@ var _ = Describe("SQLite polling state repository", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(recovered).To(Equal(checkpoint.UTC()))
 	})
+
+	It("reports malformed and unavailable checkpoints", func(ctx SpecContext) {
+		var db *sql.DB
+		var repo ports.PollingStateRepository
+		app := fx.New(
+			fx.NopLogger,
+			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
+			fx.Provide(database.NewSQLite, storage.NewPollingStateRepository),
+			fx.Populate(&db, &repo),
+		)
+		Expect(app.Start(ctx)).To(Succeed())
+		Expect(db.ExecContext(ctx, `INSERT INTO poll_state (id, last_check_timestamp, updated_at) VALUES (1, 'invalid', 'invalid')`)).Error().NotTo(HaveOccurred())
+		_, err := repo.LastCheckpoint(ctx)
+		Expect(err).To(MatchError(ContainSubstring("parse polling checkpoint")))
+		Expect(db.Close()).To(Succeed())
+		_, err = repo.LastCheckpoint(ctx)
+		Expect(err).To(MatchError(ContainSubstring("read polling checkpoint")))
+		Expect(repo.SaveCheckpoint(ctx, time.Now())).To(MatchError(ContainSubstring("save polling checkpoint")))
+	})
 })
