@@ -135,16 +135,16 @@ An unbound task is not processed.
 ### Classroom
 
 ```bash
-go run ./cmd/assistent classroom list
-go run ./cmd/assistent classroom add <course-id-or-url>
-go run ./cmd/assistent classroom remove <course-id>
+go run ./cmd/assistent course list
+go run ./cmd/assistent course add <course-id-or-url>
+go run ./cmd/assistent course remove <course-id>
 ```
 
-`classroom add` accepts a numeric course ID, a full Classroom URL, or the Base64URL course segment from a Classroom URL. Removing a course disables polling but preserves historical records.
+`course add` accepts a numeric course ID, a full Google Classroom URL, or the Base64URL course segment from a Classroom URL. Removing a course disables polling but preserves historical records. `classroom` remains an alias for compatibility.
 
 ### CLI scope
 
-The current Cobra CLI exposes `scenario` and `classroom`. Teacher, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands. Do not assume commands such as `teacher list` or `notification retry` exist.
+The current Cobra CLI exposes `scenario` and `course`. Teacher, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands. Do not assume commands such as `teacher list` or `notification retry` exist.
 
 ## First-time setup
 
@@ -152,7 +152,7 @@ The application does not process arbitrary courses or tasks automatically. Confi
 
 ```bash
 # Stop the poller first if its process lock is held.
-go run ./cmd/assistent classroom add <classroom-course-id-or-url>
+go run ./cmd/assistent course add <course-id-or-url>
 go run ./cmd/assistent scenario add science-report
 
 # Discover coursework.
@@ -225,7 +225,7 @@ Hermes commands are development automation and are not required to run the repor
 cmd/assistent/                 executable entry point
 internal/domain/               entities, rules, and ports
 internal/application/          use-case orchestration and polling
-internal/adapters/classroom/   Google Classroom integration
+internal/adapters/classroom/   Google Classroom API integration
 internal/adapters/drive/       Drive retrieval and OAuth
 internal/adapters/parser/      document parsers
 internal/adapters/renderer/    Google Sheets and local XLSX renderers
