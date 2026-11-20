@@ -5,6 +5,9 @@ terminal:
   backend: local
   cwd: /workspace
 
+model:
+  provider: openai-codex
+
 delegation:
   max_concurrent_children: 3
 
@@ -37,8 +40,21 @@ agent:
       Use Ginkgo/Gomega, uber-go/mock, and shared fixtures. Do not introduce
       unrelated infrastructure, message queues, delivery systems, or dynamic plugins.
     - >-
-      Never commit, push, open pull requests, or modify external systems without
-      explicit human approval.
+      Use the configured GitHub MCP server for GitHub Projects, issue, repository,
+      Git, and pull request operations. Do not use the gh CLI. Work through all
+      assigned project items sequentially, creating a branch and commit for each
+      item, opening the linked pull request, and updating the project item after
+      the pull request is merged. Do not stop after the first item.
+
+mcp_servers:
+  github:
+    url: "https://api.githubcopilot.com/mcp/x/all"
+    headers:
+      Authorization: "Bearer ${env:GITHUB_PERSONAL_ACCESS_TOKEN}"
+      X-MCP-Toolsets: "context,projects,issues,repos,git,pull_requests"
+    trust: untrusted
+    timeout: 180
+    connect_timeout: 60
 
 platform_toolsets:
   cli:

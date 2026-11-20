@@ -8,6 +8,11 @@ services:
     image: report-system-hermes:local
     container_name: report-system-hermes
     restart: unless-stopped
+    env_file:
+      - ${HERMES_DATA_DIR:-${HOME}/.hermes/assistent}/.env
+    pids_limit: 512
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev
     working_dir: /workspace
     command:
       - sh
@@ -25,5 +30,5 @@ services:
       - "127.0.0.1:8642:8642"
     volumes:
       - ../..:/workspace
-      - ${HERMES_DATA_DIR:-${HOME}/.hermes}:/opt/data
+      - ${HERMES_DATA_DIR:-${HOME}/.hermes/assistent}:/opt/data
       - ../../.agents/hermes/config.yaml:/opt/data/config.yaml:ro

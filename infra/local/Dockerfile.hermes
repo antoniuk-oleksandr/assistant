@@ -7,7 +7,8 @@ FROM nousresearch/hermes-agent:latest
 COPY --from=go-tools /usr/local/go /usr/local/go
 COPY --from=go-tools /go/bin/gopls /usr/local/bin/gopls
 
-RUN uv tool install graphifyy
+RUN python -m ensurepip --upgrade \
+    && python -m pip install --no-cache-dir graphifyy
 
 ENV PATH="/usr/local/go/bin:/usr/local/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:${PATH}"
 ENV HERMES_WRITE_SAFE_ROOT=/workspace
