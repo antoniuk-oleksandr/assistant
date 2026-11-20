@@ -24,6 +24,7 @@ type PollingService struct {
 	submissions ports.SubmissionRepository
 	state       ports.PollingStateRepository
 	materials   ports.MaterialRetriever
+	parsing     *MaterialParsing
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -35,7 +36,11 @@ func NewPersistentPollingService(courses ports.ClassroomCourseRepository, source
 }
 
 func NewPollingServiceWithMaterials(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials}
+	return NewPollingServiceWithParsing(courses, source, tasks, bindings, submissions, state, materials, nil)
+}
+
+func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing}
 }
 
 func (s *PollingService) Refresh(ctx context.Context) error {
@@ -142,14 +147,15 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 		if binding.Task.CourseID != courseID {
 			continue
 		}
-		if err := s.refreshTask(ctx, binding.Task); err != nil {
+		if err := s.refreshTask(ctx, binding); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (s *PollingService) refreshTask(ctx context.Context, item task.Task) error {
+func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) error {
+	item := binding.Task
 	items, err := s.source.ListSubmissions(ctx, item.ExternalID)
 	if err != nil {
 		return fmt.Errorf("list submissions for task %q: %w", item.ExternalID, err)
@@ -161,13 +167,9 @@ func (s *PollingService) refreshTask(ctx context.Context, item task.Task) error 
 			current.State = submission.Unknown
 		}
 		if s.materials != nil && current.State == submission.Submitted {
-			// Do not mutate the source's slice (which it may reuse on the next poll).
-			current.Materials = append([]submission.Material(nil), current.Materials...)
-			for i, item := range current.Materials {
-				current.Materials[i] = s.materials.Retrieve(ctx, item)
-				if err := ctx.Err(); err != nil {
-					return err
-				}
+			current.Materials, err = s.processMaterials(ctx, binding, current)
+			if err != nil {
+				return err
 			}
 		}
 		if err := s.submissions.Upsert(ctx, current); err != nil {

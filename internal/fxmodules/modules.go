@@ -3,6 +3,7 @@ package fxmodules
 import (
 	"github.com/alex/assistent/internal/adapters/classroom"
 	"github.com/alex/assistent/internal/adapters/drive"
+	"github.com/alex/assistent/internal/adapters/parser"
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/scenario"
@@ -25,14 +26,18 @@ var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.N
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	application.NewPollingServiceWithMaterials,
+	application.NewPollingServiceWithParsing,
 	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever),
+	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing),
 )
+
+func newMaterialParsing() *application.MaterialParsing {
+	return application.NewMaterialParsing(parser.Strategies()...)
+}
 
 var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))
 

@@ -32,6 +32,8 @@ type Material struct {
 	AppendixNumber *int
 	Role           string
 	Status         MaterialStatus
+	Parsing        *ParseResult // unscoped outcome or unsupported-source marker from retrieval
+	ParseOutcomes  []MaterialParse
 }
 
 type Submission struct {

@@ -112,7 +112,7 @@ func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing
 		{"malformed metadata", "not JSON", 200, 0, submission.Failed},
 		{"negative size", `{"id":"file-1","mimeType":"application/pdf","size":"-1"}`, 200, 0, submission.Failed},
 		{"oversized file metadata", `{"id":"file-1","mimeType":"application/pdf","size":"104857601"}`, 200, 0, submission.Failed},
-		{"unexportable type", `{"id":"file-1","mimeType":"application/vnd.google-apps.presentation"}`, 200, 0, submission.Failed},
+		{"unexportable type", `{"id":"file-1","name":"Slides","mimeType":"application/vnd.google-apps.presentation"}`, 200, 0, submission.Pending},
 		{"download disabled", `{"id":"file-1","mimeType":"application/pdf","capabilities":{"canDownload":false}}`, 200, 0, submission.AccessDenied},
 		{"download forbidden", metadata, 200, 403, submission.AccessDenied},
 		{"download missing", metadata, 200, 404, submission.NotFound},
@@ -121,13 +121,13 @@ func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Query().Get("alt") != "media" {
+				if r.URL.Query().Has("fields") {
 					w.WriteHeader(tt.metadataCode)
 					fmt.Fprint(w, tt.metadata)
 					return
 				}
 				if tt.contentCode == 0 {
-					t.Error("content requested after unsuccessful metadata lookup")
+					t.Error("unexpected content request")
 					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
@@ -147,6 +147,13 @@ func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing
 			g.Expect(got.ExternalID).To(Equal("file-1"))
 			g.Expect(got.SourceURI).To(Equal(source))
 			g.Expect(got.LocalPath).To(BeEmpty())
+			if tt.want == submission.Pending {
+				g.Expect(got.Name).To(Equal("Slides"))
+				g.Expect(got.MIMEType).To(Equal("application/vnd.google-apps.presentation"))
+				g.Expect(got.Parsing).To(HaveValue(Equal(submission.ParseResult{Issue: submission.UnsupportedMaterial})))
+			} else {
+				g.Expect(got.Parsing).To(BeNil())
+			}
 			entries, err := os.ReadDir(dir)
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(entries).To(BeEmpty())

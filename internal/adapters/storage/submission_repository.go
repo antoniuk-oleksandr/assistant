@@ -59,6 +59,10 @@ func upsertMaterial(ctx context.Context, tx *sql.Tx, submissionID int64, item su
 	if item.Status == "" {
 		item.Status = submission.Pending
 	}
+	parsed, err := mappers.EncodeMaterialParsing(item.Parsing)
+	if err != nil {
+		return fmt.Errorf("encode material parse result: %w", err)
+	}
 	var id int64
 	query := `SELECT id FROM materials WHERE submission_id=? AND external_material_id=?`
 	args := []any{submissionID, item.ExternalID}
@@ -66,26 +70,30 @@ func upsertMaterial(ctx context.Context, tx *sql.Tx, submissionID int64, item su
 		query = `SELECT id FROM materials WHERE submission_id=? AND external_material_id IS NULL AND name=? AND COALESCE(source_uri, '')=?`
 		args = []any{submissionID, item.Name, item.SourceURI}
 	}
-	err := tx.QueryRowContext(ctx, query, args...).Scan(&id)
+	err = tx.QueryRowContext(ctx, query, args...).Scan(&id)
 	if err == sql.ErrNoRows {
-		_, err = tx.ExecContext(ctx, `INSERT INTO materials (submission_id, external_material_id, name, mime_type, size_bytes, source_uri, local_path, appendix_number, role, status, created_at)
-VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, `+sqliteNowUTC+`)`, submissionID, item.ExternalID, item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status)
+		err = tx.QueryRowContext(ctx, `INSERT INTO materials (submission_id, external_material_id, name, mime_type, size_bytes, source_uri, local_path, appendix_number, role, status, parse_result, created_at)
+VALUES (?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, `+sqliteNowUTC+`) RETURNING id`, submissionID, item.ExternalID, item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status, parsed).Scan(&id)
 	} else if err == nil {
-		err = updateMaterial(ctx, tx, id, item)
+		err = updateMaterial(ctx, tx, id, item, parsed)
 	}
 	if err != nil {
 		return fmt.Errorf("upsert material %q: %w", item.Name, err)
 	}
-	return nil
+	return storeMaterialParses(ctx, tx, id, item.ParseOutcomes)
 }
 
-func updateMaterial(ctx context.Context, tx *sql.Tx, id int64, item submission.Material) error {
+func updateMaterial(ctx context.Context, tx *sql.Tx, id int64, item submission.Material, parsed *string) error {
 	if item.LocalPath != "" {
+		if err := archiveLegacyParse(ctx, tx, id, item.LocalPath); err != nil {
+			return err
+		}
 		// A successful read replaces the whole snapshot, including an absent size
 		// (for example, when the file is now a native Workspace document).
 		_, err := tx.ExecContext(ctx, `UPDATE materials SET name=?, mime_type=NULLIF(?, ''),
-size_bytes=?, source_uri=NULLIF(?, ''), local_path=?, appendix_number=?, role=?, status=? WHERE id=?`,
-			item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status, id)
+size_bytes=?, source_uri=NULLIF(?, ''), local_path=?, appendix_number=?, role=?, status=?,
+parse_result=CASE WHEN ? IS NULL AND local_path=? THEN parse_result ELSE ? END WHERE id=?`,
+			item.Name, item.MIMEType, item.SizeBytes, item.SourceURI, item.LocalPath, item.AppendixNumber, item.Role, item.Status, parsed, item.LocalPath, parsed, id)
 		return err
 	}
 
@@ -93,13 +101,16 @@ size_bytes=?, source_uri=NULLIF(?, ''), local_path=?, appendix_number=?, role=?,
 	// without a snapshot may still receive new provider metadata. A Classroom
 	// reference without an attempt can fill gaps but cannot reset the outcome.
 	attempted := item.Status != submission.Pending
+	metadataObserved := attempted || parsed != nil || len(item.ParseOutcomes) != 0
 	_, err := tx.ExecContext(ctx, `UPDATE materials SET
 name=CASE WHEN local_path IS NULL AND (? OR name='') THEN COALESCE(NULLIF(?, ''), name) ELSE name END,
 mime_type=CASE WHEN local_path IS NULL AND (? OR mime_type IS NULL) THEN COALESCE(NULLIF(?, ''), mime_type) ELSE mime_type END,
 size_bytes=CASE WHEN local_path IS NULL AND (? OR size_bytes IS NULL) THEN COALESCE(?, size_bytes) ELSE size_bytes END,
 source_uri=CASE WHEN local_path IS NULL AND (? OR source_uri IS NULL) THEN COALESCE(NULLIF(?, ''), source_uri) ELSE source_uri END,
-status=CASE WHEN ? THEN ? ELSE status END WHERE id=?`,
-		attempted, item.Name, attempted, item.MIMEType, attempted, item.SizeBytes, attempted, item.SourceURI, attempted, item.Status, id)
+status=CASE WHEN ? OR (? AND local_path IS NULL) THEN ? ELSE status END,
+parse_result=CASE WHEN local_path IS NULL THEN COALESCE(?, parse_result) ELSE parse_result END WHERE id=?`,
+		metadataObserved, item.Name, metadataObserved, item.MIMEType, metadataObserved, item.SizeBytes, metadataObserved, item.SourceURI,
+		attempted, metadataObserved, item.Status, parsed, id)
 	return err
 }
 
@@ -131,13 +142,26 @@ func (r *SQLiteSubmissionRepository) ListByTask(ctx context.Context, taskID int6
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, mappers.ToSubmission(row, materials))
+		current := mappers.ToSubmission(row, materials)
+		outcomes, err := r.materialParses(ctx, row.ID)
+		if err != nil {
+			return nil, err
+		}
+		for i, material := range materials {
+			parsed, err := mappers.DecodeMaterialParsing(material.ParseResult)
+			if err != nil {
+				return nil, fmt.Errorf("decode parse result for material %d: %w", material.ID, err)
+			}
+			current.Materials[i].Parsing = parsed
+			current.Materials[i].ParseOutcomes = outcomes[material.ID]
+		}
+		result = append(result, current)
 	}
 	return result, nil
 }
 
 func (r *SQLiteSubmissionRepository) materials(ctx context.Context, submissionID int64) ([]models.MaterialRow, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, submission_id, COALESCE(external_material_id,''), name, COALESCE(mime_type,''), size_bytes, COALESCE(source_uri,''), COALESCE(local_path,''), appendix_number, role, status FROM materials WHERE submission_id=? ORDER BY id`, submissionID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, submission_id, COALESCE(external_material_id,''), name, COALESCE(mime_type,''), size_bytes, COALESCE(source_uri,''), COALESCE(local_path,''), appendix_number, role, status, parse_result FROM materials WHERE submission_id=? ORDER BY id`, submissionID)
 	if err != nil {
 		return nil, fmt.Errorf("list materials: %w", err)
 	}
@@ -145,7 +169,7 @@ func (r *SQLiteSubmissionRepository) materials(ctx context.Context, submissionID
 	result := make([]models.MaterialRow, 0)
 	for rows.Next() {
 		var row models.MaterialRow
-		if err := rows.Scan(&row.ID, &row.SubmissionID, &row.ExternalID, &row.Name, &row.MIMEType, &row.SizeBytes, &row.SourceURI, &row.LocalPath, &row.AppendixNumber, &row.Role, &row.Status); err != nil {
+		if err := rows.Scan(&row.ID, &row.SubmissionID, &row.ExternalID, &row.Name, &row.MIMEType, &row.SizeBytes, &row.SourceURI, &row.LocalPath, &row.AppendixNumber, &row.Role, &row.Status, &row.ParseResult); err != nil {
 			return nil, fmt.Errorf("scan material: %w", err)
 		}
 		result = append(result, row)

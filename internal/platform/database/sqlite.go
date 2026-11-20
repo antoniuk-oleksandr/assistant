@@ -94,7 +94,16 @@ const createMaterials = `CREATE TABLE IF NOT EXISTS materials (
     appendix_number INTEGER,
     role TEXT NOT NULL DEFAULT 'supporting_evidence',
     status TEXT NOT NULL CHECK (status IN ('pending', 'parsed', 'invalid', 'access_denied', 'not_found', 'failed')),
+    parse_result TEXT,
     created_at TEXT NOT NULL
+)`
+
+const createMaterialParses = `CREATE TABLE IF NOT EXISTS material_parses (
+    material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
+    scenario_id INTEGER NOT NULL,
+    snapshot_path TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    PRIMARY KEY (material_id, scenario_id, snapshot_path)
 )`
 
 const createSubmissionIndexes = `CREATE INDEX IF NOT EXISTS ix_submissions_task_state ON submissions(task_id, state);
@@ -133,8 +142,11 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			if _, err := db.ExecContext(ctx, createMaterials); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite material schema: %w", err), db.Close())
 			}
-			if err := migrateMaterialSize(ctx, db); err != nil {
-				return errors.Join(fmt.Errorf("migrate SQLite material size: %w", err), db.Close())
+			if err := migrateMaterialColumns(ctx, db); err != nil {
+				return errors.Join(fmt.Errorf("migrate SQLite material columns: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createMaterialParses); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite material parse schema: %w", err), db.Close())
 			}
 			if _, err := db.ExecContext(ctx, createSubmissionIndexes); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite submission indexes: %w", err), db.Close())
@@ -146,19 +158,24 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 	return db, nil
 }
 
-func migrateMaterialSize(ctx context.Context, db *sql.DB) error {
+func migrateMaterialColumns(ctx context.Context, db *sql.DB) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('materials') WHERE name = 'size_bytes')`).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		if _, err := tx.ExecContext(ctx, `ALTER TABLE materials ADD COLUMN size_bytes INTEGER CHECK (size_bytes >= 0)`); err != nil {
+	for _, column := range []struct{ name, definition string }{
+		{"size_bytes", "INTEGER CHECK (size_bytes >= 0)"},
+		{"parse_result", "TEXT"},
+	} {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('materials') WHERE name = ?)`, column.name).Scan(&exists); err != nil {
 			return err
+		}
+		if !exists {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE materials ADD COLUMN `+column.name+` `+column.definition); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()
