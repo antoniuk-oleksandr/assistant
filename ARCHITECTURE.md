@@ -176,6 +176,7 @@ report-system
 ├── course
 │   ├── list
 │   ├── add <course-url-or-id>
+│   ├── tasks <course-url-or-id>
 │   └── remove <course-id>
 ├── scenario
 │   ├── list

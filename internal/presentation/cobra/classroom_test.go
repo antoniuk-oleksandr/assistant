@@ -20,6 +20,15 @@ type classroomServiceStub struct {
 	calls []string
 }
 
+type courseTaskServiceStub struct {
+	items []application.CourseTaskResult
+	err   error
+}
+
+func (s *courseTaskServiceStub) List(context.Context, string) ([]application.CourseTaskResult, error) {
+	return s.items, s.err
+}
+
 func (s *classroomServiceStub) Add(_ context.Context, reference string) error {
 	s.calls = append(s.calls, "add:"+reference)
 	return s.err
@@ -122,5 +131,21 @@ var _ = Describe("classroom commands", func() {
 		root := cli.NewRootCommandWithClassroom(&cobra.Command{Use: "scenario"}, cli.NewClassroomCommand(&classroomServiceStub{}))
 		root.SetArgs([]string{"course", "add", "123"})
 		Expect(root.Execute()).To(Succeed())
+	})
+
+	It("lists discovered tasks with their external IDs", func() {
+		command := cli.NewClassroomCommandWithTasks(&classroomServiceStub{}, &courseTaskServiceStub{items: []application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}}})
+		var output bytes.Buffer
+		command.SetOut(&output)
+		command.SetArgs([]string{"tasks", "123"})
+		Expect(command.Execute()).To(Succeed())
+		Expect(output.String()).To(ContainSubstring("TASK ID"))
+		Expect(output.String()).To(ContainSubstring("task-1"))
+		Expect(output.String()).To(ContainSubstring("Report"))
+
+		service := &courseTaskServiceStub{err: errors.New("task list failed")}
+		command = cli.NewClassroomCommandWithTasks(&classroomServiceStub{}, service)
+		command.SetArgs([]string{"tasks", "123"})
+		Expect(command.Execute()).To(MatchError("task list failed"))
 	})
 })

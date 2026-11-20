@@ -157,6 +157,7 @@ scenario task-list <scenario-name>
 
 course list
 course add <course-url-or-id>
+course tasks <course-url-or-id>
 course remove <course-id>
 ```
 

@@ -140,6 +140,7 @@ An unbound task is not processed.
 ```bash
 go run ./cmd/assistent course list
 go run ./cmd/assistent course add <course-id-or-url>
+go run ./cmd/assistent course tasks <course-id-or-url>
 go run ./cmd/assistent course remove <course-id>
 ```
 

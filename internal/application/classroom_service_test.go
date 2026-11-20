@@ -8,6 +8,7 @@ import (
 
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/classroom"
+	"github.com/alex/assistent/internal/domain/task"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -17,6 +18,14 @@ type classroomRepositoryStub struct {
 	err     error
 	calls   []string
 }
+
+type taskRepositoryStub struct {
+	tasks []task.Task
+	err   error
+}
+
+func (r *taskRepositoryStub) Register(context.Context, task.Task) error { return nil }
+func (r *taskRepositoryStub) List(context.Context) ([]task.Task, error) { return r.tasks, r.err }
 
 func (r *classroomRepositoryStub) Register(_ context.Context, course classroom.Course) error {
 	r.calls = append(r.calls, "register:"+course.ExternalID)
@@ -71,5 +80,21 @@ var _ = Describe("Classroom service", func() {
 		Expect(service.Add(ctx, "123")).To(MatchError("repository failed"))
 		Expect(service.List(ctx)).Error().To(MatchError("repository failed"))
 		Expect(service.Remove(ctx, "123")).To(MatchError("repository failed"))
+	})
+
+	It("lists only tasks belonging to the requested course", func(ctx SpecContext) {
+		repository := &taskRepositoryStub{tasks: []task.Task{
+			{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: task.Discovered},
+			{ExternalID: "task-2", CourseID: "456", Title: "Other", Status: task.Bound},
+		}}
+		service := application.NewCourseTaskService(repository)
+
+		result, err := service.List(ctx, "123")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result).To(Equal([]application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}}))
+		Expect(service.List(ctx, "invalid")).Error().To(MatchError(ContainSubstring("InvalidClassroomCourseReference")))
+
+		repository.err = errors.New("task repository failed")
+		Expect(service.List(ctx, "123")).Error().To(MatchError("task repository failed"))
 	})
 })

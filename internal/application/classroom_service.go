@@ -18,6 +18,40 @@ type ClassroomService struct {
 	repository ports.ClassroomCourseRepository
 }
 
+type CourseTaskResult struct {
+	ExternalID string
+	CourseID   string
+	Title      string
+	Status     string
+}
+
+type CourseTaskService struct {
+	tasks ports.TaskRepository
+}
+
+func NewCourseTaskService(tasks ports.TaskRepository) *CourseTaskService {
+	return &CourseTaskService{tasks: tasks}
+}
+
+func (s *CourseTaskService) List(ctx context.Context, reference string) ([]CourseTaskResult, error) {
+	courseID, err := classroom.NormalizeReference(reference)
+	if err != nil {
+		return nil, err
+	}
+	items, err := s.tasks.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CourseTaskResult, 0)
+	for _, item := range items {
+		if item.CourseID != courseID {
+			continue
+		}
+		result = append(result, CourseTaskResult{ExternalID: item.ExternalID, CourseID: item.CourseID, Title: item.Title, Status: string(item.Status)})
+	}
+	return result, nil
+}
+
 func NewClassroomService(repository ports.ClassroomCourseRepository) *ClassroomService {
 	return &ClassroomService{repository: repository}
 }
