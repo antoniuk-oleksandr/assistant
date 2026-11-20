@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 client_secret.json
+spreadsheet_secret.json
 
 # Go build output
 /bin/
@@ -15,7 +16,7 @@ client_secret.json
 *.test
 
 # Local application data
-/data/materials/
+/data/
 *.db
 *.db-shm
 *.db-wal

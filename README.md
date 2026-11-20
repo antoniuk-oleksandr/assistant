@@ -1,0 +1,300 @@
+# Scheduled Report Aggregation System
+
+Scheduled Report Aggregation System is a local Go application for collecting, validating, aggregating, and distributing periodic departmental submissions. Its first concrete workflow is scientific activity reporting from Google Classroom.
+
+It discovers Classroom coursework, reads submissions and attached materials, maps them to a fixed 28-appendix scientific-report structure, preserves supporting evidence, creates an aggregate report, and stores operational state in SQLite.
+
+## Runtime model
+
+There is one executable and no separate `worker` command:
+
+```text
+no arguments  -> start the long-running background poller
+arguments     -> execute one administrative CLI command and exit
+```
+
+The poller refreshes immediately and then every five minutes. It uses a SQLite process lock, so only one instance can run against a database.
+
+```bash
+just run
+# equivalent:
+go run ./cmd/assistent
+```
+
+The command normally stays attached to the terminal and produces little output. Stop it with `Ctrl+C`. A second process using the same database exits because the lock is held.
+
+## Features
+
+- Google Classroom course registration and polling.
+- Explicit task-to-scenario binding.
+- Scientific activity reporting through `ScienceReportScenario`.
+- Mapping to 28 known appendices with defaults for missing appendices.
+- DOCX, XLSX, PDF, Google Docs, Google Sheets, and image ingestion boundaries.
+- Supporting evidence and source-reference preservation.
+- Numeric aggregation, text aggregation, and conflict detection.
+- Persisted report runs, versioned results, outputs, and processing history.
+- OAuth-backed Google Sheets output as the production default.
+- Local XLSX output as an explicit fallback.
+- Missing-submission reminders.
+- Notification retries and dead-letter state.
+- Teacher recipients and notification channels in SQLite.
+- Restart checkpoints and idempotent polling state.
+- Local daily application logs.
+
+## Requirements
+
+- Go 1.20 or newer.
+- SQLite support through `github.com/mattn/go-sqlite3`.
+- Google Cloud OAuth credentials for live Classroom, Drive, and Sheets access.
+- `just` is optional.
+
+The default Sheets renderer requires a refresh token authorized for:
+
+```text
+https://www.googleapis.com/auth/spreadsheets
+```
+
+## Configuration
+
+Create a repository-root `.env` file. Never commit it.
+
+### Database and renderer
+
+```env
+# Default: data/report-system.db
+SQLITE_DATABASE_PATH=data/report-system.db
+
+# Default: google-sheets. Alternative: local-xlsx
+REPORT_RENDERER=google-sheets
+
+GOOGLE_SHEETS_REPORT_TITLE=Scientific activity report
+GOOGLE_SHEETS_BASE_URL=https://sheets.googleapis.com/v4
+```
+
+### Google Sheets OAuth
+
+```env
+GOOGLE_SHEETS_OAUTH_CLIENT_ID=...
+GOOGLE_SHEETS_OAUTH_CLIENT_SECRET=...
+GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN=...
+```
+
+The three values must belong to the same OAuth client and authorized Google account. The refresh token is a secret used to obtain short-lived access tokens without interactive authorization.
+
+### Google Drive OAuth
+
+```env
+GOOGLE_DRIVE_OAUTH_CLIENT_ID=...
+GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=...
+GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=...
+
+# Default: data/materials
+GOOGLE_DRIVE_MATERIAL_DIR=data/materials
+GOOGLE_DRIVE_BASE_URL=https://www.googleapis.com/drive/v3
+```
+
+See [docs/drive.md](docs/drive.md) for Drive authorization details.
+
+### OAuth setup summary
+
+1. Select or create a Google Cloud project.
+2. Enable Sheets, Drive, and Classroom APIs as required.
+3. Configure the OAuth consent screen and add the operating account as a test user when needed.
+4. Create an OAuth client.
+5. Authorize the required scopes and obtain a refresh token with offline access.
+6. Put the values in `.env`.
+
+## CLI commands
+
+The executable built from this repository is `assistent`. Use `--help` for Cobra help:
+
+```bash
+go run ./cmd/assistent --help
+```
+
+### Scenario
+
+```bash
+go run ./cmd/assistent scenario add science-report
+go run ./cmd/assistent scenario list
+go run ./cmd/assistent scenario enable science-report
+go run ./cmd/assistent scenario disable science-report
+go run ./cmd/assistent scenario remove science-report
+```
+
+Bind and inspect tasks:
+
+```bash
+go run ./cmd/assistent scenario task-bind science-report <task-id>
+go run ./cmd/assistent scenario task-list science-report
+go run ./cmd/assistent scenario task-unbind <task-id>
+```
+
+An unbound task is not processed.
+
+### Classroom
+
+```bash
+go run ./cmd/assistent classroom list
+go run ./cmd/assistent classroom add <course-id-or-url>
+go run ./cmd/assistent classroom remove <course-id>
+```
+
+`classroom add` accepts a numeric course ID, a full Classroom URL, or the Base64URL course segment from a Classroom URL. Removing a course disables polling but preserves historical records.
+
+### CLI scope
+
+The current Cobra CLI exposes `scenario` and `classroom`. Teacher, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands. Do not assume commands such as `teacher list` or `notification retry` exist.
+
+## First-time setup
+
+The application does not process arbitrary courses or tasks automatically. Configure the relationship explicitly:
+
+```bash
+# Stop the poller first if its process lock is held.
+go run ./cmd/assistent classroom add <classroom-course-id-or-url>
+go run ./cmd/assistent scenario add science-report
+
+# Discover coursework.
+just run
+
+# Stop the poller if needed, inspect bindings, and bind the desired task.
+go run ./cmd/assistent scenario task-bind science-report <task-id>
+
+# Resume polling.
+just run
+```
+
+The task ID is the persisted internal ID, not a guessed Classroom title.
+
+## Report pipeline
+
+```text
+Google Classroom
+    -> submissions and material metadata
+    -> retrieval and parser registry
+    -> normalized parsed documents
+    -> 28-appendix aggregation
+    -> conflicts, missing submissions, invalid materials, evidence
+    -> persisted report result
+    -> Google Sheet or local XLSX
+```
+
+Missing appendices remain represented in the 28-appendix structure. Numeric values default to zero, text/list values remain empty where appropriate, and supporting evidence is kept separate.
+
+The Google Sheets renderer creates a spreadsheet with sections for appendices, supporting evidence, invalid materials, missing submissions, and conflicts. The local renderer creates an XLSX-compatible workbook with the same sections.
+
+## Development commands
+
+```bash
+just test
+go test ./...
+
+just coverage
+go test ./... -coverpkg=./cmd/assistent,./internal/... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+
+go vet ./...
+go test -race ./...
+git diff --check
+```
+
+CI enforces at least 90% total coverage. Tests should be based on measured uncovered code.
+
+## Justfile commands
+
+| Command | Purpose |
+|---|---|
+| `just run` | Start the background poller |
+| `just test` | Run the Go test suite |
+| `just coverage` | Generate coverage output and `coverage.html` |
+| `just build` | Build `bin/assistent` |
+| `just hermes-build` | Build the local Hermes image |
+| `just hermes-up` | Build and start Hermes with Docker Compose |
+| `just hermes-status` | Show Hermes Compose status |
+| `just hermes-setup` | Install Graphify and test Hermes GitHub MCP access |
+| `just hermes-connect-codex` | Add OpenAI Codex authentication to Hermes |
+| `just hermes-tasks` | Run the Hermes delivery loop for issues 8–16 |
+| `just hermes-tasks-range start end` | Run the Hermes loop for an explicit range |
+
+Hermes commands are development automation and are not required to run the report application.
+
+## Project structure
+
+```text
+cmd/assistent/                 executable entry point
+internal/domain/               entities, rules, and ports
+internal/application/          use-case orchestration and polling
+internal/adapters/classroom/   Google Classroom integration
+internal/adapters/drive/       Drive retrieval and OAuth
+internal/adapters/parser/      document parsers
+internal/adapters/renderer/    Google Sheets and local XLSX renderers
+internal/adapters/storage/     SQLite repositories
+internal/platform/config/      typed environment configuration
+internal/platform/database/    SQLite schema and migrations
+internal/platform/locking/     single-process lock
+internal/fxmodules/            Uber Fx dependency wiring
+internal/presentation/cobra/   CLI commands and formatting
+mocks/                         generated test mocks
+tests/support/fixtures/        shared fixtures
+templates/scientific-report/   28-appendix reference templates
+docs/                          integration documentation
+```
+
+## Architecture
+
+The project uses four layers:
+
+```text
+Presentation -> Application -> Domain
+       |            |          ^
+       +------------+-- Infrastructure adapters
+```
+
+Domain ports define external boundaries. Application services coordinate use
+cases through those ports. Infrastructure implements Google, SQLite, filesystem,
+parser, renderer, and notification integrations. Cobra parses commands and calls
+application services. Uber Fx constructs the dependency graph.
+
+Domain and application code do not import Google API models, SQLite rows, or
+Cobra DTOs. See [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## Persistence
+
+SQLite is the single operational state store. The default database is:
+
+```text
+data/report-system.db
+```
+
+It stores scenarios, Classroom courses, tasks, bindings, polling checkpoints,
+submissions, materials, report runs, outputs, versioned results, deliveries,
+reminders, teachers, channels, and processing history. Disabling a course or
+scenario preserves historical records.
+
+See [database.md](database.md) for the schema.
+
+## Testing
+
+The default suite does not call live Google services. External integrations use
+fakes, HTTP test servers, and isolated SQLite databases. Tests cover domain
+behavior, application orchestration, persistence, mappers, parsers, renderers,
+and Cobra commands.
+
+See [TESTING.md](TESTING.md) for the testing strategy.
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — layers, ports, Fx, and design rules.
+- [SYSTEM_DESCRIPTION.md](SYSTEM_DESCRIPTION.md) — product behavior and workflow.
+- [database.md](database.md) — SQLite schema and persistence rules.
+- [TESTING.md](TESTING.md) — testing and coverage expectations.
+- [docs/drive.md](docs/drive.md) — Drive authorization and retrieval.
+- [docs/hermes.md](docs/hermes.md) — Hermes automation.
+
+## Security
+
+Never commit OAuth client secrets, refresh tokens, `.env`,
+`spreadsheet_secret.json`, the SQLite database, downloaded materials, or
+generated report artifacts. Rotate credentials immediately if a secret is exposed.
+
