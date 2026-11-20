@@ -139,6 +139,18 @@ const createReportResults = `CREATE TABLE IF NOT EXISTS report_results (
     UNIQUE (report_run_id, version)
 )`
 
+const createReportDeliveries = `CREATE TABLE IF NOT EXISTS report_deliveries (
+    id INTEGER PRIMARY KEY,
+    result_id INTEGER NOT NULL REFERENCES report_results(id),
+    channel TEXT NOT NULL,
+    destination TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'sent', 'failed')),
+    error_message TEXT,
+    attempted_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (result_id, channel, destination)
+)`
+
 const createMaterialParses = `CREATE TABLE IF NOT EXISTS material_parses (
     material_id INTEGER NOT NULL REFERENCES materials(id) ON DELETE CASCADE,
     scenario_id INTEGER NOT NULL,
@@ -194,6 +206,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createReportResults); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite report result schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createReportDeliveries); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite report delivery schema: %w", err), db.Close())
 			}
 			if err := migrateMaterialColumns(ctx, db); err != nil {
 				return errors.Join(fmt.Errorf("migrate SQLite material columns: %w", err), db.Close())
