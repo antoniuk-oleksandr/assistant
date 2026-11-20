@@ -101,6 +101,25 @@ func TestScienceReportCollectionProcessorAggregatesAppendicesAndSources(t *testi
 	}
 }
 
+func TestScienceReportCollectionProcessorRecordsConflictingLocatedValues(t *testing.T) {
+	appendix := 1
+	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
+		ExternalID: "submission-1", State: submission.Submitted, Materials: []submission.Material{{
+			Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
+				Source: submission.DocumentSource{AppendixNumber: &appendix},
+				Fields: []submission.Field{{Value: "first", Location: submission.Location{Paragraph: 1}}, {Value: "second", Location: submission.Location{Paragraph: 1}}},
+			}}}},
+		}},
+	}}})
+	if err != nil || result.ReportData == nil || len(result.ReportData.Appendices[0].Conflicts) != 1 {
+		t.Fatalf("result = %#v, err = %v", result, err)
+	}
+	conflict := result.ReportData.Appendices[0].Conflicts[0]
+	if conflict.Appendix != 1 || len(conflict.Values) != 2 || conflict.Values[0] != "first" || conflict.Values[1] != "second" {
+		t.Fatalf("conflict = %#v", conflict)
+	}
+}
+
 func TestRegistryResolvesProcessors(t *testing.T) {
 	processor := scenario.ScienceReportCollectionProcessor{}
 	registry := scenario.NewRegistryWithProcessors(

@@ -20,6 +20,7 @@ type ScenarioCollectionService struct {
 	runs        ports.ReportRunRepository
 	renderer    ports.ReportRenderer
 	outputs     ports.ReportOutputRepository
+	results     ports.ReportResultRepository
 	clock       func() time.Time
 }
 
@@ -28,7 +29,11 @@ func NewScenarioCollectionService(submissions ports.SubmissionRepository, runs p
 }
 
 func NewScenarioCollectionServiceWithRenderer(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository) *ScenarioCollectionService {
-	return &ScenarioCollectionService{submissions: submissions, runs: runs, renderer: renderer, outputs: outputs, clock: func() time.Time { return time.Now().UTC() }}
+	return NewScenarioCollectionServiceWithRendererAndResult(submissions, runs, renderer, outputs, nil)
+}
+
+func NewScenarioCollectionServiceWithRendererAndResult(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository) *ScenarioCollectionService {
+	return &ScenarioCollectionService{submissions: submissions, runs: runs, renderer: renderer, outputs: outputs, results: results, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, taskID int64, processor scenario.CollectionProcessor) (report.Run, error) {
@@ -66,6 +71,14 @@ func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, tas
 		result.ErrorMessage = processErr.Error()
 	}
 	if result.ReportData != nil && s.renderer != nil {
+		var persistedResult *report.Result
+		if s.results != nil {
+			value := report.NewResult(run.ID, scenarioID, taskID, *result.ReportData, s.clock())
+			if err := s.results.Create(ctx, &value); err != nil {
+				return run, s.persistFailure(ctx, &run, fmt.Errorf("persist processing result: %w", err))
+			}
+			persistedResult = &value
+		}
 		output, err := s.renderer.RenderAndSave(ctx, *result.ReportData)
 		if err != nil {
 			return run, s.persistFailure(ctx, &run, fmt.Errorf("render report package: %w", err))
@@ -74,6 +87,19 @@ func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, tas
 		if s.outputs != nil {
 			if err := s.outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: output.Format, Path: output.Path, Version: output.Version, CreatedAt: output.CreatedAt}); err != nil {
 				return run, s.persistFailure(ctx, &run, fmt.Errorf("persist report output: %w", err))
+			}
+		}
+		if persistedResult != nil {
+			status := report.ResultCompleted
+			if result.Outcome == scenario.Partial {
+				status = report.ResultPartial
+			}
+			if result.Outcome == scenario.Failed {
+				status = report.ResultFailed
+			}
+			persistedResult.Complete(status, s.clock(), result.ErrorMessage)
+			if err := s.results.Update(ctx, persistedResult); err != nil {
+				return run, s.persistFailure(ctx, &run, fmt.Errorf("persist terminal result: %w", err))
 			}
 		}
 	}

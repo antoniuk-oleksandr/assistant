@@ -22,13 +22,21 @@ type ReportData struct {
 	SupportingEvidence []ReportSource                       `json:"supporting_evidence"`
 	MissingSubmissions []string                             `json:"missing_submissions"`
 	InvalidMaterials   []ReportSource                       `json:"invalid_materials"`
+	Conflicts          []ReportConflict                     `json:"conflicts"`
+}
+
+type ReportConflict struct {
+	Appendix int          `json:"appendix"`
+	Source   ReportSource `json:"source"`
+	Values   []string     `json:"values"`
 }
 
 type ReportAppendix struct {
-	Number       int            `json:"number"`
-	NumericTotal float64        `json:"numeric_total"`
-	TextValues   []string       `json:"text_values"`
-	Sources      []ReportSource `json:"sources"`
+	Number       int              `json:"number"`
+	NumericTotal float64          `json:"numeric_total"`
+	TextValues   []string         `json:"text_values"`
+	Sources      []ReportSource   `json:"sources"`
+	Conflicts    []ReportConflict `json:"conflicts"`
 }
 
 type ReportSource struct {
@@ -83,6 +91,7 @@ func (ScienceReportCollectionProcessor) Process(collection Collection) (ProcessR
 	if result.Processed == 0 {
 		result.Outcome = Failed
 		result.ErrorMessage = "no submitted submissions available for processing"
+		result.ReportData = &report
 		return result, nil
 	}
 	if result.Failed > 0 {
@@ -118,10 +127,18 @@ func aggregateParseResult(report *ReportData, source ReportSource, parsed submis
 }
 
 func aggregateFields(appendix *ReportAppendix, source ReportSource, fields []submission.Field) {
+	seen := make(map[string]string)
 	for _, field := range fields {
 		value := strings.TrimSpace(field.Value)
 		if value == "" {
 			continue
+		}
+		location := fmt.Sprintf("%d:%d:%d:%d", field.Location.Paragraph, field.Location.Table, field.Location.Row, field.Location.Column)
+		if location != "0:0:0:0" {
+			if previous, ok := seen[location]; ok && previous != value {
+				appendix.Conflicts = append(appendix.Conflicts, ReportConflict{Appendix: appendix.Number, Source: source, Values: []string{previous, value}})
+			}
+			seen[location] = value
 		}
 		if number, err := strconv.ParseFloat(value, 64); err == nil {
 			appendix.NumericTotal += number
