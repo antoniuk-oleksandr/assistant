@@ -23,6 +23,7 @@ import (
 )
 
 func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
+	t.Setenv("REPORT_RENDERER", "local-xlsx")
 	g := NewWithT(t)
 	const pdfLink = "https://drive.google.com/file/d/pdf/view?resourcekey=fixture-key"
 	const docsLink = "https://docs.google.com/document/d/denied/edit"
@@ -233,6 +234,7 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 }
 
 func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) {
+	t.Setenv("REPORT_RENDERER", "local-xlsx")
 	g := NewWithT(t)
 	const materialBody = "opaque evidence payload"
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

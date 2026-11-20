@@ -79,8 +79,8 @@ func TestGoogleSheetsReportRendererStopsOnProviderErrors(t *testing.T) {
 	}
 }
 
-func TestConfiguredReportRendererDefaultsToLocalArtifact(t *testing.T) {
-	renderer, err := NewConfiguredReportRenderer(config.Config{})
+func TestConfiguredReportRendererSelectsExplicitLocalArtifact(t *testing.T) {
+	renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "local-xlsx"}})
 	if err != nil {
 		t.Fatal(err)
 	}

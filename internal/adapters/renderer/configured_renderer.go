@@ -11,10 +11,15 @@ import (
 	"github.com/alex/assistent/internal/platform/config"
 )
 
-// NewConfiguredReportRenderer makes the runtime choice explicit. Local XLSX
-// remains the default; REPORT_RENDERER=google-sheets selects the real Google
-// Sheets implementation.
+// NewConfiguredReportRenderer makes the runtime choice explicit. Production
+// configuration defaults to Google Sheets; REPORT_RENDERER=local-xlsx selects
+// the local fallback.
 func NewConfiguredReportRenderer(cfg config.Config) (ports.ReportRenderer, error) {
+	// Fx unit tests and embedders may supply a partial Config directly. The
+	// production loader always fills this field with "google-sheets".
+	if cfg.Report.Renderer == "" {
+		return NewLocalXLSXRenderer(), nil
+	}
 	if cfg.Report.Renderer != "google-sheets" {
 		if cfg.Report.Renderer != "" && cfg.Report.Renderer != "local-xlsx" {
 			return nil, fmt.Errorf("unsupported REPORT_RENDERER %q", cfg.Report.Renderer)

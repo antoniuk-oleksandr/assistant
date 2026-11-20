@@ -75,7 +75,7 @@ func Load() (Config, error) {
 	}
 	reportRenderer := get("REPORT_RENDERER")
 	if reportRenderer == "" {
-		reportRenderer = "local-xlsx"
+		reportRenderer = "google-sheets"
 	}
 	return Config{
 		Database: DatabaseConfig{SQLitePath: path},

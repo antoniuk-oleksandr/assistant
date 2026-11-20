@@ -26,6 +26,7 @@ var _ = Describe("configuration loading", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(loaded.Database.SQLitePath).To(Equal(config.DefaultSQLitePath))
 		Expect(config.Database(loaded)).To(Equal(loaded.Database))
+		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
 	})
 
 	It("loads a path from .env and lets the process environment override it", func() {
