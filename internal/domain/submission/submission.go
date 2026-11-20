@@ -26,6 +26,7 @@ type Material struct {
 	ExternalID     string
 	Name           string
 	MIMEType       string
+	SizeBytes      *int64
 	SourceURI      string
 	LocalPath      string
 	AppendixNumber *int

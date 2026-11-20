@@ -118,6 +118,41 @@ var _ = Describe("SQLite submission repository", func() {
 		Expect(err).To(MatchError(ContainSubstring("list submissions: sql: database is closed")))
 	})
 
+	It("rolls back a snapshot replacement and submission update when another material fails to persist", func(ctx SpecContext) {
+		Expect(storage.NewTaskRepository(db).Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "task-1", CourseID: "course-1", Title: "Report"})).To(Succeed())
+		size := int64(100)
+		original := submission.Material{ExternalID: "file-1", Name: "report.pdf", MIMEType: "application/pdf", SizeBytes: &size,
+			SourceURI: "https://drive.google.com/open?id=file-1", LocalPath: "/fixtures/original.pdf", Role: "supporting_evidence", Status: submission.Pending}
+		item := submission.Submission{TaskExternalID: "task-1", ExternalID: "report-1", State: submission.Submitted, Materials: []submission.Material{original}}
+		Expect(repo.Upsert(ctx, item)).To(Succeed())
+		before, err := repo.ListByTask(ctx, 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(before).To(HaveLen(1))
+		Expect(before[0].Materials).To(HaveLen(1))
+		original.ID = before[0].Materials[0].ID
+		Expect(before[0].Materials[0]).To(Equal(original))
+
+		replacement := original
+		replacement.Name = "report"
+		replacement.MIMEType = "application/vnd.google-apps.document"
+		replacement.LocalPath = "/fixtures/replacement.docx"
+		replacement.SizeBytes = nil
+		badSize := int64(-1)
+		item.SubmitterName = "Updated submitter"
+		item.Materials = []submission.Material{replacement, {ExternalID: "file-2", Name: "invalid-size", SizeBytes: &badSize}}
+		Expect(repo.Upsert(ctx, item)).To(MatchError(ContainSubstring(`upsert material "invalid-size"`)))
+		after, err := repo.ListByTask(ctx, 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after).To(Equal(before))
+
+		item.Materials = []submission.Material{replacement}
+		Expect(repo.Upsert(ctx, item)).To(Succeed())
+		after, err = repo.ListByTask(ctx, 1)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(after).To(HaveLen(1))
+		Expect(after[0].Materials).To(Equal([]submission.Material{replacement}))
+	})
+
 	It("rejects invalid submission and material states", func(ctx SpecContext) {
 		Expect(storage.NewTaskRepository(db).Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "task-1", CourseID: "course-1", Title: "Report"})).To(Succeed())
 

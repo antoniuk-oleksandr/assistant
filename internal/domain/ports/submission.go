@@ -20,6 +20,12 @@ type IncrementalSubmissionSource interface {
 	ListTasksSince(context.Context, string, time.Time) ([]task.Task, error)
 }
 
+// MaterialRetriever enriches one attachment and records its retrieval outcome
+// on the material, independently of the Classroom submission state.
+type MaterialRetriever interface {
+	Retrieve(context.Context, submission.Material) submission.Material
+}
+
 type SubmissionRepository interface {
 	Upsert(context.Context, submission.Submission) error
 	ListByTask(context.Context, int64) ([]submission.Submission, error)

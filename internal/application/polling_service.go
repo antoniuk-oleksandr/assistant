@@ -23,6 +23,7 @@ type PollingService struct {
 	bindings    ports.TaskBindingRepository
 	submissions ports.SubmissionRepository
 	state       ports.PollingStateRepository
+	materials   ports.MaterialRetriever
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -30,7 +31,11 @@ func NewPollingService(courses ports.ClassroomCourseRepository, source ports.Sub
 }
 
 func NewPersistentPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state}
+	return NewPollingServiceWithMaterials(courses, source, tasks, bindings, submissions, state, nil)
+}
+
+func NewPollingServiceWithMaterials(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials}
 }
 
 func (s *PollingService) Refresh(ctx context.Context) error {
@@ -154,6 +159,16 @@ func (s *PollingService) refreshTask(ctx context.Context, item task.Task) error 
 		current.TaskExternalID = item.ExternalID
 		if current.State == "" {
 			current.State = submission.Unknown
+		}
+		if s.materials != nil && current.State == submission.Submitted {
+			// Do not mutate the source's slice (which it may reuse on the next poll).
+			current.Materials = append([]submission.Material(nil), current.Materials...)
+			for i, item := range current.Materials {
+				current.Materials[i] = s.materials.Retrieve(ctx, item)
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+			}
 		}
 		if err := s.submissions.Upsert(ctx, current); err != nil {
 			return fmt.Errorf("store submission %q: %w", current.ExternalID, err)
