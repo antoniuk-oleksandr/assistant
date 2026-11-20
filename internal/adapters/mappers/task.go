@@ -1,0 +1,14 @@
+package mappers
+
+import (
+	"github.com/alex/assistent/internal/adapters/models"
+	"github.com/alex/assistent/internal/domain/task"
+)
+
+func ToTask(row models.TaskRow) task.Task {
+	return task.Task{ID: row.ID, Provider: row.Provider, ExternalID: row.ExternalID, CourseID: row.CourseID, Title: row.Title, Description: row.Description, CreatedAtExternal: row.CreatedAtExternal, DueAt: row.DueAt, Status: task.Status(row.Status)}
+}
+
+func ToTaskBinding(row models.TaskBindingRow) task.Binding {
+	return task.Binding{ScenarioID: row.ScenarioID, ScenarioName: row.ScenarioName, ScenarioType: row.ScenarioType, Status: row.Status, BoundAt: row.BoundAt, UnboundAt: row.UnboundAt, Task: task.Task{ID: row.TaskID, Provider: row.Provider, ExternalID: row.ExternalID, CourseID: row.CourseID, Title: row.Title, Description: row.Description, DueAt: row.DueAt, Status: task.Status(row.TaskStatus)}}
+}

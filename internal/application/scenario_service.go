@@ -2,10 +2,12 @@ package application
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/task"
 )
 
 // ScenarioResult is the administrative view of a registered scenario.
@@ -21,10 +23,60 @@ type ScenarioResult struct {
 type ScenarioService struct {
 	repository ports.ScenarioRepository
 	registry   scenario.Registry
+	bindings   ports.TaskBindingRepository
 }
 
 func NewScenarioService(repository ports.ScenarioRepository, registry scenario.Registry) *ScenarioService {
 	return &ScenarioService{repository: repository, registry: registry}
+}
+
+func NewScenarioServiceWithBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository) *ScenarioService {
+	return &ScenarioService{repository: repository, registry: registry, bindings: bindings}
+}
+
+type TaskBindingResult struct {
+	ScenarioName string
+	ScenarioType string
+	TaskID       string
+	CourseID     string
+	Title        string
+	Status       string
+}
+
+func (s *ScenarioService) BindTask(ctx context.Context, scenarioName, taskID string) error {
+	if s.bindings == nil {
+		return errors.New("task bindings are unavailable")
+	}
+	return s.bindings.Bind(ctx, scenarioName, taskID)
+}
+
+func (s *ScenarioService) UnbindTask(ctx context.Context, taskID string) error {
+	if s.bindings == nil {
+		return errors.New("task bindings are unavailable")
+	}
+	return s.bindings.Unbind(ctx, taskID)
+}
+
+func (s *ScenarioService) ListTaskBindings(ctx context.Context, scenarioName string) ([]TaskBindingResult, error) {
+	if s.bindings == nil {
+		return nil, errors.New("task bindings are unavailable")
+	}
+	items, err := s.bindings.List(ctx, scenarioName)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]TaskBindingResult, 0, len(items))
+	for _, item := range items {
+		result = append(result, TaskBindingResult{ScenarioName: item.ScenarioName, ScenarioType: item.ScenarioType, TaskID: item.Task.ExternalID, CourseID: item.Task.CourseID, Title: item.Task.Title, Status: item.Status})
+	}
+	return result, nil
+}
+
+func (s *ScenarioService) ActiveTaskBindings(ctx context.Context) ([]task.Binding, error) {
+	if s.bindings == nil {
+		return nil, errors.New("task bindings are unavailable")
+	}
+	return s.bindings.Active(ctx)
 }
 
 func (s *ScenarioService) Add(ctx context.Context, name string) error {

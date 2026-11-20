@@ -73,8 +73,64 @@ func (r *SQLiteScenarioRepository) SetStatus(ctx context.Context, name string, s
 }
 
 func (r *SQLiteScenarioRepository) Remove(ctx context.Context, name string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM scenarios WHERE name = ?`, name)
-	return checkedScenarioWrite("remove", name, result, err)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("remove scenario %q: begin transaction: %w", name, err)
+	}
+	rollback := func(err error) error {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return fmt.Errorf("%w; rollback: %v", err, rollbackErr)
+		}
+		return err
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT task_id FROM scenario_tasks WHERE scenario_id = (SELECT id FROM scenarios WHERE name = ?)
+		AND status = 'active'`, name)
+	if err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: find active bindings: %w", name, err))
+	}
+	var taskIDs []int64
+	for rows.Next() {
+		var taskID int64
+		if err := rows.Scan(&taskID); err != nil {
+			rows.Close()
+			return rollback(fmt.Errorf("remove scenario %q: scan binding: %w", name, err))
+		}
+		taskIDs = append(taskIDs, taskID)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return rollback(fmt.Errorf("remove scenario %q: read bindings: %w", name, err))
+	}
+	if err := rows.Close(); err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: close bindings: %w", name, err))
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scenario_tasks WHERE scenario_id = (SELECT id FROM scenarios WHERE name = ?)`, name); err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: remove bindings: %w", name, err))
+	}
+	for _, taskID := range taskIDs {
+		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status = 'discovered'
+			WHERE id = ? AND NOT EXISTS (SELECT 1 FROM scenario_tasks WHERE task_id = ? AND status = 'active')`, taskID, taskID); err != nil {
+			return rollback(fmt.Errorf("remove scenario %q: reset task %d status: %w", name, taskID, err))
+		}
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM scenarios WHERE name = ?`, name)
+	if err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: %w", name, err))
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: %w", name, err))
+	}
+	if affected == 0 {
+		return rollback(scenario.NotFound(name))
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("remove scenario %q: commit transaction: %w", name, err)
+	}
+	return nil
 }
 
 func checkedScenarioWrite(action, name string, result sql.Result, err error) error {

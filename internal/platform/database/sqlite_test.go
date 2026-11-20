@@ -1,12 +1,15 @@
 package database_test
 
 import (
+	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/fx"
@@ -18,6 +21,15 @@ func TestSQLite(t *testing.T) {
 }
 
 var _ = Describe("SQLite initialization", func() {
+	It("rejects a database path whose parent is a file", func() {
+		parent := filepath.Join(GinkgoT().TempDir(), "not-a-directory")
+		Expect(os.WriteFile(parent, []byte("file"), 0600)).To(Succeed())
+
+		var db *sql.DB
+		app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(parent, "state.db")}), fx.Provide(database.NewSQLite), fx.Populate(&db))
+		Expect(app.Start(context.Background())).To(MatchError(ContainSubstring("create SQLite directory")))
+	})
+
 	It("creates the scenario schema in an in-memory database", func(ctx SpecContext) {
 		var db *sql.DB
 		app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: ":memory:"}), fx.Provide(database.NewSQLite), fx.Populate(&db))
@@ -40,4 +52,5 @@ var _ = Describe("SQLite initialization", func() {
 		Expect(db.QueryRowContext(ctx, "SELECT count(*) FROM scenarios").Scan(&count)).To(Succeed())
 		Expect(count).To(Equal(0))
 	})
+
 })

@@ -21,6 +21,7 @@ func TestScenarioRepository(t *testing.T) {
 }
 
 var _ = Describe("SQLite scenario selection", func() {
+	var db *sql.DB
 	var repo ports.ScenarioRepository
 
 	science := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
@@ -28,7 +29,7 @@ var _ = Describe("SQLite scenario selection", func() {
 
 	BeforeEach(func(ctx SpecContext) {
 		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
-		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewScenarioRepository), fx.Populate(&repo))
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewScenarioRepository), fx.Populate(&db, &repo))
 		Expect(app.Start(ctx)).To(Succeed())
 		DeferCleanup(app.Stop)
 	})
@@ -69,6 +70,9 @@ var _ = Describe("SQLite scenario selection", func() {
 	It("reports a missing registration on status changes and removal", func(ctx SpecContext) {
 		Expect(repo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(scenario.ErrNotFound))
 		Expect(repo.Remove(ctx, science.Name)).To(MatchError(scenario.ErrNotFound))
+		Expect(repo.Create(ctx, science)).To(Succeed())
+		Expect(repo.Remove(ctx, science.Name)).To(Succeed())
+		Expect(repo.Remove(ctx, science.Name)).To(MatchError(scenario.ErrNotFound))
 	})
 
 	It("translates database and mapping failures", func(ctx SpecContext) {
@@ -83,10 +87,24 @@ var _ = Describe("SQLite scenario selection", func() {
 			"invalid", "Scenario", scenario.Active, "bad", "bad")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring(`map scenario "invalid"`)))
+		Expect(db.ExecContext(ctx, `UPDATE scenarios SET created_at='2026-01-02T03:04:05Z', updated_at='invalid'`)).Error().NotTo(HaveOccurred())
+		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring(`map scenario "invalid"`)))
+		Expect(db.ExecContext(ctx, `UPDATE scenarios SET updated_at='2026-01-02T03:04:05Z', last_run_at='invalid'`)).Error().NotTo(HaveOccurred())
+		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring(`map scenario "invalid"`)))
 		Expect(app.Stop(ctx)).To(Succeed())
 		Expect(localRepo.Create(ctx, science)).Error().To(MatchError(ContainSubstring("register scenario")))
 		Expect(localRepo.List(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
 		Expect(localRepo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(ContainSubstring("set status for")))
-		Expect(localRepo.Remove(ctx, science.Name)).To(MatchError(ContainSubstring("remove")))
+		Expect(localRepo.Remove(ctx, science.Name)).Error().To(MatchError(ContainSubstring("remove")))
+	})
+
+	It("returns database errors when the database is closed", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+
+		Expect(repo.Create(ctx, science)).To(MatchError(ContainSubstring("register scenario \"science-report\": sql: database is closed")))
+		Expect(repo.List(ctx)).Error().To(MatchError(ContainSubstring("list scenarios: sql: database is closed")))
+		Expect(repo.ListActive(ctx)).Error().To(MatchError(ContainSubstring("list scenarios: sql: database is closed")))
+		Expect(repo.SetStatus(ctx, science.Name, scenario.Disabled)).To(MatchError(ContainSubstring("set status for scenario \"science-report\": sql: database is closed")))
+		Expect(repo.Remove(ctx, science.Name)).To(MatchError(ContainSubstring("remove scenario \"science-report\": begin transaction: sql: database is closed")))
 	})
 })
