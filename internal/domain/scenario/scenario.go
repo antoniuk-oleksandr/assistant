@@ -34,3 +34,10 @@ type Scenario struct {
 	UpdatedAt      time.Time
 	LastRunAt      *time.Time
 }
+
+type CourseBinding struct {
+	ScenarioName string
+	ScenarioType string
+	CourseID     string
+	Status       string
+}

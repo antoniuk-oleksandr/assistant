@@ -20,12 +20,15 @@ var _ = Describe("SQLite task bindings", func() {
 	var db *sql.DB
 	var tasks ports.TaskRepository
 	var bindings ports.TaskBindingRepository
+	var courseBindings ports.ScenarioCourseBindingRepository
 	var scenarios ports.ScenarioRepository
 
 	BeforeEach(func(ctx SpecContext) {
 		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
-		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioRepository), fx.Populate(&db, &tasks, &bindings, &scenarios))
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &bindings, &courseBindings, &scenarios))
 		Expect(app.Start(ctx)).To(Succeed())
+		_, err := db.ExecContext(ctx, `INSERT INTO classroom_courses (provider, external_course_id, source_reference, status, created_at, updated_at) VALUES ('google-classroom', 'course-1', 'course-1', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('google-classroom', 'course-2', 'course-2', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+		Expect(err).NotTo(HaveOccurred())
 		DeferCleanup(app.Stop)
 	})
 
@@ -43,6 +46,7 @@ var _ = Describe("SQLite task bindings", func() {
 	It("registers assignments idempotently and only returns active bindings", func(ctx SpecContext) {
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(scenarios.Create(ctx, implementation)).To(Succeed())
+		Expect(courseBindings.Bind(ctx, implementation.Name, "course-1")).To(Succeed())
 		assignment := task.Task{Provider: "google-classroom", ExternalID: "coursework-1", CourseID: "course-1", Title: "Report"}
 		Expect(tasks.Register(ctx, assignment)).To(Succeed())
 		assignment.Title = "Updated report"
@@ -80,24 +84,29 @@ var _ = Describe("SQLite task bindings", func() {
 
 	It("keeps tasks and active bindings across a database lifecycle", func(ctx SpecContext) {
 		path := filepath.Join(GinkgoT().TempDir(), "restart.db")
-		start := func() (*fx.App, ports.TaskRepository, ports.TaskBindingRepository, ports.ScenarioRepository) {
+		start := func() (*fx.App, ports.TaskRepository, ports.TaskBindingRepository, ports.ScenarioRepository, ports.ScenarioCourseBindingRepository, *sql.DB) {
 			cfg := config.DatabaseConfig{SQLitePath: path}
+			var localDB *sql.DB
 			var localTasks ports.TaskRepository
 			var localBindings ports.TaskBindingRepository
 			var localScenarios ports.ScenarioRepository
-			app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioRepository), fx.Populate(&localTasks, &localBindings, &localScenarios))
+			var localCourseBindings ports.ScenarioCourseBindingRepository
+			app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioRepository), fx.Populate(&localDB, &localTasks, &localBindings, &localScenarios, &localCourseBindings))
 			Expect(app.Start(ctx)).To(Succeed())
-			return app, localTasks, localBindings, localScenarios
+			return app, localTasks, localBindings, localScenarios, localCourseBindings, localDB
 		}
 
-		app, localTasks, localBindings, localScenarios := start()
+		app, localTasks, localBindings, localScenarios, localCourseBindings, localDB := start()
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(localScenarios.Create(ctx, implementation)).To(Succeed())
+		_, err := localDB.ExecContext(ctx, `INSERT INTO classroom_courses (provider, external_course_id, source_reference, status, created_at, updated_at) VALUES ('google-classroom', 'course-1', 'course-1', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(localCourseBindings.Bind(ctx, implementation.Name, "course-1")).To(Succeed())
 		Expect(localTasks.Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "coursework-1", CourseID: "course-1", Title: "Report"})).To(Succeed())
 		Expect(localBindings.Bind(ctx, implementation.Name, "coursework-1")).To(Succeed())
 		Expect(app.Stop(ctx)).To(Succeed())
 
-		app, localTasks, localBindings, localScenarios = start()
+		app, localTasks, localBindings, localScenarios, _, _ = start()
 		DeferCleanup(app.Stop)
 		items, err := localTasks.List(ctx)
 		Expect(err).NotTo(HaveOccurred())
@@ -114,6 +123,7 @@ var _ = Describe("SQLite task bindings", func() {
 	It("rejects missing and ambiguous binding targets and inactive scenarios", func(ctx SpecContext) {
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(scenarios.Create(ctx, implementation)).To(Succeed())
+		Expect(courseBindings.Bind(ctx, implementation.Name, "course-1")).To(Succeed())
 		Expect(tasks.Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "duplicate", CourseID: "course-1", Title: "One"})).To(Succeed())
 		Expect(tasks.Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "duplicate", CourseID: "course-2", Title: "Two"})).To(Succeed())
 
@@ -136,6 +146,8 @@ var _ = Describe("SQLite task bindings", func() {
 		keeper := scenario.Implementation{Name: "keeper", Type: "KeeperScenario"}
 		Expect(scenarios.Create(ctx, removable)).To(Succeed())
 		Expect(scenarios.Create(ctx, keeper)).To(Succeed())
+		Expect(courseBindings.Bind(ctx, removable.Name, "course-1")).To(Succeed())
+		Expect(courseBindings.Bind(ctx, keeper.Name, "course-1")).To(Succeed())
 
 		orphaned := task.Task{
 			Provider: "google-classroom", ExternalID: "orphaned", CourseID: "course-1",

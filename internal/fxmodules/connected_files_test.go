@@ -102,24 +102,26 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
 	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
 	var (
-		poller    *application.PollingService
-		courses   cli.ClassroomService
-		scenarios cli.ScenarioService
-		bindings  ports.TaskBindingRepository
-		repo      ports.SubmissionRepository
+		poller         *application.PollingService
+		courses        cli.ClassroomService
+		scenarios      cli.ScenarioService
+		bindings       ports.TaskBindingRepository
+		courseBindings ports.ScenarioCourseBindingRepository
+		repo           ports.SubmissionRepository
 	)
 	app := fx.New(fx.NopLogger, PlatformModule, StorageModule, ClassroomStorageModule, ApplicationModule, PollingModule,
 		fx.Decorate(func(_ ports.MaterialRetriever, cfg config.DriveConfig) (ports.MaterialRetriever, error) {
 			tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-drive-token"})
 			return drive.NewMaterialRetrieverWithTokenSource(cfg, tokens)
 		}),
-		fx.Populate(&poller, &courses, &scenarios, &bindings, &repo))
+		fx.Populate(&poller, &courses, &scenarios, &bindings, &courseBindings, &repo))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	g.Expect(app.Start(ctx)).To(Succeed())
 	defer func() { g.Expect(app.Stop(context.Background())).To(Succeed()) }()
 	g.Expect(courses.Add(ctx, "123")).To(Succeed())
 	g.Expect(scenarios.Add(ctx, "science-report")).To(Succeed())
+	g.Expect(courseBindings.Bind(ctx, "science-report", "123")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())
 	g.Expect(driveRequests.Load()).To(BeZero())
 	g.Expect(bindings.Bind(ctx, "science-report", "task-1")).To(Succeed())
@@ -266,29 +268,31 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
 	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
 
-	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ScenarioService, ports.TaskBindingRepository, ports.SubmissionRepository) {
+	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ScenarioService, ports.TaskBindingRepository, ports.SubmissionRepository, ports.ScenarioCourseBindingRepository) {
 		var (
-			poller    *application.PollingService
-			courses   cli.ClassroomService
-			scenarios cli.ScenarioService
-			bindings  ports.TaskBindingRepository
-			repo      ports.SubmissionRepository
+			poller         *application.PollingService
+			courses        cli.ClassroomService
+			scenarios      cli.ScenarioService
+			bindings       ports.TaskBindingRepository
+			courseBindings ports.ScenarioCourseBindingRepository
+			repo           ports.SubmissionRepository
 		)
 		app := fx.New(fx.NopLogger, PlatformModule, StorageModule, ClassroomStorageModule, ApplicationModule, PollingModule,
 			fx.Decorate(func(_ ports.MaterialRetriever, cfg config.DriveConfig) (ports.MaterialRetriever, error) {
 				tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-drive-token"})
 				return drive.NewMaterialRetrieverWithTokenSource(cfg, tokens)
 			}),
-			fx.Populate(&poller, &courses, &scenarios, &bindings, &repo))
-		return app, poller, courses, scenarios, bindings, repo
+			fx.Populate(&poller, &courses, &scenarios, &bindings, &courseBindings, &repo))
+		return app, poller, courses, scenarios, bindings, repo, courseBindings
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	app, poller, courses, scenarios, bindings, repo := newApp()
+	app, poller, courses, scenarios, bindings, repo, courseBindings := newApp()
 	g.Expect(app.Start(ctx)).To(Succeed())
 	g.Expect(courses.Add(ctx, "123")).To(Succeed())
 	g.Expect(scenarios.Add(ctx, "science-report")).To(Succeed())
+	g.Expect(courseBindings.Bind(ctx, "science-report", "123")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())
 	g.Expect(bindings.Bind(ctx, "science-report", "unknown-task")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())
@@ -314,7 +318,7 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 	g.Expect(outcome.EligibleForAggregation()).To(BeFalse())
 	g.Expect(app.Stop(ctx)).To(Succeed())
 
-	app, _, _, _, _, repo = newApp()
+	app, _, _, _, _, repo, _ = newApp()
 	g.Expect(app.Start(ctx)).To(Succeed())
 	defer func() { g.Expect(app.Stop(context.Background())).To(Succeed()) }()
 	reloaded, err := repo.ListByTask(ctx, active[0].Task.ID)

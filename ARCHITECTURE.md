@@ -183,6 +183,9 @@ report-system
 │   ├── enable <name>
 │   ├── disable <name>
 │   ├── remove <name>
+│   ├── course-bind <scenario> <course-id>
+│   ├── course-unbind <scenario> <course-id>
+│   ├── course-list <scenario>
 │   ├── task-bind <scenario> <task-id>
 │   ├── task-unbind <task-id>
 │   └── task-list <scenario>
@@ -551,7 +554,8 @@ ScenarioService
 ├── enable
 ├── disable
 ├── remove
-└── bind task
+├── bind course
+└── bind task within course
 
 PollingService
 ├── acquire process lock

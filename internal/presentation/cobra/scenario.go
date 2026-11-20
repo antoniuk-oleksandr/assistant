@@ -22,6 +22,9 @@ type ScenarioTaskBindingService interface {
 	BindTask(context.Context, string, string) error
 	UnbindTask(context.Context, string) error
 	ListTaskBindings(context.Context, string) ([]application.TaskBindingResult, error)
+	BindCourse(context.Context, string, string) error
+	UnbindCourse(context.Context, string, string) error
+	ListCourseBindings(context.Context, string) ([]application.CourseBindingResult, error)
 }
 
 func NewScenarioCommand(service ScenarioService, bindingServices ...ScenarioTaskBindingService) *cobra.Command {
@@ -40,11 +43,33 @@ func NewScenarioCommand(service ScenarioService, bindingServices ...ScenarioTask
 		binding := bindingServices[0]
 		command.AddCommand(
 			bindingAction("task-bind", "Bind a task to a scenario", func(ctx context.Context, args []string) error { return binding.BindTask(ctx, args[0], args[1]) }),
+			bindingAction("course-bind", "Bind a course to a scenario", func(ctx context.Context, args []string) error { return binding.BindCourse(ctx, args[0], args[1]) }),
 			&cobra.Command{Use: "task-unbind <task-id>", Short: "Unbind a task from all scenarios", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return binding.UnbindTask(cmd.Context(), args[0]) }},
+			&cobra.Command{Use: "course-unbind <scenario-name> <course-id>", Short: "Unbind a course from a scenario", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+				return binding.UnbindCourse(cmd.Context(), args[0], args[1])
+			}},
 			&cobra.Command{Use: "task-list <scenario-name>", Short: "List tasks bound to a scenario", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return listTaskBindings(cmd, binding, args[0]) }},
+			&cobra.Command{Use: "course-list <scenario-name>", Short: "List courses bound to a scenario", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return listCourseBindings(cmd, binding, args[0]) }},
 		)
 	}
 	return command
+}
+
+func listCourseBindings(cmd *cobra.Command, service ScenarioTaskBindingService, name string) error {
+	items, err := service.ListCourseBindings(cmd.Context(), name)
+	if err != nil {
+		return err
+	}
+	output := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+	if _, err := fmt.Fprintln(output, "COURSE ID\tSTATUS"); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if _, err := fmt.Fprintf(output, "%s\t%s\n", item.CourseID, item.Status); err != nil {
+			return err
+		}
+	}
+	return output.Flush()
 }
 
 func bindingAction(use, description string, run func(context.Context, []string) error) *cobra.Command {

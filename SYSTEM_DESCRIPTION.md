@@ -145,9 +145,12 @@ scenario remove science-report
 
 If the implementation is not registered in the application, `scenario add` returns `ScenarioNotFound`.
 
-Tasks are explicitly bound to scenarios:
+Courses and tasks are explicitly bound to scenarios. Bind the course before the task:
 
 ```text
+scenario course-bind <scenario-name> <course-id>
+scenario course-unbind <scenario-name> <course-id>
+scenario course-list <scenario-name>
 scenario task-bind <scenario-name> <task-id>
 scenario task-unbind <task-id>
 scenario task-list <scenario-name>
@@ -157,7 +160,7 @@ course add <course-url-or-id>
 course remove <course-id>
 ```
 
-An unbound task is not processed. A task may be selected by title, label, course, or metadata, but explicit binding is the authoritative relationship.
+An unbound course or task is not processed. A task may be selected by title, label, course, or metadata, but the explicit scenario-course and scenario-task bindings are the authoritative relationships.
 
 ## 4. Background process
 

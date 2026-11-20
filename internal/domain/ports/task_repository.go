@@ -2,6 +2,7 @@ package ports
 
 import (
 	"context"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/task"
 )
 
@@ -15,4 +16,10 @@ type TaskBindingRepository interface {
 	Unbind(context.Context, string) error
 	List(context.Context, string) ([]task.Binding, error)
 	Active(context.Context) ([]task.Binding, error)
+}
+
+type ScenarioCourseBindingRepository interface {
+	Bind(context.Context, string, string) error
+	Unbind(context.Context, string, string) error
+	List(context.Context, string) ([]scenario.CourseBinding, error)
 }

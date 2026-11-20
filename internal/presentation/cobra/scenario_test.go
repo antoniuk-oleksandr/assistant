@@ -30,6 +30,19 @@ type bindingServiceStub struct {
 	calls []string
 }
 
+func (s *bindingServiceStub) BindCourse(_ context.Context, scenarioName, courseID string) error {
+	s.calls = append(s.calls, "course-bind:"+scenarioName+":"+courseID)
+	return s.err
+}
+func (s *bindingServiceStub) UnbindCourse(_ context.Context, scenarioName, courseID string) error {
+	s.calls = append(s.calls, "course-unbind:"+scenarioName+":"+courseID)
+	return s.err
+}
+func (s *bindingServiceStub) ListCourseBindings(_ context.Context, scenarioName string) ([]application.CourseBindingResult, error) {
+	s.calls = append(s.calls, "course-list:"+scenarioName)
+	return nil, s.err
+}
+
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
@@ -136,12 +149,14 @@ var _ = Describe("scenario commands", func() {
 			call string
 		}{
 			{[]string{"task-bind", "science-report", "coursework-1"}, "bind:science-report:coursework-1"},
+			{[]string{"course-bind", "science-report", "course-1"}, "course-bind:science-report:course-1"},
 			{[]string{"task-unbind", "coursework-1"}, "unbind:coursework-1"},
+			{[]string{"course-unbind", "science-report", "course-1"}, "course-unbind:science-report:course-1"},
 		} {
 			command.SetArgs(tc.args)
 			Expect(command.Execute()).To(Succeed())
 		}
-		Expect(service.calls).To(Equal([]string{"bind:science-report:coursework-1", "unbind:coursework-1"}))
+		Expect(service.calls).To(Equal([]string{"bind:science-report:coursework-1", "course-bind:science-report:course-1", "unbind:coursework-1", "course-unbind:science-report:course-1"}))
 
 		for _, args := range [][]string{{"task-bind", "science-report"}, {"task-unbind"}, {"task-list"}} {
 			command.SetArgs(args)

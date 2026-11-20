@@ -84,6 +84,21 @@ Explicit binding between a task and a scenario.
 
 Primary key: `(scenario_id, task_id)`.
 
+### `scenario_courses`
+
+Explicit binding between a registered course and a scenario. A task can be
+bound only when its course is actively bound to the same scenario.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `scenario_id` | INTEGER | FK, NOT NULL | Scenario |
+| `course_id` | INTEGER | FK, NOT NULL | Registered Classroom course |
+| `bound_at` | TEXT | NOT NULL | Binding time |
+| `unbound_at` | TEXT | NULL | Unbinding time |
+| `status` | TEXT | NOT NULL | `active` or `disabled` |
+
+Primary key: `(scenario_id, course_id)`.
+
 ### `poll_state`
 
 Persistent checkpoint for recovery after application restart.
