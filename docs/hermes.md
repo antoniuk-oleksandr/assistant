@@ -74,14 +74,18 @@ Start the full project workflow with:
 
 ```bash
 just hermes-tasks
+# Or choose an explicit issue range:
+just hermes-tasks-range 7 16
 ```
 
-This starts the unattended delivery loop. Hermes re-reads project #2 before
-each iteration, selects one current Todo item, runs Developer → Tester →
-Reviewer, commits and pushes an approved branch, creates and merges the linked
-pull request, marks the project item Done, then switches to `main` and pulls
-before selecting the next item. The run stops only when no Todo items remain or
-when it reports a concrete blocker.
+This starts the unattended delivery loop. The runner uses a fresh bounded Hermes
+one-shot session for each Developer, Tester, Reviewer, review-fix, and delivery
+phase. It keeps only the reviewer handoff between phases, preventing one parent
+conversation from accumulating the entire repository and all prior tool output.
+Each phase still re-reads the required documents and uses Graphify before source
+exploration. The runner commits and pushes an approved branch, creates and merges
+the linked pull request, marks the project item Done, then switches to `main` and
+pulls before starting the next issue. Phase logs are written to `/tmp/hermes-delivery-*`.
 
 GitHub MCP is configured with full trust and the task session runs with Hermes
 YOLO mode enabled, so this command does not wait for approval buttons. This is
