@@ -33,7 +33,7 @@ hermes-connect-codex:
 	{{hermes_compose}} exec hermes /opt/hermes/bin/hermes auth add openai-codex
 
 hermes-tasks:
-	./scripts/hermes-delivery-loop.sh 7 16
+	./scripts/hermes-delivery-loop.sh 8 16
 
 hermes-tasks-range start end:
 	./scripts/hermes-delivery-loop.sh {{start}} {{end}}
