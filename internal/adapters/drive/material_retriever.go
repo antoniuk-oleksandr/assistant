@@ -91,6 +91,8 @@ func validBaseURL(u *url.URL) bool {
 
 func (r *materialRetriever) Retrieve(ctx context.Context, item submission.Material) submission.Material {
 	item.LocalPath = ""
+	item.Parsing = nil
+	item.ParseOutcomes = nil
 	item.Status = submission.Failed
 	if !googlefiles.ValidID(item.ExternalID) {
 		return item
@@ -114,7 +116,12 @@ func (r *materialRetriever) Retrieve(ctx context.Context, item submission.Materi
 	}
 
 	path, query, extension := contentRequest(item)
-	if query == nil || (path == "" && item.SizeBytes != nil && *item.SizeBytes > maxFileBytes) {
+	if query == nil {
+		item.Status = submission.Pending
+		item.Parsing = &submission.ParseResult{Issue: submission.UnsupportedMaterial}
+		return item
+	}
+	if path == "" && item.SizeBytes != nil && *item.SizeBytes > maxFileBytes {
 		return item
 	}
 	response, status := r.get(ctx, item.ExternalID+path, query, resourceKeys)

@@ -12,4 +12,5 @@ type MaterialRow struct {
 	ExternalID, Name, MIMEType, SourceURI, LocalPath, Role, Status string
 	SizeBytes                                                      *int64
 	AppendixNumber                                                 *int
+	ParseResult                                                    *string
 }
