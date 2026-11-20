@@ -10,7 +10,7 @@ model:
 
 delegation:
   max_concurrent_children: 3
-  oneshot_max_children: 3
+  oneshot_max_children: 12
   subagent_auto_approve: true
 
 agent:
