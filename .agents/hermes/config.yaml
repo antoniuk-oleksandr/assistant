@@ -1,0 +1,53 @@
+# Local Hermes configuration for the Scheduled Report Aggregation System.
+# The Hermes container should mount this repository at /workspace.
+
+terminal:
+  backend: local
+  cwd: /workspace
+
+delegation:
+  max_concurrent_children: 3
+
+agent:
+  max_turns: 150
+  reasoning_effort: medium
+  coding_context: true
+  coding_instructions:
+    - >-
+      Before changing code, read /workspace/AGENTS.md, /workspace/ARCHITECTURE.md,
+      /workspace/SYSTEM_DESCRIPTION.md, and /workspace/database.md when persistence
+      is involved. Read /workspace/TESTING.md for testing work.
+    - >-
+      Before implementation or review, use Graphify to orient yourself in the
+      repository and its documents. Prefer graphify query/explain/path results
+      for codebase relationships, then inspect the authoritative source files.
+    - >-
+      For every implementation task, act as the parent orchestrator and delegate
+      sequentially to hermes-dev, hermes-tester, and hermes-reviewer. Do not claim
+      completion until the reviewer returns APPROVED or reports a human blocker.
+    - >-
+      The reviewer is read-only. Classify findings as production_fix, test_fix,
+      both, or human_blocker. Delegate production fixes to hermes-dev and test
+      fixes to hermes-tester. Run hermes-reviewer again after every fix.
+    - >-
+      Follow the repository architecture: one Go executable and one main.go,
+      Uber Fx, Cobra, Zap, Domain/Application/Infrastructure/Presentation layers,
+      Domain-owned ports, explicit mappers, SQLite, and five-minute polling.
+    - >-
+      Use Ginkgo/Gomega, uber-go/mock, and shared fixtures. Do not introduce
+      unrelated infrastructure, message queues, delivery systems, or dynamic plugins.
+    - >-
+      Never commit, push, open pull requests, or modify external systems without
+      explicit human approval.
+
+platform_toolsets:
+  cli:
+    - delegation
+    - file
+    - terminal
+    - todo
+    - code_execution
+
+skills:
+  trusted_project_dirs:
+    - /workspace

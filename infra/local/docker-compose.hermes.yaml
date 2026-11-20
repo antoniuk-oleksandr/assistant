@@ -1,0 +1,29 @@
+name: report-system-local
+
+services:
+  hermes:
+    build:
+      context: ../..
+      dockerfile: infra/local/Dockerfile.hermes
+    image: report-system-hermes:local
+    container_name: report-system-hermes
+    restart: unless-stopped
+    working_dir: /workspace
+    command:
+      - sh
+      - -c
+      - >-
+        /opt/hermes/bin/hermes skills trust /workspace &&
+        exec /opt/hermes/bin/hermes gateway run
+    stdin_open: true
+    tty: true
+    environment:
+      HERMES_UID: "${HERMES_UID:-1000}"
+      HERMES_GID: "${HERMES_GID:-1000}"
+      HERMES_WRITE_SAFE_ROOT: /workspace
+    ports:
+      - "127.0.0.1:8642:8642"
+    volumes:
+      - ../..:/workspace
+      - ${HERMES_DATA_DIR:-${HOME}/.hermes}:/opt/data
+      - ../../.agents/hermes/config.yaml:/opt/data/config.yaml:ro
