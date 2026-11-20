@@ -129,6 +129,8 @@ var _ = Describe("application modules", func() {
 		Expect(err).NotTo(HaveOccurred())
 		_, err = db.ExecContext(ctx, `INSERT INTO scenarios (id, name, implementation_type, status, created_at, updated_at) VALUES (1, 'science-report', 'ScienceReportScenario', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
 		Expect(err).NotTo(HaveOccurred())
+		_, err = db.ExecContext(ctx, `INSERT INTO scenario_courses (scenario_id, course_id, bound_at, status) VALUES (1, 1, '2026-01-01T00:00:00Z', 'active')`)
+		Expect(err).NotTo(HaveOccurred())
 		_, err = db.ExecContext(ctx, `INSERT INTO tasks (id, provider, external_task_id, course_id, title, discovered_at, last_seen_at, status) VALUES (1, 'google-classroom', 'task-1', 'course-1', 'Report', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'bound')`)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = db.ExecContext(ctx, `INSERT INTO scenario_tasks (scenario_id, task_id, bound_at, status) VALUES (1, 1, '2026-01-01T00:00:00Z', 'active')`)

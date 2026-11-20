@@ -24,14 +24,15 @@ type ScenarioService struct {
 	repository ports.ScenarioRepository
 	registry   scenario.Registry
 	bindings   ports.TaskBindingRepository
+	courses    ports.ScenarioCourseBindingRepository
 }
 
 func NewScenarioService(repository ports.ScenarioRepository, registry scenario.Registry) *ScenarioService {
 	return &ScenarioService{repository: repository, registry: registry}
 }
 
-func NewScenarioServiceWithBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository) *ScenarioService {
-	return &ScenarioService{repository: repository, registry: registry, bindings: bindings}
+func NewScenarioServiceWithCourseBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository, courses ports.ScenarioCourseBindingRepository) *ScenarioService {
+	return &ScenarioService{repository: repository, registry: registry, bindings: bindings, courses: courses}
 }
 
 type TaskBindingResult struct {
@@ -41,6 +42,42 @@ type TaskBindingResult struct {
 	CourseID     string
 	Title        string
 	Status       string
+}
+
+type CourseBindingResult struct {
+	ScenarioName string
+	ScenarioType string
+	CourseID     string
+	Status       string
+}
+
+func (s *ScenarioService) BindCourse(ctx context.Context, scenarioName, courseID string) error {
+	if s.courses == nil {
+		return errors.New("scenario course bindings are unavailable")
+	}
+	return s.courses.Bind(ctx, scenarioName, courseID)
+}
+
+func (s *ScenarioService) UnbindCourse(ctx context.Context, scenarioName, courseID string) error {
+	if s.courses == nil {
+		return errors.New("scenario course bindings are unavailable")
+	}
+	return s.courses.Unbind(ctx, scenarioName, courseID)
+}
+
+func (s *ScenarioService) ListCourseBindings(ctx context.Context, scenarioName string) ([]CourseBindingResult, error) {
+	if s.courses == nil {
+		return nil, errors.New("scenario course bindings are unavailable")
+	}
+	items, err := s.courses.List(ctx, scenarioName)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CourseBindingResult, 0, len(items))
+	for _, item := range items {
+		result = append(result, CourseBindingResult{ScenarioName: item.ScenarioName, ScenarioType: item.ScenarioType, CourseID: item.CourseID, Status: item.Status})
+	}
+	return result, nil
 }
 
 func (s *ScenarioService) BindTask(ctx context.Context, scenarioName, taskID string) error {

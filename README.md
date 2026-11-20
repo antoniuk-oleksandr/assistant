@@ -26,7 +26,7 @@ The command normally stays attached to the terminal and produces little output. 
 ## Features
 
 - Google Classroom course registration and polling.
-- Explicit task-to-scenario binding.
+- Explicit course-and-task-to-scenario binding.
 - Scientific activity reporting through `ScienceReportScenario`.
 - Mapping to 28 known appendices with defaults for missing appendices.
 - DOCX, XLSX, PDF, Google Docs, Google Sheets, and image ingestion boundaries.
@@ -122,12 +122,15 @@ go run ./cmd/assistent scenario disable science-report
 go run ./cmd/assistent scenario remove science-report
 ```
 
-Bind and inspect tasks:
+Bind the course first, then inspect and bind its discovered task:
 
 ```bash
+go run ./cmd/assistent scenario course-bind science-report <course-id>
+go run ./cmd/assistent scenario course-list science-report
 go run ./cmd/assistent scenario task-bind science-report <task-id>
 go run ./cmd/assistent scenario task-list science-report
 go run ./cmd/assistent scenario task-unbind <task-id>
+go run ./cmd/assistent scenario course-unbind science-report <course-id>
 ```
 
 An unbound task is not processed.
@@ -154,6 +157,7 @@ The application does not process arbitrary courses or tasks automatically. Confi
 # Stop the poller first if its process lock is held.
 go run ./cmd/assistent course add <course-id-or-url>
 go run ./cmd/assistent scenario add science-report
+go run ./cmd/assistent scenario course-bind science-report <course-id>
 
 # Discover coursework.
 just run

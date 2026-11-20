@@ -109,6 +109,9 @@ func (r *SQLiteScenarioRepository) Remove(ctx context.Context, name string) erro
 	if _, err := tx.ExecContext(ctx, `DELETE FROM scenario_tasks WHERE scenario_id = (SELECT id FROM scenarios WHERE name = ?)`, name); err != nil {
 		return rollback(fmt.Errorf("remove scenario %q: remove bindings: %w", name, err))
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM scenario_courses WHERE scenario_id = (SELECT id FROM scenarios WHERE name = ?)`, name); err != nil {
+		return rollback(fmt.Errorf("remove scenario %q: remove course bindings: %w", name, err))
+	}
 	for _, taskID := range taskIDs {
 		if _, err := tx.ExecContext(ctx, `UPDATE tasks SET status = 'discovered'
 			WHERE id = ? AND NOT EXISTS (SELECT 1 FROM scenario_tasks WHERE task_id = ? AND status = 'active')`, taskID, taskID); err != nil {

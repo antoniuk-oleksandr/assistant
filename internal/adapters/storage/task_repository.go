@@ -8,6 +8,7 @@ import (
 	"github.com/alex/assistent/internal/adapters/mappers"
 	"github.com/alex/assistent/internal/adapters/models"
 	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/task"
 )
 
@@ -51,6 +52,57 @@ func NewTaskBindingRepository(db *sql.DB) ports.TaskBindingRepository {
 	return &SQLiteTaskBindingRepository{db: db}
 }
 
+type SQLiteScenarioCourseBindingRepository struct{ db *sql.DB }
+
+func NewScenarioCourseBindingRepository(db *sql.DB) ports.ScenarioCourseBindingRepository {
+	return &SQLiteScenarioCourseBindingRepository{db: db}
+}
+
+func (r *SQLiteScenarioCourseBindingRepository) Bind(ctx context.Context, scenarioName, courseID string) error {
+	var scenarioID, classroomCourseID int64
+	if err := r.db.QueryRowContext(ctx, `SELECT id FROM scenarios WHERE name=? AND status='active'`, scenarioName).Scan(&scenarioID); err != nil {
+		return fmt.Errorf("find active scenario %q: %w", scenarioName, err)
+	}
+	if err := r.db.QueryRowContext(ctx, `SELECT id FROM classroom_courses WHERE external_course_id=? AND status='active'`, courseID).Scan(&classroomCourseID); err != nil {
+		return fmt.Errorf("find active course %q: %w", courseID, err)
+	}
+	if _, err := r.db.ExecContext(ctx, `INSERT INTO scenario_courses (scenario_id, course_id, bound_at, status) VALUES (?, ?, `+sqliteNowUTC+`, 'active') ON CONFLICT(scenario_id, course_id) DO UPDATE SET status='active', unbound_at=NULL`, scenarioID, classroomCourseID); err != nil {
+		return fmt.Errorf("bind course %q: %w", courseID, err)
+	}
+	return nil
+}
+
+func (r *SQLiteScenarioCourseBindingRepository) Unbind(ctx context.Context, scenarioName, courseID string) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE scenario_courses SET status='disabled', unbound_at=`+sqliteNowUTC+` WHERE scenario_id=(SELECT id FROM scenarios WHERE name=?) AND course_id=(SELECT id FROM classroom_courses WHERE external_course_id=?) AND status='active'`, scenarioName, courseID)
+	if err != nil {
+		return fmt.Errorf("unbind course %q: %w", courseID, err)
+	}
+	if count, _ := result.RowsAffected(); count == 0 {
+		return fmt.Errorf("course binding not found: %q", courseID)
+	}
+	return nil
+}
+
+func (r *SQLiteScenarioCourseBindingRepository) List(ctx context.Context, scenarioName string) ([]scenario.CourseBinding, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT s.name, s.implementation_type, c.external_course_id, sc.status FROM scenario_courses sc JOIN scenarios s ON s.id=sc.scenario_id JOIN classroom_courses c ON c.id=sc.course_id WHERE s.name=? AND sc.status='active' ORDER BY c.external_course_id`, scenarioName)
+	if err != nil {
+		return nil, fmt.Errorf("list scenario course bindings: %w", err)
+	}
+	defer rows.Close()
+	result := make([]scenario.CourseBinding, 0)
+	for rows.Next() {
+		var item scenario.CourseBinding
+		if err := rows.Scan(&item.ScenarioName, &item.ScenarioType, &item.CourseID, &item.Status); err != nil {
+			return nil, fmt.Errorf("scan scenario course binding: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read scenario course bindings: %w", err)
+	}
+	return result, nil
+}
+
 const bindingSelect = `SELECT s.id, s.name, s.implementation_type, t.id, t.provider, t.external_task_id, t.course_id, t.title, COALESCE(t.description, ''), COALESCE(t.due_at, ''), t.status, st.status, st.bound_at, COALESCE(st.unbound_at, '') FROM scenario_tasks st JOIN scenarios s ON s.id=st.scenario_id JOIN tasks t ON t.id=st.task_id`
 
 func (r *SQLiteTaskBindingRepository) Bind(ctx context.Context, scenarioName, externalTaskID string) error {
@@ -70,6 +122,13 @@ func (r *SQLiteTaskBindingRepository) Bind(ctx context.Context, scenarioName, ex
 	}
 	if err := r.db.QueryRowContext(ctx, `SELECT id FROM tasks WHERE external_task_id = ?`, externalTaskID).Scan(&taskID); err != nil {
 		return fmt.Errorf("find task %q: %w", externalTaskID, err)
+	}
+	var courseBound bool
+	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM scenario_courses sc JOIN classroom_courses c ON c.id=sc.course_id WHERE sc.scenario_id=? AND sc.status='active' AND c.external_course_id=(SELECT course_id FROM tasks WHERE id=?))`, scenarioID, taskID).Scan(&courseBound); err != nil {
+		return fmt.Errorf("check scenario course binding: %w", err)
+	}
+	if !courseBound {
+		return fmt.Errorf("scenario %q is not bound to task course", scenarioName)
 	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO scenario_tasks (scenario_id, task_id, bound_at, status) VALUES (?, ?, `+sqliteNowUTC+`, 'active') ON CONFLICT(scenario_id, task_id) DO UPDATE SET status='active', unbound_at=NULL`, scenarioID, taskID)
 	if err != nil {
@@ -118,7 +177,7 @@ func (r *SQLiteTaskBindingRepository) List(ctx context.Context, scenarioName str
 }
 
 func (r *SQLiteTaskBindingRepository) Active(ctx context.Context) ([]task.Binding, error) {
-	rows, err := r.db.QueryContext(ctx, bindingSelect+` WHERE s.status='active' AND st.status='active' AND t.status='bound' ORDER BY s.name, t.external_task_id`)
+	rows, err := r.db.QueryContext(ctx, bindingSelect+` JOIN scenario_courses sc ON sc.scenario_id=s.id JOIN classroom_courses c ON c.id=sc.course_id WHERE s.status='active' AND st.status='active' AND sc.status='active' AND c.external_course_id=t.course_id AND t.status='bound' ORDER BY s.name, t.external_task_id`)
 	return scanBindings(rows, err)
 }
 
