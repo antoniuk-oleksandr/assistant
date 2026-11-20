@@ -7,6 +7,7 @@ import (
 
 	"github.com/alex/assistent/internal/domain/classroom"
 	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 )
@@ -25,6 +26,8 @@ type PollingService struct {
 	state       ports.PollingStateRepository
 	materials   ports.MaterialRetriever
 	parsing     *MaterialParsing
+	collection  *ScenarioCollectionService
+	registry    scenario.Registry
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -40,7 +43,11 @@ func NewPollingServiceWithMaterials(courses ports.ClassroomCourseRepository, sou
 }
 
 func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing}
+	return NewPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, nil, scenario.Registry{})
+}
+
+func NewPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry}
 }
 
 func (s *PollingService) Refresh(ctx context.Context) error {
@@ -174,6 +181,15 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		}
 		if err := s.submissions.Upsert(ctx, current); err != nil {
 			return fmt.Errorf("store submission %q: %w", current.ExternalID, err)
+		}
+	}
+	if s.collection != nil {
+		processor, err := s.registry.ResolveProcessor(binding.ScenarioName)
+		if err != nil {
+			return fmt.Errorf("resolve collection processor for scenario %q: %w", binding.ScenarioName, err)
+		}
+		if _, err := s.collection.Process(ctx, binding.ScenarioID, item.ID, processor); err != nil {
+			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, err)
 		}
 	}
 	return nil

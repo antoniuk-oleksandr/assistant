@@ -4,8 +4,10 @@ import (
 	"github.com/alex/assistent/internal/adapters/classroom"
 	"github.com/alex/assistent/internal/adapters/drive"
 	"github.com/alex/assistent/internal/adapters/parser"
+	"github.com/alex/assistent/internal/adapters/renderer"
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/application"
+	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
@@ -20,19 +22,20 @@ var PlatformModule = fx.Module("platform",
 	fx.Provide(config.Load, config.Database, config.Drive, database.NewSQLite, locking.NewProcessLock),
 )
 
-var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository))
+var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository, storage.NewReportRunRepository, fx.Annotate(storage.NewReportOutputRepository, fx.As(new(ports.ReportOutputRepository)))))
 
 var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.NewClassroomCourseRepository))
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	application.NewPollingServiceWithParsing,
+	application.NewPollingServiceWithScenarioCollection,
+	fx.Annotate(application.NewScenarioCollectionServiceWithRenderer),
 	fx.Annotate(application.NewScenarioServiceWithBindings, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing),
+	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing, fx.Annotate(renderer.NewLocalReportRenderer, fx.As(new(ports.ReportRenderer)))),
 )
 
 func newMaterialParsing() *application.MaterialParsing {
@@ -42,7 +45,10 @@ func newMaterialParsing() *application.MaterialParsing {
 var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommand, cli.NewClassroomCommand, cli.NewRootCommandWithClassroom))
 
 func compiledScenarios() scenario.Registry {
-	return scenario.NewRegistry(scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"})
+	return scenario.NewRegistryWithProcessors(
+		[]scenario.Implementation{{Name: "science-report", Type: "ScienceReportScenario"}},
+		map[string]scenario.CollectionProcessor{"science-report": scenario.ScienceReportCollectionProcessor{}},
+	)
 }
 
 func NewFxLogger() (fxevent.Logger, error) {
