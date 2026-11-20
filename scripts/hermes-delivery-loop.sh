@@ -78,7 +78,8 @@ for issue in $(seq "$start_issue" "$end_issue"); do
         exit 1
     fi
 
-    run_phase "issue-${issue}-delivery" "Deliver the approved implementation for GitHub issue #${issue} on the current branch. Act as hermes-delivery and read /workspace/.agents/skills/hermes-delivery/SKILL.md. This is a fresh, non-delegating delivery session: do not invoke delegate_task or any Developer, Tester, or Reviewer agent. Trust the prior APPROVED review; do not run go test, go vet, or any other validation command. Inspect the complete diff, then commit the complete change, push the branch, create a linked pull request targeting main with Closes #${issue}, merge it using GitHub MCP, verify the PR is merged and closed, mark the corresponding GitHub Project item Done, switch the local checkout to main, and pull origin/main. Do not ask for approval and do not use gh. Stop and report the exact operation if any delivery step fails."
+    delivery_status=0
+    run_phase "issue-${issue}-delivery" "Deliver the approved implementation for GitHub issue #${issue} on the current branch. Act as hermes-delivery and read /workspace/.agents/skills/hermes-delivery/SKILL.md. This is a fresh, non-delegating delivery session: do not invoke delegate_task or any Developer, Tester, or Reviewer agent. Trust the prior APPROVED review; do not run go test, go vet, or any other validation command. Inspect the complete diff, then commit the complete change, push the branch, create a linked pull request targeting main with Closes #${issue}, merge it using GitHub MCP, and verify the PR is merged and closed. Attempt to mark the corresponding GitHub Project item Done, but treat Project API failure as non-fatal: regardless of Project update success or failure, switch the local checkout to main and pull origin/main, then report any Project error. Do not ask for approval and do not use gh. Stop only for a pre-merge delivery failure and report the exact operation and error." || delivery_status=$?
 
     if [[ -n "$(git status --porcelain)" ]]; then
         echo "delivery left a dirty worktree for issue #$issue" >&2
@@ -87,6 +88,9 @@ for issue in $(seq "$start_issue" "$end_issue"); do
     fi
     git switch main
     git pull --ff-only origin main
+    if (( delivery_status != 0 )); then
+        exit "$delivery_status"
+    fi
 done
 
 echo "Completed issues $start_issue through $end_issue"
