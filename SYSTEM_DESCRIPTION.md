@@ -28,7 +28,7 @@ A scenario defines how a particular type of task is collected and processed. `Sc
 
 A task is an external assignment, currently a Google Classroom `CourseWork` item.
 
-### Classroom course
+### Course
 
 The application stores the selected Google Classroom course as a normalized numeric `course_id`. The CLI accepts either a full Classroom URL or the Base64URL segment used by Classroom URLs. For example:
 
@@ -39,10 +39,10 @@ https://classroom.google.com/c/OTAwNDIzOTQ1Mjk3
 
 The selected course is persisted in SQLite and is the only course polled by the scenario. The application must not scan every course visible to the OAuth account unless explicitly requested.
 
-The classroom commands behave as follows:
+The course commands behave as follows:
 
 ```text
-classroom add <reference>
+course add <reference>
 ```
 
 `reference` may be a full Classroom URL, a numeric course ID, or the Base64URL
@@ -53,14 +53,14 @@ reference is retained for audit purposes. Adding an already registered course
 is idempotent and does not create a duplicate.
 
 ```text
-classroom list
+course list
 ```
 
 Lists registered courses with their normalized ID, original reference, status,
 and registration time.
 
 ```text
-classroom remove <course-id>
+course remove <course-id>
 ```
 
 Disables the registered course and stops polling it. It does not erase its
@@ -152,9 +152,9 @@ scenario task-bind <scenario-name> <task-id>
 scenario task-unbind <task-id>
 scenario task-list <scenario-name>
 
-classroom list
-classroom add <classroom-url-or-id>
-classroom remove <course-id>
+course list
+course add <course-url-or-id>
+course remove <course-id>
 ```
 
 An unbound task is not processed. A task may be selected by title, label, course, or metadata, but explicit binding is the authoritative relationship.
@@ -532,7 +532,7 @@ Teachers are identified primarily by the email address of their Google account. 
 ```text
 teacher list
 teacher show <teacher-id>
-teacher add --email <email> --name <name> --classroom <course-id>
+teacher add --email <email> --name <name> --course <course-id>
 teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
@@ -615,7 +615,7 @@ LOG_DIRECTORY
 `GOOGLE_CLASSROOM_ID` is the normalized numeric course ID. The preferred way to register it is:
 
 ```text
-classroom add https://classroom.google.com/c/OTAwNDIzOTQ1Mjk3
+course add https://classroom.google.com/c/OTAwNDIzOTQ1Mjk3
 ```
 
 This stores `900423945297`, not the encoded URL segment.

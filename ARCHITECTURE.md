@@ -52,9 +52,9 @@ report-system.exe scenario add science-report
 report-system.exe scenario enable science-report
 report-system.exe scenario disable science-report
 report-system.exe scenario remove science-report
-report-system.exe classroom list
-report-system.exe classroom add <classroom-url-or-id>
-report-system.exe classroom remove <course-id>
+report-system.exe course list
+report-system.exe course add <course-url-or-id>
+report-system.exe course remove <course-id>
 
 report-system.exe teacher list
 report-system.exe teacher add --email user@example.com --name "User Name" --classroom <course-id>
@@ -66,10 +66,10 @@ report-system.exe notification dlq retry-all
 
 The default invocation starts the long-running application. CLI commands perform one administrative operation and exit.
 
-`classroom add <reference>` accepts a Classroom URL, a numeric course ID, or the
+`course add <reference>` accepts a Google Classroom URL, a numeric course ID, or the
 Base64URL segment from a Classroom URL. The command normalizes and validates the
-ID before persisting it. `classroom list` displays registered courses.
-`classroom remove <course-id>` disables polling for the course while preserving
+ID before persisting it. `course list` displays registered courses.
+`course remove <course-id>` disables polling for the course while preserving
 its historical tasks, submissions, report runs, and audit records.
 
 ## 3. Source tree
@@ -173,9 +173,9 @@ Recommended command tree:
 
 ```text
 report-system
-├── classroom
+├── course
 │   ├── list
-│   ├── add <classroom-url-or-id>
+│   ├── add <course-url-or-id>
 │   └── remove <course-id>
 ├── scenario
 │   ├── list

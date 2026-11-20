@@ -18,7 +18,7 @@ type ClassroomService interface {
 type ClassroomCommand struct{ *cobra.Command }
 
 func NewClassroomCommand(service ClassroomService) *ClassroomCommand {
-	command := &cobra.Command{Use: "classroom", Short: "Manage registered Classroom courses"}
+	command := &cobra.Command{Use: "course", Aliases: []string{"classroom"}, Short: "Manage registered courses"}
 	command.AddCommand(&cobra.Command{Use: "list", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		items, err := service.List(cmd.Context())
 		if err != nil {
@@ -35,7 +35,7 @@ func NewClassroomCommand(service ClassroomService) *ClassroomCommand {
 			}
 		}
 		return output.Flush()
-	}}, classroomAction("add", "Register a Classroom course", service.Add), classroomAction("remove", "Disable a Classroom course", service.Remove))
+	}}, classroomAction("add", "Register a course", service.Add), classroomAction("remove", "Disable a course", service.Remove))
 	return &ClassroomCommand{Command: command}
 }
 func classroomAction(verb, description string, run func(context.Context, string) error) *cobra.Command {

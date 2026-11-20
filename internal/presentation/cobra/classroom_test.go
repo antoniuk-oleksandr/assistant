@@ -118,9 +118,9 @@ var _ = Describe("classroom commands", func() {
 		}
 	})
 
-	It("adds classroom to the root command", func() {
+	It("adds the course command to the root command", func() {
 		root := cli.NewRootCommandWithClassroom(&cobra.Command{Use: "scenario"}, cli.NewClassroomCommand(&classroomServiceStub{}))
-		root.SetArgs([]string{"classroom", "add", "123"})
+		root.SetArgs([]string{"course", "add", "123"})
 		Expect(root.Execute()).To(Succeed())
 	})
 })
