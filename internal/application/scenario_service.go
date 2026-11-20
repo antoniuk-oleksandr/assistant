@@ -31,10 +31,6 @@ func NewScenarioService(repository ports.ScenarioRepository, registry scenario.R
 	return &ScenarioService{repository: repository, registry: registry}
 }
 
-func NewScenarioServiceWithBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository) *ScenarioService {
-	return &ScenarioService{repository: repository, registry: registry, bindings: bindings}
-}
-
 func NewScenarioServiceWithCourseBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository, courses ports.ScenarioCourseBindingRepository) *ScenarioService {
 	return &ScenarioService{repository: repository, registry: registry, bindings: bindings, courses: courses}
 }

@@ -41,12 +41,21 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(bindings.Unbind(ctx, "task-1")).Error().To(MatchError(ContainSubstring("find task")))
 		Expect(bindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list task bindings")))
 		Expect(bindings.Active(ctx)).Error().To(MatchError(ContainSubstring("list task bindings")))
+		Expect(courseBindings.Bind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("find active scenario")))
+		Expect(courseBindings.Unbind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("database is closed")))
+		Expect(courseBindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list scenario course bindings")))
 	})
 
 	It("registers assignments idempotently and only returns active bindings", func(ctx SpecContext) {
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(scenarios.Create(ctx, implementation)).To(Succeed())
 		Expect(courseBindings.Bind(ctx, implementation.Name, "course-1")).To(Succeed())
+		Expect(courseBindings.Bind(ctx, implementation.Name, "missing-course")).To(MatchError(ContainSubstring("find active course")))
+		Expect(courseBindings.Unbind(ctx, implementation.Name, "missing-course")).To(MatchError(ContainSubstring("course binding not found")))
+		courses, err := courseBindings.List(ctx, implementation.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(courses).To(HaveLen(1))
+		Expect(courses[0].CourseID).To(Equal("course-1"))
 		assignment := task.Task{Provider: "google-classroom", ExternalID: "coursework-1", CourseID: "course-1", Title: "Report"}
 		Expect(tasks.Register(ctx, assignment)).To(Succeed())
 		assignment.Title = "Updated report"
@@ -64,6 +73,7 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(active[0].Task.ExternalID).To(Equal(assignment.ExternalID))
 
 		Expect(scenarios.SetStatus(ctx, implementation.Name, scenario.Disabled)).To(Succeed())
+		Expect(courseBindings.Bind(ctx, implementation.Name, "course-1")).To(MatchError(ContainSubstring("find active scenario")))
 		active, err = bindings.Active(ctx)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(active).To(BeEmpty())
@@ -75,6 +85,8 @@ var _ = Describe("SQLite task bindings", func() {
 
 		Expect(scenarios.SetStatus(ctx, implementation.Name, scenario.Active)).To(Succeed())
 		Expect(bindings.Unbind(ctx, assignment.ExternalID)).To(Succeed())
+		Expect(courseBindings.Unbind(ctx, implementation.Name, "course-1")).To(Succeed())
+		Expect(bindings.Bind(ctx, implementation.Name, assignment.ExternalID)).To(MatchError(ContainSubstring("not bound to task course")))
 		Expect(bindings.Active(ctx)).Error().NotTo(HaveOccurred())
 		Expect(bindings.Unbind(ctx, assignment.ExternalID)).To(Succeed())
 		listed, err = bindings.List(ctx, implementation.Name)

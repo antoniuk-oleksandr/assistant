@@ -25,9 +25,10 @@ type serviceStub struct {
 }
 
 type bindingServiceStub struct {
-	items []application.TaskBindingResult
-	err   error
-	calls []string
+	items       []application.TaskBindingResult
+	courseItems []application.CourseBindingResult
+	err         error
+	calls       []string
 }
 
 func (s *bindingServiceStub) BindCourse(_ context.Context, scenarioName, courseID string) error {
@@ -40,7 +41,7 @@ func (s *bindingServiceStub) UnbindCourse(_ context.Context, scenarioName, cours
 }
 func (s *bindingServiceStub) ListCourseBindings(_ context.Context, scenarioName string) ([]application.CourseBindingResult, error) {
 	s.calls = append(s.calls, "course-list:"+scenarioName)
-	return nil, s.err
+	return s.courseItems, s.err
 }
 
 type failingWriter struct{}
@@ -142,7 +143,7 @@ var _ = Describe("scenario commands", func() {
 	})
 
 	It("validates and invokes task binding commands", func() {
-		service := &bindingServiceStub{}
+		service := &bindingServiceStub{courseItems: []application.CourseBindingResult{{CourseID: "course-1", Status: "active"}}}
 		command := cli.NewScenarioCommand(&serviceStub{}, service)
 		for _, tc := range []struct {
 			args []string
@@ -199,6 +200,21 @@ var _ = Describe("scenario commands", func() {
 		command.SetOut(rejectOutputWriter{rejected: "science-report"})
 		command.SetArgs([]string{"list"})
 		Expect(command.Execute()).To(MatchError("row output failed"))
+	})
+
+	It("prints course-list output", func() {
+		service := &bindingServiceStub{courseItems: []application.CourseBindingResult{{CourseID: "course-1", Status: "active"}}}
+		command := cli.NewScenarioCommand(&serviceStub{}, service)
+		var output bytes.Buffer
+		command.SetOut(&output)
+		command.SetArgs([]string{"course-list", "science-report"})
+		Expect(command.Execute()).To(Succeed())
+		Expect(output.String()).To(ContainSubstring("COURSE ID"))
+		Expect(output.String()).To(ContainSubstring("course-1"))
+		Expect(service.calls).To(ContainElement("course-list:science-report"))
+		service.err = errors.New("course binding failed")
+		command.SetArgs([]string{"course-list", "science-report"})
+		Expect(command.Execute()).To(MatchError("course binding failed"))
 	})
 
 	It("assembles a root command with the scenario command", func() {

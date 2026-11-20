@@ -63,6 +63,24 @@ type taskBindingRepositoryStub struct {
 	listedName string
 }
 
+type scenarioCourseBindingRepositoryStub struct {
+	items          []scenario.CourseBinding
+	bound, unbound []string
+	err            error
+}
+
+func (r *scenarioCourseBindingRepositoryStub) Bind(_ context.Context, name, id string) error {
+	r.bound = append(r.bound, name+":"+id)
+	return r.err
+}
+func (r *scenarioCourseBindingRepositoryStub) Unbind(_ context.Context, name, id string) error {
+	r.unbound = append(r.unbound, name+":"+id)
+	return r.err
+}
+func (r *scenarioCourseBindingRepositoryStub) List(context.Context, string) ([]scenario.CourseBinding, error) {
+	return r.items, r.err
+}
+
 func (r *taskBindingRepositoryStub) Bind(_ context.Context, scenarioName, taskID string) error {
 	r.bound = append(r.bound, scenarioName+":"+taskID)
 	return r.bindErr
@@ -147,7 +165,13 @@ var _ = Describe("scenario service", func() {
 			ScenarioName: implementation.Name, ScenarioType: implementation.Type, Status: "active",
 			Task: task.Task{ExternalID: "task-1", CourseID: "course-1", Title: "Report"},
 		}}}
-		service := application.NewScenarioServiceWithBindings(repo, scenario.NewRegistry(implementation), bindings)
+		courses := &scenarioCourseBindingRepositoryStub{items: []scenario.CourseBinding{{ScenarioName: implementation.Name, ScenarioType: implementation.Type, CourseID: "course-1", Status: "active"}}}
+		service := application.NewScenarioServiceWithCourseBindings(repo, scenario.NewRegistry(implementation), bindings, courses)
+		Expect(service.BindCourse(ctx, implementation.Name, "course-1")).To(Succeed())
+		Expect(service.UnbindCourse(ctx, implementation.Name, "course-1")).To(Succeed())
+		courseResult, err := service.ListCourseBindings(ctx, implementation.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(courseResult).To(Equal([]application.CourseBindingResult{{ScenarioName: implementation.Name, ScenarioType: implementation.Type, CourseID: "course-1", Status: "active"}}))
 
 		Expect(service.BindTask(ctx, implementation.Name, "task-1")).To(Succeed())
 		Expect(bindings.bound).To(Equal([]string{"science-report:task-1"}))
@@ -184,6 +208,10 @@ var _ = Describe("scenario service", func() {
 		Expect(err).To(MatchError("task bindings are unavailable"))
 		_, err = service.ActiveTaskBindings(ctx)
 		Expect(err).To(MatchError("task bindings are unavailable"))
+		Expect(service.BindCourse(ctx, implementation.Name, "course-1")).To(MatchError("scenario course bindings are unavailable"))
+		Expect(service.UnbindCourse(ctx, implementation.Name, "course-1")).To(MatchError("scenario course bindings are unavailable"))
+		_, err = service.ListCourseBindings(ctx, implementation.Name)
+		Expect(err).To(MatchError("scenario course bindings are unavailable"))
 	})
 })
 
