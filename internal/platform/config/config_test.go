@@ -118,6 +118,14 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "6m")
 		_, err = config.Load()
 		Expect(err).To(MatchError("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE"))
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "0d")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "1m")
+		_, err = config.Load()
+		Expect(err).To(MatchError("REPORT_PRELIMINARY_BEFORE must be a duration such as 3d or 72h"))
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "0s")
+		_, err = config.Load()
+		Expect(err).To(MatchError("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE"))
 	})
 
 	It("rejects an invalid dotenv file", func() {

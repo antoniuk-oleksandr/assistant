@@ -85,4 +85,8 @@ func TestPollingServiceNormalizesDeadlineWindows(t *testing.T) {
 	if service.deadlines != task.DefaultDeadlineWindows {
 		t.Fatalf("default deadline windows = %#v", service.deadlines)
 	}
+	service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: time.Minute, RefreshBefore: 2 * time.Minute})
+	if service.deadlines.RefreshBefore != task.DefaultDeadlineWindows.RefreshBefore {
+		t.Fatalf("normalized refresh window = %#v", service.deadlines)
+	}
 }
