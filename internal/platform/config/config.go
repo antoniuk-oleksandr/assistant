@@ -44,12 +44,18 @@ type EmailConfig struct {
 	TemplatePath string
 }
 
+type TelegramConfig struct {
+	Token   string
+	BaseURL string
+}
+
 type Config struct {
 	Database DatabaseConfig
 	Drive    DriveConfig
 	Sheets   SheetsConfig
 	Report   ReportConfig
 	Email    EmailConfig
+	Telegram TelegramConfig
 }
 
 func Load() (Config, error) {
@@ -103,8 +109,9 @@ func Load() (Config, error) {
 			BaseURL: get("GOOGLE_SHEETS_BASE_URL"), ClientID: get("GOOGLE_SHEETS_OAUTH_CLIENT_ID"),
 			ClientSecret: get("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN"), Title: sheetTitle,
 		},
-		Report: ReportConfig{Renderer: reportRenderer},
-		Email:  EmailConfig{APIKey: get("RESEND_API_KEY"), TargetEmail: get("REPORT_TARGET_EMAIL"), From: get("RESEND_FROM"), BaseURL: get("RESEND_BASE_URL"), TemplatePath: templatePath},
+		Report:   ReportConfig{Renderer: reportRenderer},
+		Email:    EmailConfig{APIKey: get("RESEND_API_KEY"), TargetEmail: get("REPORT_TARGET_EMAIL"), From: get("RESEND_FROM"), BaseURL: get("RESEND_BASE_URL"), TemplatePath: templatePath},
+		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL")},
 	}, nil
 }
 
@@ -116,5 +123,6 @@ func Drive(cfg Config) DriveConfig { return cfg.Drive }
 
 func Sheets(cfg Config) SheetsConfig { return cfg.Sheets }
 
-func Report(cfg Config) ReportConfig { return cfg.Report }
-func Email(cfg Config) EmailConfig   { return cfg.Email }
+func Report(cfg Config) ReportConfig     { return cfg.Report }
+func Email(cfg Config) EmailConfig       { return cfg.Email }
+func Telegram(cfg Config) TelegramConfig { return cfg.Telegram }

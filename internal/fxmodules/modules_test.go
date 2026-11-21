@@ -40,7 +40,7 @@ func TestNewFxLogger(t *testing.T) {
 }
 
 func TestDeliveryProviders(t *testing.T) {
-	if got := deliveryProviders(nil); len(got) != 1 || got[0] != nil {
+	if got := configuredDeliveryProviders(config.EmailConfig{}, config.TelegramConfig{}); len(got) != 2 {
 		t.Fatalf("delivery providers = %#v", got)
 	}
 }
