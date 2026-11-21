@@ -23,20 +23,21 @@ var _ = Describe("RunCLI", func() {
 		Expect(os.Setenv("REPORT_RENDERER", "local-xlsx")).To(Succeed())
 	})
 
-	It("starts the application and registers a compiled scenario", func(ctx SpecContext) {
-		Expect(app.RunCLI(ctx, []string{"scenario", "add", "science-report"})).To(Succeed())
-		Expect(app.RunCLI(ctx, []string{"scenario", "list"})).To(Succeed())
+	It("starts the application and configures the report workflow", func(ctx SpecContext) {
+		Expect(app.RunCLI(ctx, []string{"course", "add", "900423945297"})).To(Succeed())
+		Expect(app.RunCLI(ctx, []string{"report", "configure", "900423945297"})).To(Succeed())
+		Expect(app.RunCLI(ctx, []string{"report", "task-list"})).To(Succeed())
 	})
 
-	It("returns the application error for an unknown scenario", func(ctx SpecContext) {
-		Expect(app.RunCLI(context.WithValue(ctx, struct{}{}, "value"), []string{"scenario", "add", "unknown"})).To(MatchError(`ScenarioNotFound: "unknown"`))
+	It("returns the application error for an unregistered report course", func(ctx SpecContext) {
+		Expect(app.RunCLI(context.WithValue(ctx, struct{}{}, "value"), []string{"report", "configure", "unknown"})).To(MatchError(ContainSubstring("find active course")))
 	})
 
 	It("returns an Fx startup error when configuration is invalid", func(ctx SpecContext) {
 		Expect(os.Unsetenv(config.SQLitePathEnv)).To(Succeed())
 		Expect(os.Chdir(GinkgoT().TempDir())).To(Succeed())
 		Expect(os.WriteFile(".env", []byte("INVALID=\"unterminated\n"), 0600)).To(Succeed())
-		Expect(app.RunCLI(ctx, []string{"scenario", "list"})).NotTo(Succeed())
+		Expect(app.RunCLI(ctx, []string{"report", "task-list"})).NotTo(Succeed())
 	})
 
 	It("returns a polling startup error for a canceled background context", func(ctx SpecContext) {

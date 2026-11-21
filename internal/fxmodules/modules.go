@@ -35,7 +35,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	application.NewHeadNotificationService,
 	application.NewDeliveryService,
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
-	fx.Annotate(application.NewScenarioServiceWithCourseBindingsAndData, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService)), fx.As(new(cli.ScenarioCourseDataService))),
+	fx.Annotate(application.NewReportService, fx.As(new(cli.ReportService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 	fx.Annotate(application.NewTeacherContactService, fx.As(new(cli.TeacherContactService))),
 	fx.Annotate(application.NewCourseTaskService, fx.As(new(cli.CourseTaskService))),
@@ -68,7 +68,7 @@ func newMaterialParsing() *application.MaterialParsing {
 	return application.NewMaterialParsingWithAnalyzer(parser.NewMaterialAnalyzer(), parser.Strategies()...)
 }
 
-var CLIModule = fx.Module("cli", fx.Provide(cli.NewScenarioCommandWithBindings, cli.NewClassroomCommandWithTasks, cli.NewTeacherCommand, cli.NewRootCommandWithClassroomAndTeacher))
+var CLIModule = fx.Module("cli", fx.Provide(cli.NewReportCommand, cli.NewClassroomCommandWithTasks, cli.NewTeacherCommand, cli.NewRootCommandWithClassroomAndTeacher))
 
 func compiledScenarios() scenario.Registry {
 	return scenario.NewRegistryWithProcessors(

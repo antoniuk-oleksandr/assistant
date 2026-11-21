@@ -4,12 +4,14 @@
 
 Scheduled Report Aggregation System is a local application for collecting, validating, aggregating, and distributing periodic departmental submissions.
 
-The current use case is scientific activity reporting. The system is intentionally scenario-based so that other collection workflows can be added without rewriting the infrastructure.
+The current and only supported workflow is scientific activity reporting. The
+system is configured around a registered Classroom course and a report task;
+there is no user-selectable scenario layer.
 
 The application:
 
 - monitors Google Classroom every five minutes;
-- tracks tasks explicitly bound to scenarios;
+- tracks report tasks explicitly bound to registered courses;
 - reads submitted materials;
 - parses DOCX, XLSX, PDF, Google Docs, Google Sheets, and images through interchangeable interfaces;
 - aggregates numeric and textual data;
@@ -20,9 +22,12 @@ The application:
 
 ## 2. Core concepts
 
-### Scenario
+### Report workflow
 
-A scenario defines how a particular type of task is collected and processed. `ScienceReportScenario` is the first scenario. Future scenarios may handle grant applications, surveys, conference registrations, or document approvals.
+The report workflow is the built-in scientific activity aggregation process. It
+collects Classroom submissions, parses the known appendix structure, renders a
+single departmental result, and sends configured notifications. Users do not
+register, enable, disable, or select scenarios.
 
 ### Task
 
@@ -37,7 +42,9 @@ https://classroom.google.com/c/OTAwNDIzOTQ1Mjk3
                          └── Base64URL → 900423945297
 ```
 
-The selected course is persisted in SQLite and is the only course polled by the scenario. The application must not scan every course visible to the OAuth account unless explicitly requested.
+The selected course is persisted in SQLite and is the only course polled by the
+report workflow. The application must not scan every course visible to the OAuth
+account unless explicitly requested.
 
 The course commands behave as follows:
 
@@ -108,37 +115,24 @@ they are not assumed to be submitted by every staff member.
 
 ### Report run
 
-A `ReportRun` is one processing lifecycle for one scenario-task binding.
+A `ReportRun` is one processing lifecycle for one report-task binding.
 
 ### Result
 
 A result is a `ReportPackage` produced through a renderer interface. Its primary human-readable output is one aggregate Google Sheet containing the departmental summary. It contains aggregated values extracted from the Google Docs and other materials actually submitted by staff, mapped to the known set of 28 appendices, plus source information, missing or invalid submission information, supporting files, and delivery metadata. The package is stored locally and may be exported to Excel when required by the official process.
 
-## 3. Scenario model
+## 3. Report model
 
 The system is organized around:
 
 ```text
-Task → Scenario → Result
+Registered course → Report task → Result
 ```
 
-The generic contract is:
+The report workflow:
 
 ```text
-Scenario
-├── matches(task) -> Boolean
-├── collect(task) -> Collection
-├── process(collection) -> ProcessedData
-├── produce_result(data) -> Result
-└── notifications(result) -> Notifications
-```
-
-`ScenarioRunner` executes all active scenarios. It does not contain domain-specific reporting rules.
-
-The scientific reporting scenario:
-
-```text
-ScienceReportScenario
+Scientific report workflow
 ├── collects staff submissions
 ├── processes appendices and supporting materials
 ├── aggregates numeric and textual indicators
@@ -147,31 +141,17 @@ ScienceReportScenario
 └── sends reminders and the final result
 ```
 
-### Scenario registry
-
-Scenario implementations are compiled into the application. Their registration and active status are stored in SQLite; no YAML or JSON scenario configuration is required.
-
-```text
-scenario list
-scenario add science-report
-scenario enable science-report
-scenario disable science-report
-scenario remove science-report
-```
-
-If the implementation is not registered in the application, `scenario add` returns `ScenarioNotFound`.
-
-Courses and tasks are explicitly bound to scenarios. Bind the course before the task:
+The report workflow is compiled into the application. It is configured through
+the report commands and does not require scenario registration or a YAML/JSON
+configuration file. Configure the course before binding a task:
 
 ```text
-scenario course-bind <scenario-name> <course-id>
-scenario course-unbind <scenario-name> <course-id>
-scenario course-list <scenario-name>
-scenario data-set <scenario-name> <course-id> --field name=value [--field name=value ...]
-scenario data-list <scenario-name> <course-id>
-scenario task-bind <scenario-name> <task-id>
-scenario task-unbind <task-id>
-scenario task-list <scenario-name>
+report configure <course-id>
+report data-set <course-id> --field name=value [--field name=value ...]
+report data-list <course-id>
+report task-bind <task-id>
+report task-unbind <task-id>
+report task-list
 
 course list
 course add <course-url-or-id>
@@ -179,20 +159,21 @@ course tasks <course-url-or-id>
 course remove <course-id>
 ```
 
-An unbound course or task is not processed. A task may be selected by title, label, course, or metadata, but the explicit scenario-course and scenario-task bindings are the authoritative relationships.
+An unconfigured course or unbound task is not processed. The explicit report
+course and task relationships are authoritative.
 
-Course-specific report metadata is stored after the scenario-course binding is
-created. `scenario data-set` accepts repeatable `name=value` fields and updates
-only the named fields; `scenario data-list` reads the persisted values. Common
+Course-specific report metadata is stored after report configuration.
+`report data-set` accepts repeatable `name=value` fields and updates
+only the named fields; `report data-list` reads the persisted values. Common
 keys include `department_name` (кафедри), `department_email`,
 `lab_assistant_name`, `lab_assistant_mobile_phone`, and `department_phone`.
 The command only writes SQLite; report generation is a separate operation.
-Writes are rejected for an inactive or unbound scenario-course pair.
+Writes are rejected for an inactive or unconfigured course.
 
 Example:
 
 ```bash
-go run ./cmd/assistent scenario data-set science-report <course-id> \
+go run ./cmd/assistent report data-set <course-id> \
   --field department_name="Department name" \
   --field department_email=department@example.com \
   --field lab_assistant_name="Anna Kovalenko" \
@@ -243,7 +224,7 @@ Required access normally includes:
 Polling performs the following steps:
 
 1. discover new or changed coursework;
-2. find tasks explicitly bound to active scenarios;
+2. find tasks explicitly bound to the configured report workflow;
 3. retrieve `StudentSubmission` resources;
 4. store the student ID, email, state, submission time, and attachment metadata;
 5. download or read available Drive, Docs, or Sheets materials, including the 28 appendices and supporting files;
@@ -537,14 +518,14 @@ Only validated materials enter aggregation. Invalid or unreadable materials rema
 Numeric values:
 
 - a dash is treated as zero where the field is numeric;
-- values from valid submissions are summed or counted according to the scenario;
+- values from valid submissions are summed or counted according to the report rules;
 - every result keeps its source materials.
 
 Text values:
 
 - are merged without silent overwriting;
 - keep their original source and author;
-- may be deduplicated where the scenario permits.
+- may be deduplicated according to the report rules.
 
 If a merge conflict is detected, the system:
 
