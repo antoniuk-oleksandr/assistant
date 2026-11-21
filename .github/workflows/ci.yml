@@ -43,11 +43,18 @@ jobs:
         run: go vet ./...
 
       - name: Run tests with coverage
-        run: go test -race -covermode=atomic -coverpkg=./cmd/assistent,./internal/... -coverprofile=coverage.out ./...
+        run: go test -race -covermode=atomic -coverpkg=./cmd/assistent,./internal/... -coverprofile=coverage.txt ./...
 
       - name: Enforce coverage threshold
         shell: bash
         run: |
-          total=$(go tool cover -func=coverage.out | awk '/^total:/ { gsub("%", "", $3); print $3 }')
+          total=$(go tool cover -func=coverage.txt | awk '/^total:/ { gsub("%", "", $3); print $3 }')
           echo "Total coverage: ${total}%"
           awk -v coverage="$total" 'BEGIN { exit !(coverage >= 90) }'
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: antoniuk-oleksandr/assistant
+          files: ./coverage.txt
