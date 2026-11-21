@@ -29,6 +29,7 @@ type PollingService struct {
 	collection   *ScenarioCollectionService
 	registry     scenario.Registry
 	participants ports.ParticipantRosterRepository
+	missing      ports.MissingSubmitterRepository
 	clock        func() time.Time
 }
 
@@ -49,15 +50,19 @@ func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, sourc
 }
 
 func NewPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry) *PollingService {
-	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, nil)
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, nil, nil)
 }
 
 func NewPollingServiceWithScenarioCollectionAndRoster(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository) *PollingService {
-	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants)
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, nil)
 }
 
-func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, clock: func() time.Time { return time.Now().UTC() }}
+func NewPollingServiceWithScenarioCollectionAndRosterAndMissing(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository) *PollingService {
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, missing)
+}
+
+func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
@@ -253,6 +258,9 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 			return fmt.Errorf("store submission %q: %w", current.ExternalID, err)
 		}
 	}
+	if err := s.reconcileMissing(ctx, item.ID, items); err != nil {
+		return err
+	}
 	if s.collection != nil {
 		processor, err := s.registry.ResolveProcessor(binding.ScenarioName)
 		if err != nil {
@@ -261,6 +269,45 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		if _, err := s.collection.ProcessForTask(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor); err != nil {
 			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, err)
 		}
+	}
+	return nil
+}
+
+func (s *PollingService) reconcileMissing(ctx context.Context, taskID int64, submissions []submission.Submission) error {
+	if s.participants == nil || s.missing == nil || taskID == 0 {
+		return nil
+	}
+	roster, err := s.participants.List(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("list expected participants: %w", err)
+	}
+	previous, err := s.missing.List(ctx, taskID)
+	if err != nil {
+		return fmt.Errorf("list missing submitters: %w", err)
+	}
+	states := make(map[string]string, len(previous))
+	for _, item := range previous {
+		states[item.ExternalUserID] = item.NotificationState
+	}
+	submitted := make(map[string]bool, len(submissions))
+	for _, item := range submissions {
+		if item.State == submission.Submitted {
+			submitted[item.SubmitterID] = true
+		}
+	}
+	missing := make([]ports.MissingSubmitter, 0, len(roster))
+	for _, participant := range roster {
+		if submitted[participant.ExternalID] {
+			continue
+		}
+		state := states[participant.ExternalID]
+		if state == "" {
+			state = "pending"
+		}
+		missing = append(missing, ports.MissingSubmitter{TaskID: taskID, ExternalUserID: participant.ExternalID, Name: participant.Name, Email: participant.Email, NotificationState: state})
+	}
+	if err := s.missing.Reconcile(ctx, taskID, missing); err != nil {
+		return fmt.Errorf("reconcile missing submitters: %w", err)
 	}
 	return nil
 }

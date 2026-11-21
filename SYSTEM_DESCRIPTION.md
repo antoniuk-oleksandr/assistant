@@ -75,6 +75,9 @@ For each discovered task, the application persists the expected Classroom
 student roster. Classroom user IDs are the stable identity used to match a
 submission; names and emails are copied from the profile only when available.
 
+Each polling cycle reconciles that roster with submitted Classroom user IDs and
+persists the currently missing participants, including notification state.
+
 ### Appendix set
 
 The scientific reporting scenario knows a fixed set of 28 possible appendices. The system processes every appendix that is actually submitted. Missing appendices are represented in the aggregate with scenario-defined defaults: zero for numeric counters, a dash or absence marker for scalar fields, and an empty collection for lists. The aggregate still follows the 28-appendix structure.

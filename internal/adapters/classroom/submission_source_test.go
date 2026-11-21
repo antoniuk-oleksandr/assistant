@@ -135,6 +135,18 @@ func TestSubmissionSourceReportsUnsupportedProfileClient(t *testing.T) {
 	}
 }
 
+func TestSubmissionSourceWrapsProfileLookupErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte("forbidden"))
+	}))
+	defer server.Close()
+	source := NewSubmissionSourceWithClient(NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client()))
+	if _, err := source.GetProfile(context.Background(), "user-1"); err == nil || !strings.Contains(err.Error(), "get Classroom user profile") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
 	tests := []struct {
 		name     string

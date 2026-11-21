@@ -18,7 +18,8 @@ func TestTeacherRepositoryRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	var db *sql.DB
 	var repo ports.TeacherRepository
-	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository), fx.Populate(&db, &repo))
+	var contacts ports.TeacherContactRepository
+	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository, storage.NewTeacherContactRepository), fx.Populate(&db, &repo, &contacts))
 	if err := app.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +63,8 @@ func TestTeacherRepositoryReportsMissingAndClosedDatabase(t *testing.T) {
 	ctx := context.Background()
 	var db *sql.DB
 	var repo ports.TeacherRepository
-	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository), fx.Populate(&db, &repo))
+	var contacts ports.TeacherContactRepository
+	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository, storage.NewTeacherContactRepository), fx.Populate(&db, &repo, &contacts))
 	if err := app.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +92,9 @@ func TestTeacherRepositoryReportsMissingAndClosedDatabase(t *testing.T) {
 	}
 	if err := repo.CreateChannel(ctx, &teacher.Channel{RecipientID: 1, Kind: "email", Destination: "x", Status: teacher.Active, CreatedAt: time.Now()}); err == nil {
 		t.Fatal("closed channel create unexpectedly succeeded")
+	}
+	if err := contacts.RegisterContact(ctx, &teacher.Recipient{Name: "x", Email: "x@example.com", Status: teacher.Active, CreatedAt: time.Now()}, &teacher.Channel{Kind: "phone", Destination: "x", Status: teacher.Active, CreatedAt: time.Now()}); err == nil {
+		t.Fatal("closed contact registration unexpectedly succeeded")
 	}
 }
 
