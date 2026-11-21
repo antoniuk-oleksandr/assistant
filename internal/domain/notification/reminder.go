@@ -18,6 +18,10 @@ type Reminder struct {
 	Channel       string
 	Destination   string
 	Kind          string
+	Subject       string
+	Message       string
+	DueAt         string
+	ClassroomLink string
 	Status        Status
 	Error         string
 	Attempts      int

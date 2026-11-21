@@ -11,9 +11,11 @@ import (
 var ErrReminderNotFound = errors.New("reminder not found")
 
 type ReminderTarget struct {
-	PersonID    string
-	Channel     string
-	Destination string
+	PersonID      string
+	Channel       string
+	Destination   string
+	TaskTitle     string
+	ClassroomLink string
 }
 
 type ReminderRepository interface {

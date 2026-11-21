@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alex/assistent/internal/domain/notification"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/platform/config"
 )
@@ -21,6 +22,30 @@ func TestNewReportReadyNotifierUsesNoopWithoutEmailConfiguration(t *testing.T) {
 		t.Fatal("notifier should be disabled without Resend configuration")
 	}
 	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReminderEmailProviderUsesConfiguredResendClient(t *testing.T) {
+	provider := NewReminderEmailProvider(config.EmailConfig{})
+	if provider.Name() != "email" {
+		t.Fatalf("disabled provider name = %q", provider.Name())
+	}
+	if err := provider.SendReminder(context.Background(), notification.Reminder{}); err == nil {
+		t.Fatal("disabled provider unexpectedly sent a reminder")
+	}
+	if configured := NewReminderEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com"}); configured.Name() != "email" {
+		t.Fatalf("configured provider name = %q", configured.Name())
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/emails" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	configured := NewReminderEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com", BaseURL: server.URL}).(*reminderEmailProvider)
+	if err := configured.SendReminder(context.Background(), notification.Reminder{Destination: "to@example.com", Subject: "Reminder", Message: "Please submit"}); err != nil {
 		t.Fatal(err)
 	}
 }

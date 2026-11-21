@@ -17,7 +17,7 @@ func NewReminderRepository(db *sql.DB) ports.ReminderRepository {
 }
 
 func (r *SQLiteReminderRepository) Create(ctx context.Context, item *notification.Reminder) error {
-	err := r.db.QueryRowContext(ctx, `INSERT INTO reminders (task_id, person_id, channel, destination, kind, status, error_message, attempts, next_attempt_at, attempted_at, created_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?) RETURNING id`, item.TaskID, item.PersonID, item.Channel, item.Destination, item.Kind, item.Status, item.Error, item.Attempts, nullableTime(item.NextAttemptAt), nullableTime(item.AttemptedAt), item.CreatedAt.UTC().Format(time.RFC3339Nano)).Scan(&item.ID)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO reminders (task_id, person_id, channel, destination, kind, subject, message, due_at, classroom_link, status, error_message, attempts, next_attempt_at, attempted_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?) RETURNING id`, item.TaskID, item.PersonID, item.Channel, item.Destination, item.Kind, item.Subject, item.Message, item.DueAt, item.ClassroomLink, item.Status, item.Error, item.Attempts, nullableTime(item.NextAttemptAt), nullableTime(item.AttemptedAt), item.CreatedAt.UTC().Format(time.RFC3339Nano)).Scan(&item.ID)
 	if err != nil {
 		return fmt.Errorf("insert reminder: %w", err)
 	}
@@ -43,7 +43,7 @@ func (r *SQLiteReminderRepository) Get(ctx context.Context, taskID int64, person
 	var item notification.Reminder
 	var attempted, next sql.NullString
 	var created string
-	err := r.db.QueryRowContext(ctx, `SELECT id, destination, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE task_id=? AND person_id=? AND channel=? AND kind=?`, taskID, personID, channel, kind).Scan(&item.ID, &item.Destination, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created)
+	err := r.db.QueryRowContext(ctx, `SELECT id, destination, subject, message, due_at, classroom_link, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE task_id=? AND person_id=? AND channel=? AND kind=?`, taskID, personID, channel, kind).Scan(&item.ID, &item.Destination, &item.Subject, &item.Message, &item.DueAt, &item.ClassroomLink, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return notification.Reminder{}, fmt.Errorf("%w: task %d person %s", ports.ErrReminderNotFound, taskID, personID)
@@ -64,7 +64,7 @@ func (r *SQLiteReminderRepository) Get(ctx context.Context, taskID int64, person
 }
 
 func (r *SQLiteReminderRepository) ListByTask(ctx context.Context, taskID int64) ([]notification.Reminder, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, person_id, channel, destination, kind, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE task_id=? ORDER BY id`, taskID)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, person_id, channel, destination, kind, subject, message, due_at, classroom_link, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE task_id=? ORDER BY id`, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("list reminders for task %d: %w", taskID, err)
 	}
@@ -74,7 +74,7 @@ func (r *SQLiteReminderRepository) ListByTask(ctx context.Context, taskID int64)
 		var item notification.Reminder
 		var attempted, next sql.NullString
 		var created string
-		if err := rows.Scan(&item.ID, &item.PersonID, &item.Channel, &item.Destination, &item.Kind, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created); err != nil {
+		if err := rows.Scan(&item.ID, &item.PersonID, &item.Channel, &item.Destination, &item.Kind, &item.Subject, &item.Message, &item.DueAt, &item.ClassroomLink, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created); err != nil {
 			return nil, fmt.Errorf("scan reminder: %w", err)
 		}
 		item.TaskID = taskID
@@ -102,7 +102,7 @@ func (r *SQLiteReminderRepository) GetByID(ctx context.Context, id int64) (notif
 	var item notification.Reminder
 	var attempted, next sql.NullString
 	var created string
-	err := r.db.QueryRowContext(ctx, `SELECT task_id, person_id, channel, destination, kind, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE id=?`, id).Scan(&item.TaskID, &item.PersonID, &item.Channel, &item.Destination, &item.Kind, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created)
+	err := r.db.QueryRowContext(ctx, `SELECT task_id, person_id, channel, destination, kind, subject, message, due_at, classroom_link, status, COALESCE(error_message, ''), attempts, next_attempt_at, attempted_at, created_at FROM reminders WHERE id=?`, id).Scan(&item.TaskID, &item.PersonID, &item.Channel, &item.Destination, &item.Kind, &item.Subject, &item.Message, &item.DueAt, &item.ClassroomLink, &item.Status, &item.Error, &item.Attempts, &next, &attempted, &created)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return notification.Reminder{}, ports.ErrReminderNotFound

@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,6 +101,36 @@ func TestReminderServiceUsesProductionConstructor(t *testing.T) {
 	service := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
 	if service == nil {
 		t.Fatal("NewReminderService() returned nil")
+	}
+}
+
+func TestReminderServiceRendersReminderDetails(t *testing.T) {
+	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	repository := &reminderRepository{}
+	provider := &reminderProvider{name: "email"}
+	service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
+	item := task.Task{ID: 4, Title: "Weekly report", DueAt: "2026-11-20T00:00:00Z", CourseID: "course-1", ExternalID: "task-1"}
+	items, err := service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "missing", Channel: "email", Destination: "m@example.com", TaskTitle: item.Title, ClassroomLink: "https://classroom/task-1"}}, 72*time.Hour)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+	if items[0].Subject != "Reminder: Weekly report" || items[0].DueAt != item.DueAt || items[0].ClassroomLink != "https://classroom/task-1" {
+		t.Fatalf("reminder metadata=%#v", items[0])
+	}
+	for _, value := range []string{"Weekly report", item.DueAt, "48h0m0s", "https://classroom/task-1"} {
+		if !strings.Contains(items[0].Message, value) {
+			t.Fatalf("message %q does not contain %q", items[0].Message, value)
+		}
+	}
+}
+
+func TestReminderServiceReportsMissingTemplate(t *testing.T) {
+	t.Setenv("REMINDER_TEMPLATE_PATH", "/tmp/does-not-exist-reminder-template")
+	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	service := application.NewReminderServiceWithClock(&reminderRepository{}, []ports.ReminderProvider{&reminderProvider{}}, func() time.Time { return now })
+	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "", Destination: "x"}}, 72*time.Hour)
+	if err == nil || !strings.Contains(err.Error(), "read reminder template") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

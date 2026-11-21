@@ -29,7 +29,8 @@ var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.N
 
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
-	application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing,
+	application.NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders,
+	application.NewReminderService,
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewScenarioServiceWithCourseBindingsAndData, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService)), fx.As(new(cli.ScenarioCourseDataService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
@@ -38,8 +39,12 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier),
+	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier, notification.NewReminderEmailProvider, reminderProviders),
 )
+
+func reminderProviders(provider ports.ReminderProvider) []ports.ReminderProvider {
+	return []ports.ReminderProvider{provider}
+}
 
 func newMaterialParsing() *application.MaterialParsing {
 	return application.NewMaterialParsingWithAnalyzer(parser.NewMaterialAnalyzer(), parser.Strategies()...)

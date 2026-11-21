@@ -1,0 +1,68 @@
+package application
+
+import (
+	"context"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/alex/assistent/internal/domain/notification"
+	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/task"
+)
+
+type reminderPollingMissingRepository struct {
+	items []ports.MissingSubmitter
+	err   error
+}
+
+func (r reminderPollingMissingRepository) Reconcile(context.Context, int64, []ports.MissingSubmitter) error {
+	return nil
+}
+func (r reminderPollingMissingRepository) List(context.Context, int64) ([]ports.MissingSubmitter, error) {
+	return r.items, r.err
+}
+
+type reminderPollingRepository struct{}
+
+func (reminderPollingRepository) Create(_ context.Context, item *notification.Reminder) error {
+	item.ID = 1
+	return nil
+}
+func (reminderPollingRepository) Update(context.Context, *notification.Reminder) error { return nil }
+func (reminderPollingRepository) Get(context.Context, int64, string, string, string) (notification.Reminder, error) {
+	return notification.Reminder{}, ports.ErrReminderNotFound
+}
+func (reminderPollingRepository) GetByID(context.Context, int64) (notification.Reminder, error) {
+	return notification.Reminder{}, ports.ErrReminderNotFound
+}
+func (reminderPollingRepository) ListByTask(context.Context, int64) ([]notification.Reminder, error) {
+	return nil, nil
+}
+func (reminderPollingRepository) ListRetryable(context.Context, time.Time) ([]notification.Reminder, error) {
+	return nil, nil
+}
+
+type reminderPollingProvider struct{}
+
+func (reminderPollingProvider) Name() string                                              { return "email" }
+func (reminderPollingProvider) SendReminder(context.Context, notification.Reminder) error { return nil }
+
+func TestScheduleMissingRemindersBuildsEmailTargets(t *testing.T) {
+	service := &PollingService{
+		missing:   reminderPollingMissingRepository{items: []ports.MissingSubmitter{{ExternalUserID: "user-1", Email: "teacher@example.com"}, {ExternalUserID: "no-email"}}},
+		reminders: NewReminderServiceWithClock(reminderPollingRepository{}, []ports.ReminderProvider{reminderPollingProvider{}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) }),
+	}
+	item := task.Task{ID: 1, ExternalID: "task-1", CourseID: "course-1", Title: "Report", DueAt: "2026-11-20T00:00:00Z"}
+	if err := service.scheduleMissingReminders(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestScheduleMissingRemindersPropagatesRepositoryError(t *testing.T) {
+	service := &PollingService{missing: reminderPollingMissingRepository{err: errors.New("list failed")}, reminders: NewReminderService(reminderPollingRepository{}, nil)}
+	err := service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"})
+	if err == nil || err.Error() != "list missing submitters for reminders: list failed" {
+		t.Fatalf("error = %v", err)
+	}
+}

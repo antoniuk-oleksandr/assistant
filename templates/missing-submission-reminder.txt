@@ -1,0 +1,5 @@
+You have not submitted “<task_title>” yet.
+
+Due date: <due_at>
+Remaining time: <remaining_time>
+Classroom task: <classroom_link>

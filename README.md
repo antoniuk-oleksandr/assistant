@@ -105,7 +105,17 @@ REPORT_TARGET_EMAIL=owner@example.com
 RESEND_FROM=onboarding@resend.dev
 # Optional custom template:
 # REPORT_READY_EMAIL_TEMPLATE=templates/report-ready-email.txt
+# Optional missing-submission reminder template:
+# REMINDER_TEMPLATE_PATH=templates/missing-submission-reminder.txt
 ```
+
+During the three-day-before-deadline polling phase, the application creates one
+email reminder per missing roster participant. The reminder includes the task
+title, due date, remaining time, and Classroom link. Reminder attempts and
+failures are persisted in SQLite and deduplicated by task, participant, channel,
+and phase. The default body is `templates/missing-submission-reminder.txt`;
+override it with `REMINDER_TEMPLATE_PATH` and use `<task_title>`, `<due_at>`,
+`<remaining_time>`, and `<classroom_link>` placeholders.
 
 ### Google Drive OAuth
 

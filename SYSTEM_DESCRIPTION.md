@@ -649,6 +649,7 @@ RESEND_API_KEY
 REPORT_TARGET_EMAIL
 RESEND_FROM
 REPORT_READY_EMAIL_TEMPLATE
+REMINDER_TEMPLATE_PATH
 TELEGRAM_BOT_TOKEN
 SQLITE_DATABASE_PATH
 LOG_DIRECTORY
@@ -662,6 +663,14 @@ with the generated Sheet URL. `RESEND_FROM` must be a verified Resend sender
 address (or `onboarding@resend.dev` for Resend account-owner testing);
 `REPORT_TARGET_EMAIL` is the recipient and `RESEND_BASE_URL` defaults to
 `https://api.resend.com`.
+
+At the three-day-before-deadline phase, missing roster participants receive one
+Resend email reminder when their profile has an email address. The reminder
+contains the task title, due date, remaining time, and Classroom task link. Its
+default template is `templates/missing-submission-reminder.txt`; the path can be
+overridden with `REMINDER_TEMPLATE_PATH`. Reminder records retain the rendered
+subject/body and delivery status in SQLite, and the unique task/participant/
+channel/kind key prevents duplicate reminders.
 
 `GOOGLE_CLASSROOM_ID` is the normalized numeric course ID. The preferred way to register it is:
 
