@@ -74,7 +74,14 @@ GOOGLE_SHEETS_BASE_URL=https://sheets.googleapis.com/v4
 
 # Used to interpret Google Classroom due dates and times.
 GOOGLE_CLASSROOM_TIMEZONE=Europe/Kyiv
+
+# Deadline windows; supports 3d, 5m, 2h, and other positive durations.
+REPORT_PRELIMINARY_BEFORE=3d
+REPORT_REFRESH_BEFORE=1d
 ```
+
+For fast local testing, set `REPORT_PRELIMINARY_BEFORE=5m` and
+`REPORT_REFRESH_BEFORE=2m`.
 
 ### Google Sheets OAuth
 

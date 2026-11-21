@@ -74,3 +74,19 @@ func TestScheduleMissingRemindersSkipsTasksWithoutDueDate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPollingServiceNormalizesDeadlineWindows(t *testing.T) {
+	service := &PollingService{}
+	service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: 5 * time.Minute, RefreshBefore: 2 * time.Minute})
+	if service.deadlines.PreliminaryBefore != 5*time.Minute || service.deadlines.RefreshBefore != 2*time.Minute {
+		t.Fatalf("deadline windows = %#v", service.deadlines)
+	}
+	service.SetDeadlineWindows(task.DeadlineWindows{})
+	if service.deadlines != task.DefaultDeadlineWindows {
+		t.Fatalf("default deadline windows = %#v", service.deadlines)
+	}
+	service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: time.Minute, RefreshBefore: 2 * time.Minute})
+	if service.deadlines.RefreshBefore != task.DefaultDeadlineWindows.RefreshBefore {
+		t.Fatalf("normalized refresh window = %#v", service.deadlines)
+	}
+}

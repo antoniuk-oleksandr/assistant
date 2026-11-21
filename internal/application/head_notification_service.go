@@ -20,6 +20,10 @@ func NewHeadNotificationService(teachers ports.TeacherRepository, reminders *Rem
 }
 
 func (s *HeadNotificationService) Schedule(ctx context.Context, item task.Task, missing []ports.MissingSubmitter) error {
+	return s.ScheduleWithLead(ctx, item, missing, 72*time.Hour)
+}
+
+func (s *HeadNotificationService) ScheduleWithLead(ctx context.Context, item task.Task, missing []ports.MissingSubmitter, lead time.Duration) error {
 	if s.teachers == nil || s.reminders == nil || len(missing) == 0 {
 		return nil
 	}
@@ -41,7 +45,7 @@ func (s *HeadNotificationService) Schedule(ctx context.Context, item task.Task, 
 			targets = append(targets, ports.ReminderTarget{PersonID: fmt.Sprint(recipient.ID), Channel: channel.Kind, Destination: channel.Destination, TaskTitle: item.Title, Kind: "missing_submitters_head", Subject: fmt.Sprintf("Missing submissions: %s", item.Title), Message: message})
 		}
 	}
-	if _, err := s.reminders.Schedule(ctx, item, nil, targets, 72*time.Hour); err != nil {
+	if _, err := s.reminders.Schedule(ctx, item, nil, targets, lead); err != nil {
 		return fmt.Errorf("schedule head notifications: %w", err)
 	}
 	return nil

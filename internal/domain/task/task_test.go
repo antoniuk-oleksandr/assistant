@@ -36,3 +36,26 @@ func TestDeterminePhaseFallsBackToDueAtAndDiscovery(t *testing.T) {
 		t.Fatalf("invalid deadline phase = %q", got)
 	}
 }
+
+func TestDeterminePhaseSupportsCustomMinuteWindows(t *testing.T) {
+	deadline := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	item := Task{DueAt: deadline.Format(time.RFC3339)}
+	windows := DeadlineWindows{PreliminaryBefore: 5 * time.Minute, RefreshBefore: 2 * time.Minute}
+	checks := []struct {
+		now  time.Time
+		want Phase
+	}{
+		{deadline.Add(-6 * time.Minute), PhaseDiscovery},
+		{deadline.Add(-5 * time.Minute), PhaseThreeDaysBefore},
+		{deadline.Add(-2 * time.Minute), PhaseOneDayBefore},
+		{deadline, PhaseDeadlineReached},
+	}
+	for _, check := range checks {
+		if got := DeterminePhaseWithWindows(item, check.now, windows); got != check.want {
+			t.Fatalf("DeterminePhaseWithWindows(%s) = %q, want %q", check.now, got, check.want)
+		}
+	}
+	if got := DeterminePhaseWithWindows(item, deadline.Add(-72*time.Hour), DeadlineWindows{}); got != PhaseThreeDaysBefore {
+		t.Fatalf("normalized deadline windows phase = %q", got)
+	}
+}

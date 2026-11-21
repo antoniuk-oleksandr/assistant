@@ -694,8 +694,12 @@ default timezone is UTC when the variable is not configured.
 
 Each task also stores one idempotent lifecycle phase: `discovery`,
 `three_days_before`, `one_day_before`, `deadline_reached`, or `completed`, plus
-the timestamp at which that phase was reached. Re-running the poller while a
-task remains in the same phase does not change the phase timestamp.
+the timestamp at which that phase was reached. The phase names are retained for
+compatibility, but their windows are configurable through
+`REPORT_PRELIMINARY_BEFORE` and `REPORT_REFRESH_BEFORE`. Values accept `d`,
+`h`, `m`, and `s` suffixes, so `5m` and `2m` can be used for local testing.
+Re-running the poller while a task remains in the same phase does not change
+the phase timestamp.
 
 The `.env` file is never written to reports or logs and is not committed to version control.
 

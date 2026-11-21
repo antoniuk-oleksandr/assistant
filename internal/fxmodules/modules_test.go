@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alex/assistent/internal/adapters/storage"
 	"github.com/alex/assistent/internal/application"
@@ -43,6 +44,11 @@ func TestDeliveryProviders(t *testing.T) {
 	if got := configuredDeliveryProviders(config.EmailConfig{}, config.TelegramConfig{}); len(got) != 2 {
 		t.Fatalf("delivery providers = %#v", got)
 	}
+}
+
+func TestConfigurePollingDeadlines(t *testing.T) {
+	service := &application.PollingService{}
+	configurePollingDeadlines(pollingDeadlineParams{Service: service, Deadline: config.DeadlineConfig{PreliminaryBefore: time.Minute, RefreshBefore: 30 * time.Second}})
 }
 
 type fxPollingSource struct{}

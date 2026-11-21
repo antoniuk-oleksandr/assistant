@@ -4,7 +4,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -49,6 +51,11 @@ type TelegramConfig struct {
 	BaseURL string
 }
 
+type DeadlineConfig struct {
+	PreliminaryBefore time.Duration
+	RefreshBefore     time.Duration
+}
+
 type Config struct {
 	Database DatabaseConfig
 	Drive    DriveConfig
@@ -56,6 +63,7 @@ type Config struct {
 	Report   ReportConfig
 	Email    EmailConfig
 	Telegram TelegramConfig
+	Deadline DeadlineConfig
 }
 
 func Load() (Config, error) {
@@ -79,6 +87,14 @@ func Load() (Config, error) {
 			return value
 		}
 		return values[key]
+	}
+	preliminary, err := parseFlexibleDuration(get("REPORT_PRELIMINARY_BEFORE"), 72*time.Hour)
+	if err != nil {
+		return Config{}, errors.New("REPORT_PRELIMINARY_BEFORE must be a duration such as 3d or 72h")
+	}
+	refresh, err := parseFlexibleDuration(get("REPORT_REFRESH_BEFORE"), 24*time.Hour)
+	if err != nil || refresh > preliminary {
+		return Config{}, errors.New("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE")
 	}
 	materialDir := get("GOOGLE_DRIVE_MATERIAL_DIR")
 	if materialDir == "" {
@@ -112,7 +128,27 @@ func Load() (Config, error) {
 		Report:   ReportConfig{Renderer: reportRenderer},
 		Email:    EmailConfig{APIKey: get("RESEND_API_KEY"), TargetEmail: get("REPORT_TARGET_EMAIL"), From: get("RESEND_FROM"), BaseURL: get("RESEND_BASE_URL"), TemplatePath: templatePath},
 		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL")},
+		Deadline: DeadlineConfig{PreliminaryBefore: preliminary, RefreshBefore: refresh},
 	}, nil
+}
+
+func parseFlexibleDuration(value string, fallback time.Duration) (time.Duration, error) {
+	if strings.TrimSpace(value) == "" {
+		return fallback, nil
+	}
+	value = strings.TrimSpace(value)
+	if strings.HasSuffix(value, "d") {
+		days, err := strconv.ParseFloat(strings.TrimSuffix(value, "d"), 64)
+		if err != nil || days <= 0 {
+			return 0, errors.New("invalid days")
+		}
+		return time.Duration(days * float64(24*time.Hour)), nil
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		return 0, errors.New("invalid duration")
+	}
+	return parsed, nil
 }
 
 func Database(cfg Config) DatabaseConfig {
@@ -126,3 +162,4 @@ func Sheets(cfg Config) SheetsConfig { return cfg.Sheets }
 func Report(cfg Config) ReportConfig     { return cfg.Report }
 func Email(cfg Config) EmailConfig       { return cfg.Email }
 func Telegram(cfg Config) TelegramConfig { return cfg.Telegram }
+func Deadline(cfg Config) DeadlineConfig { return cfg.Deadline }

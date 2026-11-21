@@ -10,6 +10,7 @@ import (
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/database"
 	"github.com/alex/assistent/internal/platform/locking"
@@ -42,10 +43,21 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 
 var PollingModule = fx.Module("polling",
 	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier, configuredReminderProviders, configuredDeliveryProviders),
+	fx.Invoke(configurePollingDeadlines),
 )
 
 func configuredReminderProviders(email config.EmailConfig, telegram config.TelegramConfig) []ports.ReminderProvider {
 	return []ports.ReminderProvider{notification.NewReminderEmailProvider(email), notification.NewTelegramProvider(telegram)}
+}
+
+type pollingDeadlineParams struct {
+	fx.In
+	Service  *application.PollingService
+	Deadline config.DeadlineConfig `optional:"true"`
+}
+
+func configurePollingDeadlines(params pollingDeadlineParams) {
+	params.Service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: params.Deadline.PreliminaryBefore, RefreshBefore: params.Deadline.RefreshBefore})
 }
 
 func configuredDeliveryProviders(email config.EmailConfig, telegram config.TelegramConfig) []ports.ResultDeliveryProvider {

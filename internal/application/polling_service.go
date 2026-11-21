@@ -32,6 +32,7 @@ type PollingService struct {
 	missing      ports.MissingSubmitterRepository
 	reminders    *ReminderService
 	head         *HeadNotificationService
+	deadlines    task.DeadlineWindows
 	clock        func() time.Time
 }
 
@@ -68,7 +69,17 @@ func NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders(cour
 }
 
 func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository, reminders *ReminderService, head *HeadNotificationService) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, reminders: reminders, head: head, clock: func() time.Time { return time.Now().UTC() }}
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, reminders: reminders, head: head, deadlines: task.DefaultDeadlineWindows, clock: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *PollingService) SetDeadlineWindows(deadlines task.DeadlineWindows) {
+	if deadlines.PreliminaryBefore <= 0 {
+		deadlines.PreliminaryBefore = task.DefaultDeadlineWindows.PreliminaryBefore
+	}
+	if deadlines.RefreshBefore <= 0 || deadlines.RefreshBefore > deadlines.PreliminaryBefore {
+		deadlines.RefreshBefore = task.DefaultDeadlineWindows.RefreshBefore
+	}
+	s.deadlines = deadlines
 }
 
 func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
@@ -186,7 +197,7 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 			continue
 		}
 		previous := findTask(existing, item.Provider, item.CourseID, item.ExternalID)
-		item.Phase = task.DeterminePhase(item, now)
+		item.Phase = task.DeterminePhaseWithWindows(item, now, s.deadlines)
 		if previous.Phase == item.Phase {
 			item.PhaseAt = previous.PhaseAt
 		} else {
@@ -318,7 +329,7 @@ func (s *PollingService) scheduleMissingReminders(ctx context.Context, item task
 			TaskTitle: item.Title, ClassroomLink: fmt.Sprintf("https://classroom.google.com/c/%s/a/%s/details", item.CourseID, item.ExternalID),
 		})
 	}
-	if _, err := s.reminders.Schedule(ctx, item, nil, targets, 72*time.Hour); err != nil {
+	if _, err := s.reminders.Schedule(ctx, item, nil, targets, s.deadlines.PreliminaryBefore); err != nil {
 		return fmt.Errorf("schedule missing submission reminders: %w", err)
 	}
 	if s.head != nil {
@@ -326,7 +337,7 @@ func (s *PollingService) scheduleMissingReminders(ctx context.Context, item task
 		if err != nil {
 			return fmt.Errorf("list missing submitters for head notification: %w", err)
 		}
-		if err := s.head.Schedule(ctx, item, missing); err != nil {
+		if err := s.head.ScheduleWithLead(ctx, item, missing, s.deadlines.PreliminaryBefore); err != nil {
 			return err
 		}
 	}
