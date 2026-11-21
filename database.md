@@ -96,6 +96,23 @@ Explicit binding between a task and a scenario.
 
 Primary key: `(scenario_id, task_id)`.
 
+### `task_participants`
+
+The expected Classroom student roster for each discovered task. The stable
+Classroom user ID is the identity key; profile name and email are optional
+display/contact fields.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `task_id` | INTEGER | FK, NOT NULL | Coursework task |
+| `external_user_id` | TEXT | NOT NULL | Stable Classroom user ID |
+| `name` | TEXT | NOT NULL | Optional Classroom profile name |
+| `email` | TEXT | NOT NULL | Optional Classroom profile email |
+| `updated_at` | TEXT | NOT NULL | Last roster observation |
+
+Primary key: `(task_id, external_user_id)`. Polling replaces the roster
+idempotently when Classroom reports the course students.
+
 ### `scenario_courses`
 
 Explicit binding between a registered course and a scenario. A task can be

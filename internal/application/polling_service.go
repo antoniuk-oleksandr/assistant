@@ -18,17 +18,18 @@ const DefaultPollInterval = 5 * time.Minute
 // provider is deliberately a port so Classroom HTTP details stay outside the
 // application layer.
 type PollingService struct {
-	courses     ports.ClassroomCourseRepository
-	source      ports.SubmissionSource
-	tasks       ports.TaskRepository
-	bindings    ports.TaskBindingRepository
-	submissions ports.SubmissionRepository
-	state       ports.PollingStateRepository
-	materials   ports.MaterialRetriever
-	parsing     *MaterialParsing
-	collection  *ScenarioCollectionService
-	registry    scenario.Registry
-	clock       func() time.Time
+	courses      ports.ClassroomCourseRepository
+	source       ports.SubmissionSource
+	tasks        ports.TaskRepository
+	bindings     ports.TaskBindingRepository
+	submissions  ports.SubmissionRepository
+	state        ports.PollingStateRepository
+	materials    ports.MaterialRetriever
+	parsing      *MaterialParsing
+	collection   *ScenarioCollectionService
+	registry     scenario.Registry
+	participants ports.ParticipantRosterRepository
+	clock        func() time.Time
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -48,7 +49,15 @@ func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, sourc
 }
 
 func NewPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, clock: func() time.Time { return time.Now().UTC() }}
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, nil)
+}
+
+func NewPollingServiceWithScenarioCollectionAndRoster(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository) *PollingService {
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants)
+}
+
+func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
@@ -176,6 +185,25 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 			return fmt.Errorf("store task %q: %w", item.ExternalID, err)
 		}
 	}
+	if s.participants != nil {
+		participantSource, ok := s.source.(ports.ParticipantSource)
+		if ok {
+			persisted, listErr := s.tasks.List(ctx)
+			if listErr != nil {
+				return fmt.Errorf("list tasks for participant roster: %w", listErr)
+			}
+			for _, item := range items {
+				stored := findTask(persisted, item.Provider, item.CourseID, item.ExternalID)
+				roster, listErr := participantSource.ListParticipants(ctx, item.CourseID)
+				if listErr != nil {
+					return fmt.Errorf("list participants for task %q: %w", item.ExternalID, listErr)
+				}
+				if err := s.participants.Replace(ctx, stored.ID, roster); err != nil {
+					return fmt.Errorf("store participants for task %q: %w", item.ExternalID, err)
+				}
+			}
+		}
+	}
 	bindings, err := s.bindings.Active(ctx)
 	if err != nil {
 		return fmt.Errorf("list active task bindings: %w", err)
@@ -209,6 +237,9 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 	for _, current := range items {
 		current.TaskID = item.ID
 		current.TaskExternalID = item.ExternalID
+		if err := s.enrichParticipant(ctx, &current); err != nil {
+			return err
+		}
 		if current.State == "" {
 			current.State = submission.Unknown
 		}
@@ -229,6 +260,28 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		}
 		if _, err := s.collection.ProcessForTask(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor); err != nil {
 			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, err)
+		}
+	}
+	return nil
+}
+
+func (s *PollingService) enrichParticipant(ctx context.Context, current *submission.Submission) error {
+	if s.participants == nil || current.TaskID == 0 || current.SubmitterID == "" {
+		return nil
+	}
+	roster, err := s.participants.List(ctx, current.TaskID)
+	if err != nil {
+		return fmt.Errorf("list participants for submission %q: %w", current.ExternalID, err)
+	}
+	for _, participant := range roster {
+		if participant.ExternalID == current.SubmitterID {
+			if current.SubmitterName == "" {
+				current.SubmitterName = participant.Name
+			}
+			if current.SubmitterEmail == "" {
+				current.SubmitterEmail = participant.Email
+			}
+			break
 		}
 	}
 	return nil

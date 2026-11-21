@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/alex/assistent/internal/domain/submission"
+	"github.com/alex/assistent/internal/domain/task"
 )
 
 func TestHTTPClassroomClientListsCourseWorkAcrossPagesWithAuth(t *testing.T) {
@@ -72,6 +73,34 @@ func TestHTTPClassroomClientListsSubmissionsAcrossPages(t *testing.T) {
 	}
 }
 
+func TestHTTPClassroomClientListsCourseParticipantsAcrossPages(t *testing.T) {
+	var tokens []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tokens = append(tokens, r.URL.Query().Get("pageToken"))
+		if r.URL.Path != "/courses/course-1/students" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if len(tokens) == 1 {
+			_, _ = w.Write([]byte(`{"students":[{"userId":"user-1","profile":{"name":{"fullName":"First"},"emailAddress":"first@example.test"}}],"nextPageToken":"page-2"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"students":[{"userId":"user-2","profile":{"name":{"fullName":"Second"}}}]}`))
+	}))
+	defer server.Close()
+
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client())
+	items, err := client.ListCourseParticipants(context.Background(), "course-1")
+	if err != nil {
+		t.Fatalf("ListCourseParticipants() error = %v", err)
+	}
+	if len(items) != 2 || items[0].UserID != "user-1" || items[1].Profile.Name.FullName != "Second" {
+		t.Fatalf("participants = %#v", items)
+	}
+	if !reflect.DeepEqual(tokens, []string{"", "page-2"}) {
+		t.Fatalf("page tokens = %v", tokens)
+	}
+}
+
 func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -122,6 +151,27 @@ func TestSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *testing.T)
 	material := item.Materials[0]
 	if material.ExternalID != "file-1" || material.Name != "report.docx" || material.MIMEType != "application/docx" || material.SourceURI != "https://drive/file-1" || material.Role != "supporting_evidence" || material.Status != submission.Pending {
 		t.Fatalf("material mapping = %#v", material)
+	}
+}
+
+func TestSubmissionSourceMapsCourseParticipants(t *testing.T) {
+	var participant CourseParticipant
+	if err := json.Unmarshal([]byte(`{"userId":"user-1","profile":{"name":{"fullName":"First"},"emailAddress":"first@example.test"}}`), &participant); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeClassroomClient{participants: []CourseParticipant{participant}}
+	source := NewSubmissionSourceWithClient(client)
+	items, err := source.ListParticipants(context.Background(), "course-1")
+	if err != nil || !reflect.DeepEqual(items, []task.Participant{{ExternalID: "user-1", Name: "First", Email: "first@example.test"}}) {
+		t.Fatalf("participants = %#v, error = %v", items, err)
+	}
+}
+
+func TestSubmissionSourceTreatsUnsupportedParticipantClientAsEmptyRoster(t *testing.T) {
+	source := NewSubmissionSourceWithClient(courseworkOnlyClient{})
+	items, err := source.ListParticipants(context.Background(), "course-1")
+	if err != nil || len(items) != 0 {
+		t.Fatalf("participants = %#v, error = %v", items, err)
 	}
 }
 
@@ -273,9 +323,20 @@ func TestNewSubmissionSourceUsesDefaultHTTPClient(t *testing.T) {
 }
 
 type fakeClassroomClient struct {
-	coursework  []CourseWork
-	submissions []StudentSubmission
-	err         error
+	coursework   []CourseWork
+	submissions  []StudentSubmission
+	participants []CourseParticipant
+	err          error
+}
+
+type courseworkOnlyClient struct{}
+
+func (courseworkOnlyClient) ListCourseWork(context.Context, string) ([]CourseWork, error) {
+	return nil, nil
+}
+
+func (courseworkOnlyClient) ListStudentSubmissions(context.Context, string, string) ([]StudentSubmission, error) {
+	return nil, nil
 }
 
 func (f *fakeClassroomClient) ListCourseWork(context.Context, string) ([]CourseWork, error) {
@@ -290,4 +351,11 @@ func (f *fakeClassroomClient) ListStudentSubmissions(context.Context, string, st
 		return nil, f.err
 	}
 	return f.submissions, nil
+}
+
+func (f *fakeClassroomClient) ListCourseParticipants(context.Context, string) ([]CourseParticipant, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.participants, nil
 }

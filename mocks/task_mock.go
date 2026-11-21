@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	scenario "github.com/alex/assistent/internal/domain/scenario"
 	task "github.com/alex/assistent/internal/domain/task"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -148,4 +149,122 @@ func (m *MockTaskBindingRepository) Unbind(arg0 context.Context, arg1 string) er
 func (mr *MockTaskBindingRepositoryMockRecorder) Unbind(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unbind", reflect.TypeOf((*MockTaskBindingRepository)(nil).Unbind), arg0, arg1)
+}
+
+// MockScenarioCourseBindingRepository is a mock of ScenarioCourseBindingRepository interface.
+type MockScenarioCourseBindingRepository struct {
+	ctrl     *gomock.Controller
+	recorder *MockScenarioCourseBindingRepositoryMockRecorder
+}
+
+// MockScenarioCourseBindingRepositoryMockRecorder is the mock recorder for MockScenarioCourseBindingRepository.
+type MockScenarioCourseBindingRepositoryMockRecorder struct {
+	mock *MockScenarioCourseBindingRepository
+}
+
+// NewMockScenarioCourseBindingRepository creates a new mock instance.
+func NewMockScenarioCourseBindingRepository(ctrl *gomock.Controller) *MockScenarioCourseBindingRepository {
+	mock := &MockScenarioCourseBindingRepository{ctrl: ctrl}
+	mock.recorder = &MockScenarioCourseBindingRepositoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockScenarioCourseBindingRepository) EXPECT() *MockScenarioCourseBindingRepositoryMockRecorder {
+	return m.recorder
+}
+
+// Bind mocks base method.
+func (m *MockScenarioCourseBindingRepository) Bind(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Bind", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Bind indicates an expected call of Bind.
+func (mr *MockScenarioCourseBindingRepositoryMockRecorder) Bind(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Bind", reflect.TypeOf((*MockScenarioCourseBindingRepository)(nil).Bind), arg0, arg1, arg2)
+}
+
+// List mocks base method.
+func (m *MockScenarioCourseBindingRepository) List(arg0 context.Context, arg1 string) ([]scenario.CourseBinding, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", arg0, arg1)
+	ret0, _ := ret[0].([]scenario.CourseBinding)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockScenarioCourseBindingRepositoryMockRecorder) List(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockScenarioCourseBindingRepository)(nil).List), arg0, arg1)
+}
+
+// Unbind mocks base method.
+func (m *MockScenarioCourseBindingRepository) Unbind(arg0 context.Context, arg1, arg2 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Unbind", arg0, arg1, arg2)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Unbind indicates an expected call of Unbind.
+func (mr *MockScenarioCourseBindingRepositoryMockRecorder) Unbind(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Unbind", reflect.TypeOf((*MockScenarioCourseBindingRepository)(nil).Unbind), arg0, arg1, arg2)
+}
+
+// MockScenarioCourseDataRepository is a mock of ScenarioCourseDataRepository interface.
+type MockScenarioCourseDataRepository struct {
+	ctrl     *gomock.Controller
+	recorder *MockScenarioCourseDataRepositoryMockRecorder
+}
+
+// MockScenarioCourseDataRepositoryMockRecorder is the mock recorder for MockScenarioCourseDataRepository.
+type MockScenarioCourseDataRepositoryMockRecorder struct {
+	mock *MockScenarioCourseDataRepository
+}
+
+// NewMockScenarioCourseDataRepository creates a new mock instance.
+func NewMockScenarioCourseDataRepository(ctrl *gomock.Controller) *MockScenarioCourseDataRepository {
+	mock := &MockScenarioCourseDataRepository{ctrl: ctrl}
+	mock.recorder = &MockScenarioCourseDataRepositoryMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockScenarioCourseDataRepository) EXPECT() *MockScenarioCourseDataRepositoryMockRecorder {
+	return m.recorder
+}
+
+// List mocks base method.
+func (m *MockScenarioCourseDataRepository) List(arg0 context.Context, arg1, arg2 string) ([]scenario.CourseDataField, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", arg0, arg1, arg2)
+	ret0, _ := ret[0].([]scenario.CourseDataField)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockScenarioCourseDataRepositoryMockRecorder) List(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockScenarioCourseDataRepository)(nil).List), arg0, arg1, arg2)
+}
+
+// Set mocks base method.
+func (m *MockScenarioCourseDataRepository) Set(arg0 context.Context, arg1, arg2 string, arg3 map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Set", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Set indicates an expected call of Set.
+func (mr *MockScenarioCourseDataRepositoryMockRecorder) Set(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Set", reflect.TypeOf((*MockScenarioCourseDataRepository)(nil).Set), arg0, arg1, arg2, arg3)
 }
