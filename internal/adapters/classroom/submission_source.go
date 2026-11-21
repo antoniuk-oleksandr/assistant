@@ -17,6 +17,8 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	"github.com/joho/godotenv"
+	"golang.org/x/oauth2"
 )
 
 const defaultBaseURL = "https://classroom.googleapis.com/v1"
@@ -216,16 +218,26 @@ func dueAt(date *Date, clock *Time) string {
 }
 
 type HTTPConfig struct {
-	BaseURL     string
-	AccessToken string
+	BaseURL      string
+	AccessToken  string
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
 }
 
 func HTTPConfigFromEnvironment() HTTPConfig {
-	baseURL := os.Getenv("GOOGLE_CLASSROOM_BASE_URL")
+	values, _ := godotenv.Read()
+	get := func(key string) string {
+		if value, ok := os.LookupEnv(key); ok {
+			return value
+		}
+		return values[key]
+	}
+	baseURL := get("GOOGLE_CLASSROOM_BASE_URL")
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return HTTPConfig{BaseURL: baseURL, AccessToken: os.Getenv("GOOGLE_CLASSROOM_ACCESS_TOKEN")}
+	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID"), ClientSecret: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN")}
 }
 
 type HTTPClassroomClient struct {
@@ -241,6 +253,10 @@ func NewHTTPClassroomClient(cfg HTTPConfig, client *http.Client) ClassroomClient
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	if baseURL == "" {
 		baseURL = defaultBaseURL
+	}
+	if cfg.AccessToken == "" && cfg.ClientID != "" && cfg.ClientSecret != "" && cfg.RefreshToken != "" {
+		oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{"https://www.googleapis.com/auth/classroom.coursework.students.readonly"}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
+		client = oauth2.NewClient(context.Background(), oauth.TokenSource(context.Background(), &oauth2.Token{RefreshToken: cfg.RefreshToken}))
 	}
 	return &HTTPClassroomClient{baseURL: baseURL, accessToken: cfg.AccessToken, httpClient: client}
 }

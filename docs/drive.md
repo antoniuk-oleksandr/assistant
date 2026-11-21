@@ -1,10 +1,16 @@
-# Reading Classroom attachments from Google Drive
+# Reading Classroom attachments and importing report templates through Google Drive
 
 Use a Google OAuth client and an offline refresh token issued to the account
-that can read the attachments. When authorizing that account, request the
-read-only scope `https://www.googleapis.com/auth/drive.readonly` and offline
-access. Enable the Google Drive API in the OAuth client's project. A Classroom
-submission can still be visible when the account cannot download its files.
+that can read the attachments and create imported report files. When authorizing
+that account, request both scopes below and offline access:
+
+- `https://www.googleapis.com/auth/drive.readonly`
+- `https://www.googleapis.com/auth/drive.file`
+
+The second scope is used to upload the XLSX report template and convert it into
+a native Google Sheet, preserving the workbook's formatting. Enable the Google
+Drive API in the OAuth client's project. A Classroom submission can still be
+visible when the account cannot download its files.
 
 Set these values in the process environment or a private, untracked `.env`:
 
@@ -12,7 +18,7 @@ Set these values in the process environment or a private, untracked `.env`:
 | --- | --- |
 | `GOOGLE_DRIVE_OAUTH_CLIENT_ID` | Google OAuth client ID |
 | `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET` | Google OAuth client secret |
-| `GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN` | Offline refresh token authorized for Drive read access |
+| `GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN` | Offline refresh token authorized for both Drive scopes |
 | `GOOGLE_DRIVE_MATERIAL_DIR` | Optional private directory for local attachment snapshots |
 
 All three OAuth values are required together. Drive gets and refreshes access

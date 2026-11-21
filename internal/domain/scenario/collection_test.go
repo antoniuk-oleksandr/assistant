@@ -136,6 +136,28 @@ func TestScienceReportCollectionProcessorRecordsConflictingLocatedValues(t *test
 	}
 }
 
+func TestScienceReportCollectionProcessorCountsDOCXTableRecords(t *testing.T) {
+	appendix := 1
+	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
+		State: submission.Submitted,
+		Materials: []submission.Material{{Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
+			Source: submission.DocumentSource{AppendixNumber: &appendix},
+			Tables: []submission.Table{{Rows: [][]submission.Field{
+				{{Value: "№"}, {Value: "ПІБ"}},
+				{{Value: "1"}, {Value: "Анна Коваленко"}},
+				{{Value: "2"}, {Value: "Петро Петренко"}},
+				{{Value: "1"}, {Value: "2"}}, // numeric-only header row
+			}}},
+		}}}}}},
+	}}})
+	if err != nil || result.ReportData == nil {
+		t.Fatalf("Process() = %#v, %v", result, err)
+	}
+	if got := result.ReportData.Appendices[0].NumericTotal; got != 2 {
+		t.Fatalf("numeric total = %v, want 2", got)
+	}
+}
+
 func TestRegistryResolvesProcessors(t *testing.T) {
 	processor := scenario.ScienceReportCollectionProcessor{}
 	registry := scenario.NewRegistryWithProcessors(

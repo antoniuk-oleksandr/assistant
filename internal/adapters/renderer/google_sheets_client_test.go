@@ -39,6 +39,12 @@ func TestGoogleSheetsClientWritesThroughSheetsAPI(t *testing.T) {
 	if len(paths) != 3 || paths[0] != "POST /spreadsheets" || !strings.Contains(paths[1], ":batchUpdate") || !strings.Contains(paths[2], "/values:batchUpdate") {
 		t.Fatalf("paths = %#v", paths)
 	}
+	if err := client.WriteRanges(context.Background(), id, []sheetValueRange{{rangeName: "Аркуш1!C13", values: [][]any{{"/"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ClearRanges(context.Background(), id, []string{"Аркуш1!C12"}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestGoogleSheetsClientReportsAPIAndDecodeErrors(t *testing.T) {
