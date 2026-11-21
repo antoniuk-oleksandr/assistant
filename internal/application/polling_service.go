@@ -188,7 +188,7 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		if err != nil {
 			return fmt.Errorf("resolve collection processor for scenario %q: %w", binding.ScenarioName, err)
 		}
-		if _, err := s.collection.Process(ctx, binding.ScenarioID, item.ID, processor); err != nil {
+		if _, err := s.collection.ProcessForTask(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor); err != nil {
 			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, err)
 		}
 	}

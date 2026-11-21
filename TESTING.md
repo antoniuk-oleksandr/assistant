@@ -136,6 +136,10 @@ go test ./...
 - binding and unbinding tasks;
 - refusing to process unbound tasks;
 - selecting the correct scenario for a task.
+- storing and listing course-specific values through `scenario data-set` and
+  `scenario data-list`;
+- rejecting course data writes for inactive or unbound scenario-course pairs;
+- invalidating the previous report when course data changes.
 
 ### Polling and recovery
 

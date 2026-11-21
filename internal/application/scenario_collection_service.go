@@ -21,6 +21,7 @@ type ScenarioCollectionService struct {
 	renderer    ports.ReportRenderer
 	outputs     ports.ReportOutputRepository
 	results     ports.ReportResultRepository
+	courseData  ports.ScenarioCourseDataRepository
 	clock       func() time.Time
 }
 
@@ -36,7 +37,21 @@ func NewScenarioCollectionServiceWithRendererAndResult(submissions ports.Submiss
 	return &ScenarioCollectionService{submissions: submissions, runs: runs, renderer: renderer, outputs: outputs, results: results, clock: func() time.Time { return time.Now().UTC() }}
 }
 
+func NewScenarioCollectionServiceWithRendererResultAndCourseData(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository, courseData ports.ScenarioCourseDataRepository) *ScenarioCollectionService {
+	service := NewScenarioCollectionServiceWithRendererAndResult(submissions, runs, renderer, outputs, results)
+	service.courseData = courseData
+	return service
+}
+
 func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, taskID int64, processor scenario.CollectionProcessor) (report.Run, error) {
+	return s.process(ctx, scenarioID, taskID, "", "", processor)
+}
+
+func (s *ScenarioCollectionService) ProcessForTask(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor) (report.Run, error) {
+	return s.process(ctx, scenarioID, taskID, scenarioName, courseID, processor)
+}
+
+func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor) (report.Run, error) {
 	if existing, found, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
 		return report.Run{}, fmt.Errorf("find report run: %w", err)
 	} else if found {
@@ -69,6 +84,16 @@ func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, tas
 	if processErr != nil {
 		result.Outcome = scenario.Failed
 		result.ErrorMessage = processErr.Error()
+	}
+	if result.ReportData != nil && s.courseData != nil && scenarioName != "" && courseID != "" {
+		items, err := s.courseData.List(ctx, scenarioName, courseID)
+		if err != nil {
+			return run, s.persistFailure(ctx, &run, fmt.Errorf("load course report data: %w", err))
+		}
+		result.ReportData.CourseData = make(map[string]string, len(items))
+		for _, item := range items {
+			result.ReportData.CourseData[item.Name] = item.Value
+		}
 	}
 	if result.ReportData != nil && s.renderer != nil {
 		var persistedResult *report.Result

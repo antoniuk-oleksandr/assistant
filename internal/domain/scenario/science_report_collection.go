@@ -23,6 +23,7 @@ type ReportData struct {
 	MissingSubmissions []string                             `json:"missing_submissions"`
 	InvalidMaterials   []ReportSource                       `json:"invalid_materials"`
 	Conflicts          []ReportConflict                     `json:"conflicts"`
+	CourseData         map[string]string                    `json:"course_data,omitempty"`
 }
 
 type ReportConflict struct {

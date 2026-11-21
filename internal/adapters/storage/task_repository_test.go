@@ -21,11 +21,12 @@ var _ = Describe("SQLite task bindings", func() {
 	var tasks ports.TaskRepository
 	var bindings ports.TaskBindingRepository
 	var courseBindings ports.ScenarioCourseBindingRepository
+	var courseData ports.ScenarioCourseDataRepository
 	var scenarios ports.ScenarioRepository
 
 	BeforeEach(func(ctx SpecContext) {
 		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
-		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &bindings, &courseBindings, &scenarios))
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &bindings, &courseBindings, &courseData, &scenarios))
 		Expect(app.Start(ctx)).To(Succeed())
 		_, err := db.ExecContext(ctx, `INSERT INTO classroom_courses (provider, external_course_id, source_reference, status, created_at, updated_at) VALUES ('google-classroom', 'course-1', 'course-1', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('google-classroom', 'course-2', 'course-2', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
 		Expect(err).NotTo(HaveOccurred())
@@ -92,6 +93,27 @@ var _ = Describe("SQLite task bindings", func() {
 		listed, err = bindings.List(ctx, implementation.Name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(listed).To(BeEmpty())
+	})
+
+	It("stores and updates multiple report fields only for a bound course", func(ctx SpecContext) {
+		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
+		Expect(scenarios.Create(ctx, implementation)).To(Succeed())
+		Expect(courseData.Set(ctx, implementation.Name, "course-1", map[string]string{"department_email": "dept@example.com"})).To(MatchError(ContainSubstring("find active scenario course binding")))
+		Expect(courseBindings.Bind(ctx, implementation.Name, "course-1")).To(Succeed())
+		Expect(courseData.Set(ctx, implementation.Name, "course-1", map[string]string{
+			"department_email": "dept@example.com", "lab_assistant": "Anna", "department_phone": "+380000000",
+		})).To(Succeed())
+		Expect(courseData.Set(ctx, implementation.Name, "course-1", map[string]string{"lab_assistant": "Olena"})).To(Succeed())
+		items, err := courseData.List(ctx, implementation.Name, "course-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(3))
+		Expect(items[0].Name).To(Equal("department_email"))
+		values := map[string]string{}
+		for _, item := range items {
+			values[item.Name] = item.Value
+		}
+		Expect(values["lab_assistant"]).To(Equal("Olena"))
+		Expect(courseData.List(ctx, implementation.Name, "course-2")).Error().NotTo(HaveOccurred())
 	})
 
 	It("keeps tasks and active bindings across a database lifecycle", func(ctx SpecContext) {

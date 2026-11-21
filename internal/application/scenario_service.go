@@ -25,6 +25,7 @@ type ScenarioService struct {
 	registry   scenario.Registry
 	bindings   ports.TaskBindingRepository
 	courses    ports.ScenarioCourseBindingRepository
+	data       ports.ScenarioCourseDataRepository
 }
 
 func NewScenarioService(repository ports.ScenarioRepository, registry scenario.Registry) *ScenarioService {
@@ -33,6 +34,10 @@ func NewScenarioService(repository ports.ScenarioRepository, registry scenario.R
 
 func NewScenarioServiceWithCourseBindings(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository, courses ports.ScenarioCourseBindingRepository) *ScenarioService {
 	return &ScenarioService{repository: repository, registry: registry, bindings: bindings, courses: courses}
+}
+
+func NewScenarioServiceWithCourseBindingsAndData(repository ports.ScenarioRepository, registry scenario.Registry, bindings ports.TaskBindingRepository, courses ports.ScenarioCourseBindingRepository, data ports.ScenarioCourseDataRepository) *ScenarioService {
+	return &ScenarioService{repository: repository, registry: registry, bindings: bindings, courses: courses, data: data}
 }
 
 type TaskBindingResult struct {
@@ -78,6 +83,20 @@ func (s *ScenarioService) ListCourseBindings(ctx context.Context, scenarioName s
 		result = append(result, CourseBindingResult{ScenarioName: item.ScenarioName, ScenarioType: item.ScenarioType, CourseID: item.CourseID, Status: item.Status})
 	}
 	return result, nil
+}
+
+func (s *ScenarioService) SetCourseData(ctx context.Context, scenarioName, courseID string, fields map[string]string) error {
+	if s.data == nil {
+		return errors.New("scenario course data is unavailable")
+	}
+	return s.data.Set(ctx, scenarioName, courseID, fields)
+}
+
+func (s *ScenarioService) ListCourseData(ctx context.Context, scenarioName, courseID string) ([]scenario.CourseDataField, error) {
+	if s.data == nil {
+		return nil, errors.New("scenario course data is unavailable")
+	}
+	return s.data.List(ctx, scenarioName, courseID)
 }
 
 func (s *ScenarioService) BindTask(ctx context.Context, scenarioName, taskID string) error {

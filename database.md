@@ -13,6 +13,12 @@ The database is local to the machine running `report-system.exe`.
 - Hard deletion is allowed only for explicit administrative commands.
 - Every retryable operation has an attempt count and next-attempt timestamp.
 
+Course-specific scenario metadata is stored in `scenario_course_data`, keyed by
+scenario, course, and field name. The CLI command
+`scenario data-set <scenario-name> <course-id> --field name=value` upserts these
+values; it does not generate report files. The polling/report workflow reads
+the values when creating the next report.
+
 ## Tables
 
 ### `classroom_courses`
@@ -98,6 +104,23 @@ bound only when its course is actively bound to the same scenario.
 | `status` | TEXT | NOT NULL | `active` or `disabled` |
 
 Primary key: `(scenario_id, course_id)`.
+
+### `scenario_course_data`
+
+Course-specific fields used to complete a scenario report template. Values are
+normalized into rows so one command can set multiple fields and later commands
+can update individual fields without replacing the complete course record.
+
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `scenario_id` | INTEGER | FK, NOT NULL | Scenario |
+| `course_id` | INTEGER | FK, NOT NULL | Registered Classroom course |
+| `field_name` | TEXT | NOT NULL | Stable field key |
+| `field_value` | TEXT | NOT NULL | Stored value |
+| `updated_at` | TEXT | NOT NULL | Last update time |
+
+Primary key: `(scenario_id, course_id, field_name)`. Writes are accepted only
+for an active scenario actively bound to an active course.
 
 ### `poll_state`
 

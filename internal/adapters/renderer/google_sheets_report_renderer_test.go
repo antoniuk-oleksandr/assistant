@@ -133,7 +133,13 @@ func TestGoogleSheetsReportRendererImportsTemplateAndUpdatesColumnC(t *testing.T
 		client: client, uploader: uploader, title: "Report", templatePath: templatePath,
 		templateAppendices: appendices, templateSlashRows: slashRows, templateColumnValues: columnValues,
 	}
-	data := scenario.ReportData{}
+	data := scenario.ReportData{CourseData: map[string]string{
+		"department_name":            "Department",
+		"department_email":           "dept@example.com",
+		"lab_assistant_name":         "Anna",
+		"lab_assistant_mobile_phone": "+3801",
+		"department_phone":           "+3802",
+	}}
 	data.Appendices[0] = scenario.ReportAppendix{Number: 1, NumericTotal: 4}
 	data.Appendices[1] = scenario.ReportAppendix{Number: 2}
 	output, err := renderer.RenderAndSave(context.Background(), data)
@@ -143,11 +149,14 @@ func TestGoogleSheetsReportRendererImportsTemplateAndUpdatesColumnC(t *testing.T
 	if output.Path != "https://docs.google.com/spreadsheets/d/imported-sheet/edit" {
 		t.Fatalf("output path = %q", output.Path)
 	}
-	if uploader.title != "Report" || uploader.path != templatePath || len(client.ranges) != 1 {
+	if uploader.title != "Report" || uploader.path != templatePath || len(client.ranges) != 6 {
 		t.Fatalf("upload/write state = %#v %#v %#v", uploader, client.ranges, client.clear)
 	}
 	if client.ranges[0].rangeName != "Аркуш1!C13" || len(client.ranges[0].values) != 120 {
 		t.Fatalf("range = %#v", client.ranges[0])
+	}
+	if client.ranges[1].rangeName != "Аркуш1!B4" || client.ranges[1].values[0][0] != "кафедри Department" || client.ranges[2].rangeName != "Аркуш1!C7" || client.ranges[2].values[0][0] != "dept@example.com" || client.ranges[3].rangeName != "Аркуш1!C8" || client.ranges[3].values[0][0] != "Anna" || client.ranges[4].values[0][0] != "'+3801" || client.ranges[5].values[0][0] != "'+3802" {
+		t.Fatalf("course data ranges = %#v", client.ranges)
 	}
 	if client.ranges[0].values[appendices[1]-13][0] != float64(4) {
 		t.Fatalf("appendix value = %#v", client.ranges[0].values[appendices[1]-13][0])
