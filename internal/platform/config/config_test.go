@@ -85,6 +85,14 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
 	})
 
+	It("loads Telegram notification settings", func() {
+		GinkgoT().Setenv("TELEGRAM_BOT_TOKEN", "bot-token")
+		GinkgoT().Setenv("TELEGRAM_BASE_URL", "https://telegram.example.invalid")
+		loaded, err := config.Load()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid"}))
+	})
+
 	It("rejects an invalid dotenv file", func() {
 		Expect(os.WriteFile(".env", []byte("INVALID=\"unterminated\n"), 0600)).To(Succeed())
 		_, err := config.Load()

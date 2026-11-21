@@ -69,6 +69,31 @@ func TestReportDeliveryEmailProviderUsesConfiguredResendClient(t *testing.T) {
 	}
 }
 
+func TestTelegramProviderUsesConfiguredEndpoint(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottoken/sendMessage" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "token", BaseURL: server.URL})
+	if err := provider.SendReminder(context.Background(), notification.Reminder{Destination: "chat", Subject: "Reminder", Message: "Submit"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Deliver(context.Background(), report.Result{}, "chat"); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewTelegramProvider(config.TelegramConfig{}).SendReminder(context.Background(), notification.Reminder{Destination: "chat"}); err == nil {
+		t.Fatal("missing Telegram token unexpectedly succeeded")
+	}
+	failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "failed", http.StatusBadGateway) }))
+	defer failure.Close()
+	if err := NewTelegramProvider(config.TelegramConfig{Token: "token", BaseURL: failure.URL}).SendReminder(context.Background(), notification.Reminder{Destination: "chat"}); err == nil {
+		t.Fatal("Telegram HTTP failure unexpectedly succeeded")
+	}
+}
+
 func TestNewReportReadyNotifierEnablesConfiguredResend(t *testing.T) {
 	notifier := NewReportReadyNotifier(config.EmailConfig{APIKey: "re_test", TargetEmail: "target@example.com", TemplatePath: "templates/report-ready-email.txt"})
 	if !notifier.Enabled() {

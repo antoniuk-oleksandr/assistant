@@ -651,6 +651,7 @@ RESEND_FROM
 REPORT_READY_EMAIL_TEMPLATE
 REMINDER_TEMPLATE_PATH
 TELEGRAM_BOT_TOKEN
+TELEGRAM_BASE_URL
 SQLITE_DATABASE_PATH
 LOG_DIRECTORY
 ```
@@ -663,6 +664,12 @@ with the generated Sheet URL. `RESEND_FROM` must be a verified Resend sender
 address (or `onboarding@resend.dev` for Resend account-owner testing);
 `REPORT_TARGET_EMAIL` is the recipient and `RESEND_BASE_URL` defaults to
 `https://api.resend.com`.
+
+Telegram delivery uses `TELEGRAM_BOT_TOKEN` and defaults to
+`https://api.telegram.org`; `TELEGRAM_BASE_URL` can point to a test server.
+Teacher channel destinations contain the Telegram chat ID. Providers are
+disabled by configuration in local tests and no external calls are made unless
+credentials are present.
 
 At the three-day-before-deadline phase, missing roster participants receive one
 Resend email reminder when their profile has an email address. The reminder
