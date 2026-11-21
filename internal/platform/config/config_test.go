@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alex/assistent/internal/platform/config"
 	. "github.com/onsi/ginkgo/v2"
@@ -91,6 +92,32 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 		loaded, err := config.Load()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid"}))
+	})
+
+	It("loads minute-scale deadline windows", func() {
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "2m")
+		loaded, err := config.Load()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Deadline(loaded)).To(Equal(config.DeadlineConfig{PreliminaryBefore: 5 * time.Minute, RefreshBefore: 2 * time.Minute}))
+	})
+
+	It("accepts fractional day windows", func() {
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "0.5d")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "2h")
+		loaded, err := config.Load()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Deadline(loaded).PreliminaryBefore).To(Equal(12 * time.Hour))
+	})
+
+	It("rejects invalid or inverted deadline windows", func() {
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "nope")
+		_, err := config.Load()
+		Expect(err).To(MatchError("REPORT_PRELIMINARY_BEFORE must be a duration such as 3d or 72h"))
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "6m")
+		_, err = config.Load()
+		Expect(err).To(MatchError("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE"))
 	})
 
 	It("rejects an invalid dotenv file", func() {

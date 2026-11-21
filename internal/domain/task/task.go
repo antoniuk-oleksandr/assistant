@@ -57,17 +57,34 @@ type Binding struct {
 	UnboundAt    string
 }
 
+type DeadlineWindows struct {
+	PreliminaryBefore time.Duration
+	RefreshBefore     time.Duration
+}
+
+var DefaultDeadlineWindows = DeadlineWindows{PreliminaryBefore: 72 * time.Hour, RefreshBefore: 24 * time.Hour}
+
 // DeterminePhase calculates the current deadline phase from the task's
 // persisted due metadata and the supplied clock value.
 func DeterminePhase(item Task, now time.Time) Phase {
+	return DeterminePhaseWithWindows(item, now, DefaultDeadlineWindows)
+}
+
+func DeterminePhaseWithWindows(item Task, now time.Time, windows DeadlineWindows) Phase {
+	if windows.PreliminaryBefore <= 0 {
+		windows.PreliminaryBefore = DefaultDeadlineWindows.PreliminaryBefore
+	}
+	if windows.RefreshBefore <= 0 || windows.RefreshBefore > windows.PreliminaryBefore {
+		windows.RefreshBefore = DefaultDeadlineWindows.RefreshBefore
+	}
 	deadline, ok := deadline(item)
 	if !ok {
 		return PhaseDiscovery
 	}
-	if now.Before(deadline.Add(-72 * time.Hour)) {
+	if now.Before(deadline.Add(-windows.PreliminaryBefore)) {
 		return PhaseDiscovery
 	}
-	if now.Before(deadline.Add(-24 * time.Hour)) {
+	if now.Before(deadline.Add(-windows.RefreshBefore)) {
 		return PhaseThreeDaysBefore
 	}
 	if now.Before(deadline) {
