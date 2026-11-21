@@ -131,7 +131,22 @@ go run ./cmd/assistent scenario task-bind science-report <task-id>
 go run ./cmd/assistent scenario task-list science-report
 go run ./cmd/assistent scenario task-unbind <task-id>
 go run ./cmd/assistent scenario course-unbind science-report <course-id>
+
+# Store course-specific report fields (repeat --field for multiple values)
+go run ./cmd/assistent scenario data-set science-report <course-id> \
+  --field department_email=department@example.com \
+  --field department_name="Department name" \
+  --field lab_assistant_name="Anna Kovalenko" \
+  --field lab_assistant_mobile_phone="+380..." \
+  --field department_phone="+380..."
+go run ./cmd/assistent scenario data-list science-report <course-id>
 ```
+
+`scenario data-set` stores course-specific report values in SQLite. It does
+not create a Google Sheet by itself; the background poller uses the saved
+values when it generates the next report. The scenario must already be bound
+to the course, and each value is supplied as a separate `--field name=value`
+flag.
 
 An unbound task is not processed.
 

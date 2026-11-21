@@ -68,6 +68,15 @@ const createScenarioCourses = `CREATE TABLE IF NOT EXISTS scenario_courses (
     PRIMARY KEY (scenario_id, course_id)
 )`
 
+const createScenarioCourseData = `CREATE TABLE IF NOT EXISTS scenario_course_data (
+    scenario_id INTEGER NOT NULL REFERENCES scenarios(id),
+    course_id INTEGER NOT NULL REFERENCES classroom_courses(id),
+    field_name TEXT NOT NULL,
+    field_value TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (scenario_id, course_id, field_name)
+)`
+
 const createPollState = `CREATE TABLE IF NOT EXISTS poll_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last_check_timestamp TEXT NOT NULL,
@@ -218,6 +227,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createScenarioCourses); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite scenario course schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createScenarioCourseData); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite scenario course data schema: %w", err), db.Close())
 			}
 			if _, err := db.ExecContext(ctx, createPollState); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite polling state schema: %w", err), db.Close())

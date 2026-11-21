@@ -58,6 +58,68 @@ func NewScenarioCourseBindingRepository(db *sql.DB) ports.ScenarioCourseBindingR
 	return &SQLiteScenarioCourseBindingRepository{db: db}
 }
 
+type SQLiteScenarioCourseDataRepository struct{ db *sql.DB }
+
+func NewScenarioCourseDataRepository(db *sql.DB) ports.ScenarioCourseDataRepository {
+	return &SQLiteScenarioCourseDataRepository{db: db}
+}
+
+func (r *SQLiteScenarioCourseDataRepository) Set(ctx context.Context, scenarioName, courseID string, fields map[string]string) error {
+	var scenarioID, classroomCourseID int64
+	if err := r.db.QueryRowContext(ctx, `SELECT s.id, c.id FROM scenarios s JOIN classroom_courses c ON c.status='active' WHERE s.name=? AND s.status='active' AND c.external_course_id=? AND EXISTS (SELECT 1 FROM scenario_courses sc WHERE sc.scenario_id=s.id AND sc.course_id=c.id AND sc.status='active')`, scenarioName, courseID).Scan(&scenarioID, &classroomCourseID); err != nil {
+		return fmt.Errorf("find active scenario course binding: %w", err)
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin scenario course data update: %w", err)
+	}
+	defer tx.Rollback()
+	for name, value := range fields {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO scenario_course_data (scenario_id, course_id, field_name, field_value, updated_at) VALUES (?, ?, ?, ?, `+sqliteNowUTC+`) ON CONFLICT(scenario_id, course_id, field_name) DO UPDATE SET field_value=excluded.field_value, updated_at=excluded.updated_at`, scenarioID, classroomCourseID, name, value); err != nil {
+			return fmt.Errorf("store course field %q: %w", name, err)
+		}
+	}
+	// Course metadata is part of the rendered report input. Invalidate report
+	// artifacts for this scenario/course so the next polling cycle regenerates
+	// the Sheet with the updated values.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM report_deliveries WHERE result_id IN (SELECT rr.id FROM report_results rr JOIN report_runs r ON r.id=rr.report_run_id JOIN scenarios s ON s.id=r.scenario_id JOIN tasks t ON t.id=r.task_id WHERE s.id=? AND t.course_id=?)`, scenarioID, courseID); err != nil {
+		return fmt.Errorf("invalidate course report deliveries: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM report_outputs WHERE report_run_id IN (SELECT r.id FROM report_runs r JOIN scenarios s ON s.id=r.scenario_id JOIN tasks t ON t.id=r.task_id WHERE s.id=? AND t.course_id=?)`, scenarioID, courseID); err != nil {
+		return fmt.Errorf("invalidate course report outputs: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM report_results WHERE report_run_id IN (SELECT r.id FROM report_runs r JOIN scenarios s ON s.id=r.scenario_id JOIN tasks t ON t.id=r.task_id WHERE s.id=? AND t.course_id=?)`, scenarioID, courseID); err != nil {
+		return fmt.Errorf("invalidate course report results: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM report_runs WHERE scenario_id=? AND task_id IN (SELECT id FROM tasks WHERE course_id=?)`, scenarioID, courseID); err != nil {
+		return fmt.Errorf("invalidate course report runs: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit scenario course data: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteScenarioCourseDataRepository) List(ctx context.Context, scenarioName, courseID string) ([]scenario.CourseDataField, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT s.name, c.external_course_id, d.field_name, d.field_value FROM scenario_course_data d JOIN scenarios s ON s.id=d.scenario_id JOIN classroom_courses c ON c.id=d.course_id WHERE s.name=? AND c.external_course_id=? ORDER BY d.field_name`, scenarioName, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("list scenario course data: %w", err)
+	}
+	defer rows.Close()
+	result := make([]scenario.CourseDataField, 0)
+	for rows.Next() {
+		var item scenario.CourseDataField
+		if err := rows.Scan(&item.ScenarioName, &item.CourseID, &item.Name, &item.Value); err != nil {
+			return nil, fmt.Errorf("scan scenario course data: %w", err)
+		}
+		result = append(result, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read scenario course data: %w", err)
+	}
+	return result, nil
+}
+
 func (r *SQLiteScenarioCourseBindingRepository) Bind(ctx context.Context, scenarioName, courseID string) error {
 	var scenarioID, classroomCourseID int64
 	if err := r.db.QueryRowContext(ctx, `SELECT id FROM scenarios WHERE name=? AND status='active'`, scenarioName).Scan(&scenarioID); err != nil {

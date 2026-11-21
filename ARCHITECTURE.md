@@ -187,6 +187,8 @@ report-system
 │   ├── course-bind <scenario> <course-id>
 │   ├── course-unbind <scenario> <course-id>
 │   ├── course-list <scenario>
+│   ├── data-set <scenario> <course-id> --field name=value
+│   ├── data-list <scenario> <course-id>
 │   ├── task-bind <scenario> <task-id>
 │   ├── task-unbind <task-id>
 │   └── task-list <scenario>
@@ -205,6 +207,11 @@ report-system
         ├── list
         └── retry-all
 ```
+
+`scenario data-set <scenario> <course-id> --field name=value` is a persistence
+command for course-specific report metadata. It updates only the named fields
+in SQLite; report rendering remains part of the polling workflow. The command
+must reject an inactive or unbound scenario-course pair.
 
 Each command should use `RunE` so errors are returned to the root executor rather than handled inside command logic.
 

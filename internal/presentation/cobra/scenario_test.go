@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/alex/assistent/internal/application"
+	"github.com/alex/assistent/internal/domain/scenario"
 	cli "github.com/alex/assistent/internal/presentation/cobra"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -19,9 +20,22 @@ func TestScenarioCommands(t *testing.T) {
 }
 
 type serviceStub struct {
-	items []application.ScenarioResult
-	err   error
-	calls []string
+	items  []application.ScenarioResult
+	err    error
+	calls  []string
+	data   []scenario.CourseDataField
+	fields map[string]string
+}
+
+func (s *serviceStub) SetCourseData(_ context.Context, name, courseID string, fields map[string]string) error {
+	s.calls = append(s.calls, "data-set:"+name+":"+courseID)
+	s.fields = fields
+	return s.err
+}
+
+func (s *serviceStub) ListCourseData(_ context.Context, name, courseID string) ([]scenario.CourseDataField, error) {
+	s.calls = append(s.calls, "data-list:"+name+":"+courseID)
+	return s.data, s.err
 }
 
 type bindingServiceStub struct {
@@ -215,6 +229,30 @@ var _ = Describe("scenario commands", func() {
 		service.err = errors.New("course binding failed")
 		command.SetArgs([]string{"course-list", "science-report"})
 		Expect(command.Execute()).To(MatchError("course binding failed"))
+	})
+
+	It("sets and lists course report data", func() {
+		service := &serviceStub{data: []scenario.CourseDataField{{Name: "department_email", Value: "dept@example.com"}}}
+		command := cli.NewScenarioCommand(service, &bindingServiceStub{})
+		command.SetArgs([]string{"data-set", "science-report", "course-1", "--field", "department_email=dept@example.com", "--field", "lab_assistant=Anna"})
+		Expect(command.Execute()).To(Succeed())
+		Expect(service.fields).To(HaveKeyWithValue("lab_assistant", "Anna"))
+		command.SetArgs([]string{"data-list", "science-report", "course-1"})
+		var output bytes.Buffer
+		command.SetOut(&output)
+		Expect(command.Execute()).To(Succeed())
+		Expect(output.String()).To(ContainSubstring("FIELD"))
+		Expect(output.String()).To(ContainSubstring("department_email"))
+		Expect(output.String()).To(ContainSubstring("dept@example.com"))
+		command = cli.NewScenarioCommand(service, &bindingServiceStub{})
+		command.SetArgs([]string{"data-set", "science-report", "course-1"})
+		Expect(command.Execute()).To(MatchError("at least one --field name=value is required"))
+		command = cli.NewScenarioCommand(service, &bindingServiceStub{})
+		command.SetArgs([]string{"data-set", "science-report", "course-1", "--field", "invalid"})
+		Expect(command.Execute()).To(MatchError(ContainSubstring("name=value")))
+		service.err = errors.New("data failed")
+		command.SetArgs([]string{"data-list", "science-report", "course-1"})
+		Expect(command.Execute()).To(MatchError("data failed"))
 	})
 
 	It("assembles a root command with the scenario command", func() {

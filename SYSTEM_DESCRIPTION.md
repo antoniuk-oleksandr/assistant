@@ -151,6 +151,8 @@ Courses and tasks are explicitly bound to scenarios. Bind the course before the 
 scenario course-bind <scenario-name> <course-id>
 scenario course-unbind <scenario-name> <course-id>
 scenario course-list <scenario-name>
+scenario data-set <scenario-name> <course-id> --field name=value [--field name=value ...]
+scenario data-list <scenario-name> <course-id>
 scenario task-bind <scenario-name> <task-id>
 scenario task-unbind <task-id>
 scenario task-list <scenario-name>
@@ -162,6 +164,25 @@ course remove <course-id>
 ```
 
 An unbound course or task is not processed. A task may be selected by title, label, course, or metadata, but the explicit scenario-course and scenario-task bindings are the authoritative relationships.
+
+Course-specific report metadata is stored after the scenario-course binding is
+created. `scenario data-set` accepts repeatable `name=value` fields and updates
+only the named fields; `scenario data-list` reads the persisted values. Common
+keys include `department_name` (кафедри), `department_email`,
+`lab_assistant_name`, `lab_assistant_mobile_phone`, and `department_phone`.
+The command only writes SQLite; report generation is a separate operation.
+Writes are rejected for an inactive or unbound scenario-course pair.
+
+Example:
+
+```bash
+go run ./cmd/assistent scenario data-set science-report <course-id> \
+  --field department_name="Department name" \
+  --field department_email=department@example.com \
+  --field lab_assistant_name="Anna Kovalenko" \
+  --field lab_assistant_mobile_phone="+380..." \
+  --field department_phone="+380..."
+```
 
 ## 4. Background process
 

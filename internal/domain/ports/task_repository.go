@@ -23,3 +23,8 @@ type ScenarioCourseBindingRepository interface {
 	Unbind(context.Context, string, string) error
 	List(context.Context, string) ([]scenario.CourseBinding, error)
 }
+
+type ScenarioCourseDataRepository interface {
+	Set(context.Context, string, string, map[string]string) error
+	List(context.Context, string, string) ([]scenario.CourseDataField, error)
+}

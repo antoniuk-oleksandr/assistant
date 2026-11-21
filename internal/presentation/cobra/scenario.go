@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/alex/assistent/internal/application"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/presentation/mappers"
 	"github.com/spf13/cobra"
 )
@@ -25,6 +28,11 @@ type ScenarioTaskBindingService interface {
 	BindCourse(context.Context, string, string) error
 	UnbindCourse(context.Context, string, string) error
 	ListCourseBindings(context.Context, string) ([]application.CourseBindingResult, error)
+}
+
+type ScenarioCourseDataService interface {
+	SetCourseData(context.Context, string, string, map[string]string) error
+	ListCourseData(context.Context, string, string) ([]scenario.CourseDataField, error)
 }
 
 func NewScenarioCommand(service ScenarioService, bindingServices ...ScenarioTaskBindingService) *cobra.Command {
@@ -51,8 +59,53 @@ func NewScenarioCommand(service ScenarioService, bindingServices ...ScenarioTask
 			&cobra.Command{Use: "task-list <scenario-name>", Short: "List tasks bound to a scenario", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return listTaskBindings(cmd, binding, args[0]) }},
 			&cobra.Command{Use: "course-list <scenario-name>", Short: "List courses bound to a scenario", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error { return listCourseBindings(cmd, binding, args[0]) }},
 		)
+		if data, ok := service.(ScenarioCourseDataService); ok {
+			command.AddCommand(newCourseDataSetCommand(data), newCourseDataListCommand(data))
+		}
 	}
 	return command
+}
+
+func newCourseDataSetCommand(service ScenarioCourseDataService) *cobra.Command {
+	var fields []string
+	command := &cobra.Command{
+		Use: "data-set <scenario-name> <course-id>", Short: "Store report data for a scenario course", Args: cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			values := make(map[string]string, len(fields))
+			for _, field := range fields {
+				name, value, ok := strings.Cut(field, "=")
+				if !ok || strings.TrimSpace(name) == "" {
+					return fmt.Errorf("field must use name=value format: %q", field)
+				}
+				values[strings.TrimSpace(name)] = value
+			}
+			if len(values) == 0 {
+				return errors.New("at least one --field name=value is required")
+			}
+			return service.SetCourseData(cmd.Context(), args[0], args[1], values)
+		},
+	}
+	command.Flags().StringArrayVar(&fields, "field", nil, "Report field as name=value (repeatable)")
+	return command
+}
+
+func newCourseDataListCommand(service ScenarioCourseDataService) *cobra.Command {
+	return &cobra.Command{Use: "data-list <scenario-name> <course-id>", Short: "List report data for a scenario course", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		items, err := service.ListCourseData(cmd.Context(), args[0], args[1])
+		if err != nil {
+			return err
+		}
+		output := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
+		if _, err := fmt.Fprintln(output, "FIELD\tVALUE"); err != nil {
+			return err
+		}
+		for _, item := range items {
+			if _, err := fmt.Fprintf(output, "%s\t%s\n", item.Name, item.Value); err != nil {
+				return err
+			}
+		}
+		return output.Flush()
+	}}
 }
 
 // NewScenarioCommandWithBindings is the explicit constructor used by Fx. Fx

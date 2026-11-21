@@ -41,3 +41,10 @@ type CourseBinding struct {
 	CourseID     string
 	Status       string
 }
+
+type CourseDataField struct {
+	ScenarioName string
+	CourseID     string
+	Name         string
+	Value        string
+}

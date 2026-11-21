@@ -69,6 +69,20 @@ type scenarioCourseBindingRepositoryStub struct {
 	err            error
 }
 
+type scenarioCourseDataRepositoryStub struct {
+	items  []scenario.CourseDataField
+	fields map[string]string
+	err    error
+}
+
+func (r *scenarioCourseDataRepositoryStub) Set(_ context.Context, _, _ string, fields map[string]string) error {
+	r.fields = fields
+	return r.err
+}
+func (r *scenarioCourseDataRepositoryStub) List(context.Context, string, string) ([]scenario.CourseDataField, error) {
+	return r.items, r.err
+}
+
 func (r *scenarioCourseBindingRepositoryStub) Bind(_ context.Context, name, id string) error {
 	r.bound = append(r.bound, name+":"+id)
 	return r.err
@@ -212,6 +226,27 @@ var _ = Describe("scenario service", func() {
 		Expect(service.UnbindCourse(ctx, implementation.Name, "course-1")).To(MatchError("scenario course bindings are unavailable"))
 		_, err = service.ListCourseBindings(ctx, implementation.Name)
 		Expect(err).To(MatchError("scenario course bindings are unavailable"))
+	})
+
+	It("stores and lists data for a bound course", func() {
+		data := &scenarioCourseDataRepositoryStub{items: []scenario.CourseDataField{{ScenarioName: implementation.Name, CourseID: "course-1", Name: "department_email", Value: "dept@example.com"}}}
+		service := application.NewScenarioServiceWithCourseBindingsAndData(repoStubForBindings{}, scenario.NewRegistry(implementation), &taskBindingRepositoryStub{}, &scenarioCourseBindingRepositoryStub{}, data)
+		Expect(service.SetCourseData(ctx, implementation.Name, "course-1", map[string]string{"department_email": "dept@example.com", "lab_assistant": "Anna"})).To(Succeed())
+		Expect(data.fields).To(HaveKeyWithValue("lab_assistant", "Anna"))
+		items, err := service.ListCourseData(ctx, implementation.Name, "course-1")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(Equal(data.items))
+		data.err = errors.New("data failed")
+		Expect(service.SetCourseData(ctx, implementation.Name, "course-1", map[string]string{"x": "y"})).To(MatchError("data failed"))
+		_, err = service.ListCourseData(ctx, implementation.Name, "course-1")
+		Expect(err).To(MatchError("data failed"))
+	})
+
+	It("reports unavailable course data operations", func() {
+		service := application.NewScenarioService(repoStubForBindings{}, scenario.NewRegistry(implementation))
+		Expect(service.SetCourseData(ctx, implementation.Name, "course-1", map[string]string{"x": "y"})).To(MatchError("scenario course data is unavailable"))
+		_, err := service.ListCourseData(ctx, implementation.Name, "course-1")
+		Expect(err).To(MatchError("scenario course data is unavailable"))
 	})
 })
 

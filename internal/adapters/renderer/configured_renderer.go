@@ -98,6 +98,7 @@ func (r *GoogleSheetsReportRenderer) RenderAndSave(ctx context.Context, data sce
 		// C13 is the first intended value cell. Anchoring there avoids leading
 		// empty cells being normalized away by the Sheets values API.
 		updates = append(updates, sheetValueRange{rangeName: "Аркуш1!C13", values: columnValues[12:132]})
+		updates = append(updates, courseDataRanges(data.CourseData)...)
 		if err := writer.WriteRanges(ctx, spreadsheetID, updates); err != nil {
 			return report.Output{}, err
 		}
@@ -128,6 +129,27 @@ func (r *GoogleSheetsReportRenderer) RenderAndSave(ctx context.Context, data sce
 		}
 	}
 	return report.Output{Format: "google-sheets", Path: "https://docs.google.com/spreadsheets/d/" + spreadsheetID + "/edit", Version: 1, CreatedAt: time.Now().UTC()}, nil
+}
+
+func courseDataRanges(fields map[string]string) []sheetValueRange {
+	department := strings.TrimSpace(fields["department_name"])
+	if department != "" {
+		department = "кафедри " + department
+	}
+	return []sheetValueRange{
+		{rangeName: "Аркуш1!B4", values: [][]any{{department}}},
+		{rangeName: "Аркуш1!C7", values: [][]any{{fields["department_email"]}}},
+		{rangeName: "Аркуш1!C8", values: [][]any{{fields["lab_assistant_name"]}}},
+		{rangeName: "Аркуш1!C9", values: [][]any{{phoneCellValue(fields["lab_assistant_mobile_phone"])}}},
+		{rangeName: "Аркуш1!C10", values: [][]any{{phoneCellValue(fields["department_phone"])}}},
+	}
+}
+
+func phoneCellValue(value string) any {
+	if strings.HasPrefix(value, "+") {
+		return "'" + value
+	}
+	return value
 }
 
 func loadTemplateLayout() (map[int]int, []int, [][]any) {
