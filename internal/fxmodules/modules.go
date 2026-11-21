@@ -31,6 +31,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
 	application.NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders,
 	application.NewReminderService,
+	application.NewHeadNotificationService,
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewScenarioServiceWithCourseBindingsAndData, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService)), fx.As(new(cli.ScenarioCourseDataService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),

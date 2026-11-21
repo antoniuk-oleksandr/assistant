@@ -68,15 +68,25 @@ func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissi
 		}
 		reminder := existing
 		if err != nil {
-			reminder = notification.Reminder{TaskID: item.ID, PersonID: target.PersonID, Channel: target.Channel, Destination: target.Destination, Kind: "missing_submission", Status: notification.Pending, CreatedAt: now}
-			reminder.Subject = fmt.Sprintf("Reminder: %s", target.TaskTitle)
+			kind := target.Kind
+			if kind == "" {
+				kind = "missing_submission"
+			}
+			reminder = notification.Reminder{TaskID: item.ID, PersonID: target.PersonID, Channel: target.Channel, Destination: target.Destination, Kind: kind, Status: notification.Pending, CreatedAt: now}
+			reminder.Subject = target.Subject
+			if reminder.Subject == "" {
+				reminder.Subject = fmt.Sprintf("Reminder: %s", target.TaskTitle)
+			}
 			reminder.DueAt = item.DueAt
 			reminder.ClassroomLink = target.ClassroomLink
-			message, templateErr := renderReminderMessage(target.TaskTitle, item.DueAt, target.ClassroomLink, deadline.Sub(now))
-			if templateErr != nil {
-				return reminders, templateErr
+			reminder.Message = target.Message
+			if reminder.Message == "" {
+				message, templateErr := renderReminderMessage(target.TaskTitle, item.DueAt, target.ClassroomLink, deadline.Sub(now))
+				if templateErr != nil {
+					return reminders, templateErr
+				}
+				reminder.Message = message
 			}
-			reminder.Message = message
 			if err := s.repository.Create(ctx, &reminder); err != nil {
 				return reminders, fmt.Errorf("persist reminder: %w", err)
 			}
