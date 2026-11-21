@@ -33,6 +33,10 @@ type ClassroomClient interface {
 	ListStudentSubmissions(context.Context, string, string) ([]StudentSubmission, error)
 }
 
+type ClassroomParticipantClient interface {
+	ListCourseParticipants(context.Context, string) ([]CourseParticipant, error)
+}
+
 type CourseWork struct {
 	ID           string `json:"id"`
 	CourseID     string `json:"courseId"`
@@ -63,6 +67,16 @@ type StudentSubmission struct {
 	CreationTime string     `json:"creationTime"`
 	UpdateTime   string     `json:"updateTime"`
 	Assignment   Assignment `json:"assignmentSubmission"`
+}
+
+type CourseParticipant struct {
+	UserID  string `json:"userId"`
+	Profile struct {
+		Name struct {
+			FullName string `json:"fullName"`
+		} `json:"name"`
+		EmailAddress string `json:"emailAddress"`
+	} `json:"profile"`
 }
 
 type Assignment struct {
@@ -163,6 +177,25 @@ func (s *SubmissionSource) ListSubmissions(ctx context.Context, taskID string) (
 	result := make([]submission.Submission, 0, len(items))
 	for _, item := range items {
 		result = append(result, toSubmission(item))
+	}
+	return result, nil
+}
+
+func (s *SubmissionSource) ListParticipants(ctx context.Context, courseID string) ([]task.Participant, error) {
+	client, ok := s.client.(ClassroomParticipantClient)
+	if !ok {
+		return nil, nil
+	}
+	items, err := client.ListCourseParticipants(ctx, courseID)
+	if err != nil {
+		return nil, fmt.Errorf("list Classroom course participants: %w", err)
+	}
+	result := make([]task.Participant, 0, len(items))
+	for _, item := range items {
+		if item.UserID == "" {
+			continue
+		}
+		result = append(result, task.Participant{ExternalID: item.UserID, Name: item.Profile.Name.FullName, Email: item.Profile.EmailAddress})
 	}
 	return result, nil
 }
@@ -270,7 +303,7 @@ type HTTPClassroomClient struct {
 	httpClient  *http.Client
 }
 
-func NewHTTPClassroomClient(cfg HTTPConfig, client *http.Client) ClassroomClient {
+func NewHTTPClassroomClient(cfg HTTPConfig, client *http.Client) *HTTPClassroomClient {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -279,7 +312,7 @@ func NewHTTPClassroomClient(cfg HTTPConfig, client *http.Client) ClassroomClient
 		baseURL = defaultBaseURL
 	}
 	if cfg.AccessToken == "" && cfg.ClientID != "" && cfg.ClientSecret != "" && cfg.RefreshToken != "" {
-		oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{"https://www.googleapis.com/auth/classroom.coursework.students.readonly"}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
+		oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{"https://www.googleapis.com/auth/classroom.coursework.students.readonly", "https://www.googleapis.com/auth/classroom.rosters.readonly"}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
 		client = oauth2.NewClient(context.Background(), oauth.TokenSource(context.Background(), &oauth2.Token{RefreshToken: cfg.RefreshToken}))
 	}
 	return &HTTPClassroomClient{baseURL: baseURL, accessToken: cfg.AccessToken, httpClient: client}
@@ -324,6 +357,25 @@ func (c *HTTPClassroomClient) ListStudentSubmissions(ctx context.Context, course
 	}
 }
 
+func (c *HTTPClassroomClient) ListCourseParticipants(ctx context.Context, courseID string) ([]CourseParticipant, error) {
+	var result []CourseParticipant
+	var pageToken string
+	for {
+		var page struct {
+			Items []CourseParticipant `json:"students"`
+			Next  string              `json:"nextPageToken"`
+		}
+		if err := c.get(ctx, "/courses/"+url.PathEscape(courseID)+"/students", pageToken, &page); err != nil {
+			return nil, err
+		}
+		result = append(result, page.Items...)
+		if page.Next == "" {
+			return result, nil
+		}
+		pageToken = page.Next
+	}
+}
+
 func (c *HTTPClassroomClient) get(ctx context.Context, path, pageToken string, target any) error {
 	requestURL, err := url.Parse(c.baseURL + path)
 	if err != nil {
@@ -358,3 +410,4 @@ func (c *HTTPClassroomClient) get(ctx context.Context, path, pageToken string, t
 }
 
 var _ ports.SubmissionSource = (*SubmissionSource)(nil)
+var _ ports.ParticipantSource = (*SubmissionSource)(nil)

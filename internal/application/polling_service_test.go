@@ -8,6 +8,7 @@ import (
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/classroom"
 	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	. "github.com/onsi/ginkgo/v2"
@@ -33,6 +34,7 @@ type pollingSource struct {
 	subCalls         []string
 	taskErr          error
 	subErr           error
+	participants     map[string][]task.Participant
 	cancelOnTaskCall int
 	cancel           context.CancelFunc
 }
@@ -79,6 +81,10 @@ func (s *pollingSource) ListSubmissions(_ context.Context, taskID string) ([]sub
 	return batch, nil
 }
 
+func (s *pollingSource) ListParticipants(_ context.Context, courseID string) ([]task.Participant, error) {
+	return s.participants[courseID], nil
+}
+
 type pollingTaskRepository struct {
 	registered []task.Task
 	err        error
@@ -123,6 +129,19 @@ func (r pollingBindingRepository) Active(context.Context) ([]task.Binding, error
 type pollingSubmissionRepository struct {
 	items []submission.Submission
 	err   error
+}
+
+type pollingParticipantRepository struct {
+	items map[int64][]task.Participant
+}
+
+func (r *pollingParticipantRepository) Replace(_ context.Context, taskID int64, items []task.Participant) error {
+	r.items[taskID] = items
+	return nil
+}
+
+func (r *pollingParticipantRepository) List(_ context.Context, taskID int64) ([]task.Participant, error) {
+	return r.items[taskID], nil
 }
 
 type pollingStateRepository struct {
@@ -209,6 +228,27 @@ var _ = Describe("polling service", func() {
 		phaseAt := tasks.registered[0].PhaseAt
 		refresh(task.PhaseCompleted)
 		Expect(tasks.registered[0].PhaseAt).To(Equal(phaseAt))
+	})
+
+	It("persists the course roster and matches submissions by stable user ID", func(ctx SpecContext) {
+		item := task.Task{ID: 41, Provider: "google-classroom", ExternalID: "roster-task", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "user-1", Name: "Teacher One", Email: "teacher@example.test"}}},
+			submissions:  map[string][][]submission.Submission{"roster-task": {{{ExternalID: "submission-1", SubmitterID: "user-1", State: submission.Submitted}}}},
+		}
+		tasks := &pollingTaskRepository{}
+		participants := &pollingParticipantRepository{items: map[int64][]task.Participant{}}
+		submissions := &pollingSubmissionRepository{}
+		service := application.NewPollingServiceWithScenarioCollectionAndRoster(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, tasks,
+			pollingBindingRepository{bindings: []task.Binding{{Task: item, Status: "active"}}}, submissions, nil, nil, nil, nil, scenario.Registry{}, participants,
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(participants.items[41]).To(Equal([]task.Participant{{ExternalID: "user-1", Name: "Teacher One", Email: "teacher@example.test"}}))
+		Expect(submissions.items).To(HaveLen(1))
+		Expect(submissions.items[0].SubmitterName).To(Equal("Teacher One"))
+		Expect(submissions.items[0].SubmitterEmail).To(Equal("teacher@example.test"))
 	})
 
 	It("excludes disabled courses and inactive task bindings from submission polling", func(ctx SpecContext) {

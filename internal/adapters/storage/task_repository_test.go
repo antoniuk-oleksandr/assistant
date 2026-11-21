@@ -19,6 +19,7 @@ import (
 var _ = Describe("SQLite task bindings", func() {
 	var db *sql.DB
 	var tasks ports.TaskRepository
+	var participants ports.ParticipantRosterRepository
 	var bindings ports.TaskBindingRepository
 	var courseBindings ports.ScenarioCourseBindingRepository
 	var courseData ports.ScenarioCourseDataRepository
@@ -26,7 +27,7 @@ var _ = Describe("SQLite task bindings", func() {
 
 	BeforeEach(func(ctx SpecContext) {
 		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
-		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &bindings, &courseBindings, &courseData, &scenarios))
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewParticipantRosterRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &participants, &bindings, &courseBindings, &courseData, &scenarios))
 		Expect(app.Start(ctx)).To(Succeed())
 		_, err := db.ExecContext(ctx, `INSERT INTO classroom_courses (provider, external_course_id, source_reference, status, created_at, updated_at) VALUES ('google-classroom', 'course-1', 'course-1', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('google-classroom', 'course-2', 'course-2', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
 		Expect(err).NotTo(HaveOccurred())
@@ -42,6 +43,8 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(bindings.Unbind(ctx, "task-1")).Error().To(MatchError(ContainSubstring("find task")))
 		Expect(bindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list task bindings")))
 		Expect(bindings.Active(ctx)).Error().To(MatchError(ContainSubstring("list task bindings")))
+		Expect(participants.Replace(ctx, 1, []task.Participant{{ExternalID: "user-1"}})).Error().To(MatchError(ContainSubstring("begin participant roster replacement")))
+		Expect(participants.List(ctx, 1)).Error().To(MatchError(ContainSubstring("list participant roster")))
 		Expect(courseBindings.Bind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("find active scenario")))
 		Expect(courseBindings.Unbind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("database is closed")))
 		Expect(courseBindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list scenario course bindings")))
@@ -122,6 +125,22 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(second[0].Title).To(Equal("Updated report"))
 		Expect(second[0].UpdatedAtExternal).To(Equal(item.UpdatedAtExternal))
 		Expect(second[0].DiscoveredAt).To(Equal(first[0].DiscoveredAt))
+	})
+
+	It("replaces and reloads the expected participant roster by stable user ID", func(ctx SpecContext) {
+		item := task.Task{Provider: "google-classroom", ExternalID: "roster-task", CourseID: "course-1", Title: "Report"}
+		Expect(tasks.Register(ctx, item)).To(Succeed())
+		stored, err := tasks.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(participants.Replace(ctx, stored[0].ID, []task.Participant{{ExternalID: "user-2", Name: "Second", Email: "second@example.test"}, {ExternalID: "user-1", Name: "First"}})).To(Succeed())
+		items, err := participants.List(ctx, stored[0].ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(Equal([]task.Participant{{ExternalID: "user-1", Name: "First", Email: ""}, {ExternalID: "user-2", Name: "Second", Email: "second@example.test"}}))
+		Expect(participants.Replace(ctx, stored[0].ID, []task.Participant{{ExternalID: "user-3", Name: "Third"}})).To(Succeed())
+		items, err = participants.List(ctx, stored[0].ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(Equal([]task.Participant{{ExternalID: "user-3", Name: "Third", Email: ""}}))
+		Expect(participants.Replace(ctx, stored[0].ID, []task.Participant{{ExternalID: "user-1"}, {ExternalID: "user-1"}})).Error().To(MatchError(ContainSubstring("store participant")))
 	})
 
 	It("stores and updates multiple report fields only for a bound course", func(ctx SpecContext) {

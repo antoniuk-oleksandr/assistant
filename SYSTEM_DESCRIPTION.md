@@ -71,6 +71,10 @@ again without losing historical data.
 
 A submission is one staff member's reporting package for the task. It may contain any subset of the 28 known appendices, plus supporting evidence such as certificates, publication pages, patents, or other files. For reminder purposes, a submission is either submitted or not submitted. File completeness and material access are validated separately.
 
+For each discovered task, the application persists the expected Classroom
+student roster. Classroom user IDs are the stable identity used to match a
+submission; names and emails are copied from the profile only when available.
+
 ### Appendix set
 
 The scientific reporting scenario knows a fixed set of 28 possible appendices. The system processes every appendix that is actually submitted. Missing appendices are represented in the aggregate with scenario-defined defaults: zero for numeric counters, a dash or absence marker for scalar fields, and an empty collection for lists. The aggregate still follows the 28-appendix structure.

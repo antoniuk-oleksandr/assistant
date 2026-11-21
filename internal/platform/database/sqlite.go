@@ -65,6 +65,15 @@ const createScenarioTasks = `CREATE TABLE IF NOT EXISTS scenario_tasks (
     PRIMARY KEY (scenario_id, task_id)
 )`
 
+const createTaskParticipants = `CREATE TABLE IF NOT EXISTS task_participants (
+    task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    external_user_id TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (task_id, external_user_id)
+)`
+
 const createScenarioCourses = `CREATE TABLE IF NOT EXISTS scenario_courses (
     scenario_id INTEGER NOT NULL REFERENCES scenarios(id),
     course_id INTEGER NOT NULL REFERENCES classroom_courses(id),
@@ -230,6 +239,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			}
 			if _, err := db.ExecContext(ctx, createScenarioTasks); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite task binding schema: %w", err), db.Close())
+			}
+			if _, err := db.ExecContext(ctx, createTaskParticipants); err != nil {
+				return errors.Join(fmt.Errorf("initialize SQLite task participant schema: %w", err), db.Close())
 			}
 			if _, err := db.ExecContext(ctx, createScenarioCourses); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite scenario course schema: %w", err), db.Close())
