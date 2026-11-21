@@ -18,6 +18,57 @@ func TestMaterialAnalyzer(t *testing.T) {
 }
 
 var _ = Describe("Material analyzer", func() {
+	It("classifies common formats from MIME type and filename fallback", func() {
+		analyzer := parser.NewMaterialAnalyzer()
+		cases := []struct {
+			name, mime, want string
+		}{
+			{"photo", "image/png", "image"},
+			{"notes", "text/plain; charset=utf-8", "text_document"},
+			{"report", "application/pdf", "pdf_document"},
+			{"data", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "spreadsheet"},
+			{"letter", "application/msword", "word_document"},
+			{"unknown.csv", "application/octet-stream", "csv_document"},
+		}
+		for _, tc := range cases {
+			proposal, err := analyzer.Analyze(context.Background(), submission.Material{Name: tc.name, MIMEType: tc.mime}, submission.ParseContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(proposal.DocumentType).To(Equal(tc.want), tc.name)
+		}
+	})
+
+	It("uses the remaining scenario and role classifications", func() {
+		analyzer := parser.NewMaterialAnalyzer()
+		cases := []struct {
+			item   submission.Material
+			origin submission.ParseContext
+			want   string
+		}{
+			{submission.Material{Name: "patent evidence"}, submission.ParseContext{}, "patent"},
+			{submission.Material{Role: "supporting evidence"}, submission.ParseContext{}, "supporting_evidence"},
+			{submission.Material{Name: "unclassified"}, submission.ParseContext{ScenarioName: "science-report"}, "scientific_report_material"},
+			{submission.Material{Name: "unclassified"}, submission.ParseContext{ScenarioName: "other"}, "scenario_material"},
+			{submission.Material{AppendixNumber: intPtr(3)}, submission.ParseContext{}, "scenario_appendix"},
+		}
+		for _, tc := range cases {
+			proposal, err := analyzer.Analyze(context.Background(), tc.item, tc.origin)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(proposal.DocumentType).To(Equal(tc.want))
+		}
+	})
+
+	It("handles missing and empty local text files", func() {
+		analyzer := parser.NewMaterialAnalyzer()
+		proposal, err := analyzer.Analyze(context.Background(), submission.Material{Name: "missing.txt", MIMEType: "text/plain", LocalPath: filepath.Join(GinkgoT().TempDir(), "missing.txt")}, submission.ParseContext{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(proposal.Fields).To(HaveKeyWithValue("content_available", false))
+
+		empty := filepath.Join(GinkgoT().TempDir(), "empty.txt")
+		Expect(os.WriteFile(empty, nil, 0o600)).To(Succeed())
+		proposal, err = analyzer.Analyze(context.Background(), submission.Material{Name: "empty.txt", MIMEType: "text/plain", LocalPath: empty}, submission.ParseContext{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(proposal.Fields).To(HaveKeyWithValue("content_available", false))
+	})
 	It("classifies a certificate from metadata and retains auditable context", func() {
 		analyzer := parser.NewMaterialAnalyzer()
 		proposal, err := analyzer.Analyze(context.Background(), submission.Material{
@@ -89,3 +140,5 @@ var _ = Describe("Material analyzer", func() {
 		Expect(err).To(MatchError(context.Canceled))
 	})
 })
+
+func intPtr(value int) *int { return &value }

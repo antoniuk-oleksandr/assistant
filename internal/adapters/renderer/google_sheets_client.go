@@ -22,6 +22,19 @@ type sheetsClient interface {
 	WriteValues(context.Context, string, string, [][]any) error
 }
 
+type sheetsRangeWriter interface {
+	WriteRanges(context.Context, string, []sheetValueRange) error
+}
+
+type sheetsRangeClearer interface {
+	ClearRanges(context.Context, string, []string) error
+}
+
+type sheetValueRange struct {
+	rangeName string
+	values    [][]any
+}
+
 type googleSheetsClient struct {
 	baseURL string
 	client  *http.Client
@@ -97,6 +110,22 @@ func (c *googleSheetsClient) AddSheets(ctx context.Context, id string, names []s
 }
 
 func (c *googleSheetsClient) WriteValues(ctx context.Context, id, sheet string, values [][]any) error {
-	payload := map[string]any{"valueInputOption": "USER_ENTERED", "data": []map[string]any{{"range": sheet + "!A1", "majorDimension": "ROWS", "values": values}}}
+	return c.WriteRange(ctx, id, sheet+"!A1", values)
+}
+
+func (c *googleSheetsClient) WriteRange(ctx context.Context, id, cellRange string, values [][]any) error {
+	return c.WriteRanges(ctx, id, []sheetValueRange{{rangeName: cellRange, values: values}})
+}
+
+func (c *googleSheetsClient) WriteRanges(ctx context.Context, id string, ranges []sheetValueRange) error {
+	data := make([]map[string]any, 0, len(ranges))
+	for _, item := range ranges {
+		data = append(data, map[string]any{"range": item.rangeName, "majorDimension": "ROWS", "values": item.values})
+	}
+	payload := map[string]any{"valueInputOption": "USER_ENTERED", "data": data}
 	return c.request(ctx, http.MethodPost, "/spreadsheets/"+url.PathEscape(id)+"/values:batchUpdate", payload, nil)
+}
+
+func (c *googleSheetsClient) ClearRanges(ctx context.Context, id string, ranges []string) error {
+	return c.request(ctx, http.MethodPost, "/spreadsheets/"+url.PathEscape(id)+"/values:batchClear", map[string]any{"ranges": ranges}, nil)
 }

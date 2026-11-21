@@ -254,6 +254,12 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	if got := HTTPConfigFromEnvironment(); got.BaseURL != defaultBaseURL || got.AccessToken != "" {
 		t.Fatalf("default HTTP config = %#v", got)
 	}
+	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET", "secret")
+	t.Setenv("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN", "refresh")
+	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" {
+		t.Fatalf("OAuth config = %#v", got)
+	}
 	if got := NewHTTPClassroomClient(HTTPConfig{}, nil); got == nil {
 		t.Fatal("NewHTTPClassroomClient() returned nil")
 	}

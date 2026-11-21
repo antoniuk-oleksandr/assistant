@@ -113,7 +113,15 @@ func aggregateParseResult(report *ReportData, source ReportSource, parsed submis
 		if !validAppendix(appendix) {
 			return
 		}
-		aggregateFields(&report.Appendices[*appendix-1], source, parsed.Document.Fields)
+		reportAppendix := &report.Appendices[*appendix-1]
+		aggregateFields(reportAppendix, source, parsed.Document.Fields)
+		rows := countDocumentRows(parsed.Document.Tables)
+		if rows > 0 {
+			reportAppendix.NumericTotal += float64(rows)
+			if len(reportAppendix.Sources) == 0 {
+				reportAppendix.Sources = append(reportAppendix.Sources, source)
+			}
+		}
 		return
 	}
 	if parsed.Analysis != nil && validAppendix(parsed.Analysis.Proposal.Appendix) {
@@ -124,6 +132,42 @@ func aggregateParseResult(report *ReportData, source ReportSource, parsed submis
 		}
 		aggregateFields(&report.Appendices[appendix-1], source, fields)
 	}
+}
+
+// countDocumentRows counts populated records in DOCX tables. The first
+// populated row is a header; section labels and numeric-only header rows are
+// not records. Scientific-report appendices use this count for their main
+// "всього" value, while the remaining cell contents stay as source evidence.
+func countDocumentRows(tables []submission.Table) int {
+	count := 0
+	for _, table := range tables {
+		headerSeen := false
+		for _, row := range table.Rows {
+			values := make([]string, 0, len(row))
+			nonNumeric := false
+			for _, field := range row {
+				value := strings.TrimSpace(field.Value)
+				if value == "" {
+					continue
+				}
+				values = append(values, value)
+				if _, err := strconv.ParseFloat(strings.ReplaceAll(value, ",", "."), 64); err != nil {
+					nonNumeric = true
+				}
+			}
+			if len(values) == 0 {
+				continue
+			}
+			if !headerSeen {
+				headerSeen = true
+				continue
+			}
+			if len(values) >= 2 && nonNumeric {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func aggregateFields(appendix *ReportAppendix, source ReportSource, fields []submission.Field) {

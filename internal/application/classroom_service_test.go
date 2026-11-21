@@ -3,11 +3,11 @@ package application_test
 import (
 	"context"
 	"errors"
-
 	"time"
 
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/classroom"
+	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -20,12 +20,25 @@ type classroomRepositoryStub struct {
 }
 
 type taskRepositoryStub struct {
+	tasks       []task.Task
+	err         error
+	registerErr error
+}
+
+func (r *taskRepositoryStub) Register(context.Context, task.Task) error { return r.registerErr }
+func (r *taskRepositoryStub) List(context.Context) ([]task.Task, error) { return r.tasks, r.err }
+
+type taskSourceStub struct {
 	tasks []task.Task
 	err   error
 }
 
-func (r *taskRepositoryStub) Register(context.Context, task.Task) error { return nil }
-func (r *taskRepositoryStub) List(context.Context) ([]task.Task, error) { return r.tasks, r.err }
+func (s *taskSourceStub) ListTasks(context.Context, string) ([]task.Task, error) {
+	return s.tasks, s.err
+}
+func (s *taskSourceStub) ListSubmissions(context.Context, string) ([]submission.Submission, error) {
+	return nil, nil
+}
 
 func (r *classroomRepositoryStub) Register(_ context.Context, course classroom.Course) error {
 	r.calls = append(r.calls, "register:"+course.ExternalID)
@@ -87,14 +100,19 @@ var _ = Describe("Classroom service", func() {
 			{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: task.Discovered},
 			{ExternalID: "task-2", CourseID: "456", Title: "Other", Status: task.Bound},
 		}}
-		service := application.NewCourseTaskService(repository)
+		source := &taskSourceStub{tasks: []task.Task{repository.tasks[0]}}
+		service := application.NewCourseTaskService(repository, source)
 
 		result, err := service.List(ctx, "123")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal([]application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}}))
 		Expect(service.List(ctx, "invalid")).Error().To(MatchError(ContainSubstring("InvalidClassroomCourseReference")))
 
-		repository.err = errors.New("task repository failed")
+		repository.registerErr = errors.New("task repository failed")
+		source.err = nil
 		Expect(service.List(ctx, "123")).Error().To(MatchError("task repository failed"))
+		source.err = errors.New("Classroom API failed")
+		repository.registerErr = nil
+		Expect(service.List(ctx, "123")).Error().To(MatchError("Classroom API failed"))
 	})
 })
