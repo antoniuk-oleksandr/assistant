@@ -30,6 +30,7 @@ type PollingService struct {
 	registry     scenario.Registry
 	participants ports.ParticipantRosterRepository
 	missing      ports.MissingSubmitterRepository
+	reminders    *ReminderService
 	clock        func() time.Time
 }
 
@@ -50,19 +51,23 @@ func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, sourc
 }
 
 func NewPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry) *PollingService {
-	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, nil, nil)
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, nil, nil, nil)
 }
 
 func NewPollingServiceWithScenarioCollectionAndRoster(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository) *PollingService {
-	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, nil)
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, nil, nil)
 }
 
 func NewPollingServiceWithScenarioCollectionAndRosterAndMissing(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository) *PollingService {
-	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, missing)
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, missing, nil)
 }
 
-func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, clock: func() time.Time { return time.Now().UTC() }}
+func NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository, reminders *ReminderService) *PollingService {
+	return newPollingServiceWithScenarioCollection(courses, source, tasks, bindings, submissions, state, materials, parsing, collection, registry, participants, missing, reminders)
+}
+
+func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository, reminders *ReminderService) *PollingService {
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, reminders: reminders, clock: func() time.Time { return time.Now().UTC() }}
 }
 
 func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
@@ -271,6 +276,11 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 	if err := s.reconcileMissing(ctx, item.ID, items); err != nil {
 		return err
 	}
+	if s.reminders != nil && item.Phase == task.PhaseThreeDaysBefore {
+		if err := s.scheduleMissingReminders(ctx, item); err != nil {
+			return err
+		}
+	}
 	if s.collection != nil {
 		processor, err := s.registry.ResolveProcessor(binding.ScenarioName)
 		if err != nil {
@@ -285,6 +295,30 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		if processErr != nil {
 			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, processErr)
 		}
+	}
+	return nil
+}
+
+func (s *PollingService) scheduleMissingReminders(ctx context.Context, item task.Task) error {
+	if s.missing == nil || item.DueAt == "" {
+		return nil
+	}
+	missing, err := s.missing.List(ctx, item.ID)
+	if err != nil {
+		return fmt.Errorf("list missing submitters for reminders: %w", err)
+	}
+	targets := make([]ports.ReminderTarget, 0, len(missing))
+	for _, person := range missing {
+		if person.Email == "" {
+			continue
+		}
+		targets = append(targets, ports.ReminderTarget{
+			PersonID: person.ExternalUserID, Channel: "email", Destination: person.Email,
+			TaskTitle: item.Title, ClassroomLink: fmt.Sprintf("https://classroom.google.com/c/%s/a/%s/details", item.CourseID, item.ExternalID),
+		})
+	}
+	if _, err := s.reminders.Schedule(ctx, item, nil, targets, 72*time.Hour); err != nil {
+		return fmt.Errorf("schedule missing submission reminders: %w", err)
 	}
 	return nil
 }

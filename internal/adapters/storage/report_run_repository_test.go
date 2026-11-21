@@ -209,11 +209,15 @@ var _ = Describe("SQLite report run repository", func() {
 	})
 
 	It("persists, updates, and deduplicates missing-submission reminders", func(ctx SpecContext) {
-		item := notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Status: notification.Sent, CreatedAt: time.Now()}
+		item := notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Subject: "Reminder", Message: "Submit it", DueAt: "2026-11-20T00:00:00Z", ClassroomLink: "https://classroom/task", Status: notification.Sent, CreatedAt: time.Now()}
 		Expect(reminders.Create(ctx, &item)).To(Succeed())
 		found, err := reminders.Get(ctx, 1, "person-1", "email", "missing_submission")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(found.ID).To(Equal(item.ID))
+		Expect(found.Subject).To(Equal(item.Subject))
+		Expect(found.Message).To(Equal(item.Message))
+		Expect(found.DueAt).To(Equal(item.DueAt))
+		Expect(found.ClassroomLink).To(Equal(item.ClassroomLink))
 		Expect(reminders.Create(ctx, &notification.Reminder{TaskID: 1, PersonID: "person-1", Channel: "email", Destination: "person@example.com", Kind: "missing_submission", Status: notification.Pending, CreatedAt: time.Now()})).To(MatchError(ContainSubstring("UNIQUE constraint failed")))
 		found.Status = notification.Failed
 		found.Error = "unavailable"
