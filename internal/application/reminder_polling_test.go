@@ -52,6 +52,7 @@ func TestScheduleMissingRemindersBuildsEmailTargets(t *testing.T) {
 	service := &PollingService{
 		missing:   reminderPollingMissingRepository{items: []ports.MissingSubmitter{{ExternalUserID: "user-1", Email: "teacher@example.com"}, {ExternalUserID: "no-email"}}},
 		reminders: NewReminderServiceWithClock(reminderPollingRepository{}, []ports.ReminderProvider{reminderPollingProvider{}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) }),
+		head:      NewHeadNotificationService(headTeacherRepository{}, NewReminderServiceWithClock(reminderPollingRepository{}, []ports.ReminderProvider{reminderPollingProvider{}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) })),
 	}
 	item := task.Task{ID: 1, ExternalID: "task-1", CourseID: "course-1", Title: "Report", DueAt: "2026-11-20T00:00:00Z"}
 	if err := service.scheduleMissingReminders(context.Background(), item); err != nil {

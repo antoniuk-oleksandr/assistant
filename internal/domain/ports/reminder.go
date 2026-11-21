@@ -16,6 +16,9 @@ type ReminderTarget struct {
 	Destination   string
 	TaskTitle     string
 	ClassroomLink string
+	Kind          string
+	Subject       string
+	Message       string
 }
 
 type ReminderRepository interface {
