@@ -28,8 +28,8 @@ The command normally stays attached to the terminal and produces little output. 
 ## Features
 
 - Google Classroom course registration and polling.
-- Explicit course-and-task-to-scenario binding.
-- Scientific activity reporting through `ScienceReportScenario`.
+- One report workflow configured per registered Classroom course.
+- Scientific activity reporting through the built-in report processor.
 - Mapping to 28 known appendices with defaults for missing appendices.
 - DOCX, XLSX, PDF, Google Docs, Google Sheets, and image ingestion boundaries.
 - Supporting evidence and source-reference preservation.
@@ -155,43 +155,31 @@ The executable built from this repository is `assistent`. Use `--help` for Cobra
 go run ./cmd/assistent --help
 ```
 
-### Scenario
+### Report workflow
 
 ```bash
-go run ./cmd/assistent scenario add science-report
-go run ./cmd/assistent scenario list
-go run ./cmd/assistent scenario enable science-report
-go run ./cmd/assistent scenario disable science-report
-go run ./cmd/assistent scenario remove science-report
-```
-
-Bind the course first, then inspect and bind its discovered task:
-
-```bash
-go run ./cmd/assistent scenario course-bind science-report <course-id>
-go run ./cmd/assistent scenario course-list science-report
-go run ./cmd/assistent scenario task-bind science-report <task-id>
-go run ./cmd/assistent scenario task-list science-report
-go run ./cmd/assistent scenario task-unbind <task-id>
-go run ./cmd/assistent scenario course-unbind science-report <course-id>
+go run ./cmd/assistent report configure <course-id>
+go run ./cmd/assistent report task-list
+go run ./cmd/assistent report task-bind <task-id>
+go run ./cmd/assistent report task-unbind <task-id>
 
 # Store course-specific report fields (repeat --field for multiple values)
-go run ./cmd/assistent scenario data-set science-report <course-id> \
+go run ./cmd/assistent report data-set <course-id> \
   --field department_email=department@example.com \
   --field department_name="Department name" \
   --field lab_assistant_name="Anna Kovalenko" \
   --field lab_assistant_mobile_phone="+380..." \
   --field department_phone="+380..."
-go run ./cmd/assistent scenario data-list science-report <course-id>
+go run ./cmd/assistent report data-list <course-id>
 ```
 
-`scenario data-set` stores course-specific report values in SQLite. It does
-not create a Google Sheet by itself; the background poller uses the saved
-values when it generates the next report. The scenario must already be bound
-to the course, and each value is supplied as a separate `--field name=value`
-flag.
+`report configure` enables the built-in report workflow for a registered
+course. `report data-set` stores course-specific report values in SQLite; it
+does not create a Google Sheet by itself. The background poller uses the saved
+values when it generates the next report. Each value is supplied as a separate
+`--field name=value` flag.
 
-An unbound task is not processed.
+A task must be explicitly bound with `report task-bind` before it is processed.
 
 ### Classroom
 
@@ -206,7 +194,7 @@ go run ./cmd/assistent course remove <course-id>
 
 ### CLI scope
 
-The current Cobra CLI exposes `scenario`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
+The current Cobra CLI exposes `report`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
 
 To register a teacher's phone without manually entering their email, resolve the Classroom profile by stable user ID:
 
@@ -223,14 +211,14 @@ The application does not process arbitrary courses or tasks automatically. Confi
 ```bash
 # Stop the poller first if its process lock is held.
 go run ./cmd/assistent course add <course-id-or-url>
-go run ./cmd/assistent scenario add science-report
-go run ./cmd/assistent scenario course-bind science-report <course-id>
+go run ./cmd/assistent report configure <course-id>
 
 # Discover coursework.
 just run
 
-# Stop the poller if needed, inspect bindings, and bind the desired task.
-go run ./cmd/assistent scenario task-bind science-report <task-id>
+# Stop the poller if needed, inspect tasks, and bind the desired task.
+go run ./cmd/assistent report task-list
+go run ./cmd/assistent report task-bind <task-id>
 
 # Resume polling.
 just run

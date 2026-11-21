@@ -20,6 +20,10 @@ type classroomServiceStub struct {
 	calls []string
 }
 
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
+
 type courseTaskServiceStub struct {
 	items []application.CourseTaskResult
 	err   error
@@ -128,7 +132,7 @@ var _ = Describe("classroom commands", func() {
 	})
 
 	It("adds the course command to the root command", func() {
-		root := cli.NewRootCommandWithClassroom(&cobra.Command{Use: "scenario"}, cli.NewClassroomCommand(&classroomServiceStub{}))
+		root := cli.NewRootCommandWithClassroom(&cobra.Command{Use: "report"}, cli.NewClassroomCommand(&classroomServiceStub{}))
 		root.SetArgs([]string{"course", "add", "123"})
 		Expect(root.Execute()).To(Succeed())
 	})

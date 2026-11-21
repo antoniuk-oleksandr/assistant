@@ -1,6 +1,11 @@
 # Database schema
 
-SQLite is the single source of state for the application. It stores scenario registration, task bindings, polling checkpoints, submissions, parsed materials, report runs, notifications, retries, conflicts and operational errors.
+SQLite is the single source of state for the application. It stores the
+configured report workflow, report-task bindings, polling checkpoints,
+submissions, parsed materials, report runs, notifications, retries, conflicts
+and operational errors. Some table names retain the historical `scenario_`
+prefix because report runs use that stable internal schema identifier; those
+tables are not user-configurable scenarios.
 
 The database is local to the machine running `report-system.exe`.
 
@@ -13,11 +18,11 @@ The database is local to the machine running `report-system.exe`.
 - Hard deletion is allowed only for explicit administrative commands.
 - Every retryable operation has an attempt count and next-attempt timestamp.
 
-Course-specific scenario metadata is stored in `scenario_course_data`, keyed by
-scenario, course, and field name. The CLI command
-`scenario data-set <scenario-name> <course-id> --field name=value` upserts these
-values; it does not generate report files. The polling/report workflow reads
-the values when creating the next report.
+Course-specific report metadata is stored in `scenario_course_data`, keyed by
+the built-in report, course, and field name. The CLI command
+`report data-set <course-id> --field name=value` upserts these values; it does
+not generate report files. The polling/report workflow reads the values when
+creating the next report.
 
 ## Tables
 
@@ -54,7 +59,9 @@ Registered scenario implementations.
 | `updated_at` | TEXT | NOT NULL | Last change time |
 | `last_run_at` | TEXT | NULL | Last started run |
 
-If `implementation_type` is not registered in the application, `scenario add` fails with `ScenarioNotFound`.
+The built-in report implementation is registered during application startup;
+users configure it with `report configure <course-id>` rather than managing
+implementation records directly.
 
 ### `tasks`
 

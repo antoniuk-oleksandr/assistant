@@ -106,7 +106,7 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 	var (
 		poller         *application.PollingService
 		courses        cli.ClassroomService
-		scenarios      cli.ScenarioService
+		report         cli.ReportService
 		bindings       ports.TaskBindingRepository
 		courseBindings ports.ScenarioCourseBindingRepository
 		repo           ports.SubmissionRepository
@@ -116,14 +116,13 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 			tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-drive-token"})
 			return drive.NewMaterialRetrieverWithTokenSource(cfg, tokens)
 		}),
-		fx.Populate(&poller, &courses, &scenarios, &bindings, &courseBindings, &repo))
+		fx.Populate(&poller, &courses, &report, &bindings, &courseBindings, &repo))
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	g.Expect(app.Start(ctx)).To(Succeed())
 	defer func() { g.Expect(app.Stop(context.Background())).To(Succeed()) }()
 	g.Expect(courses.Add(ctx, "123")).To(Succeed())
-	g.Expect(scenarios.Add(ctx, "science-report")).To(Succeed())
-	g.Expect(courseBindings.Bind(ctx, "science-report", "123")).To(Succeed())
+	g.Expect(report.Configure(ctx, "123")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())
 	g.Expect(driveRequests.Load()).To(BeZero())
 	g.Expect(bindings.Bind(ctx, "science-report", "task-1")).To(Succeed())
@@ -155,11 +154,11 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 	g.Expect(items["empty"].State).To(Equal(submission.Submitted))
 	g.Expect(items["empty"].Materials).To(BeEmpty())
 
-	report := items["report"]
-	g.Expect(report.State).To(Equal(submission.Submitted))
-	g.Expect(report.Materials).To(HaveLen(4))
+	reportSubmission := items["report"]
+	g.Expect(reportSubmission.State).To(Equal(submission.Submitted))
+	g.Expect(reportSubmission.Materials).To(HaveLen(4))
 	materials := make(map[string]submission.Material)
-	for _, material := range report.Materials {
+	for _, material := range reportSubmission.Materials {
 		materials[material.ExternalID] = material
 	}
 	pdf := materials["pdf"]
@@ -272,11 +271,11 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
 	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
 
-	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ScenarioService, ports.TaskBindingRepository, ports.SubmissionRepository, ports.ScenarioCourseBindingRepository) {
+	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ReportService, ports.TaskBindingRepository, ports.SubmissionRepository, ports.ScenarioCourseBindingRepository) {
 		var (
 			poller         *application.PollingService
 			courses        cli.ClassroomService
-			scenarios      cli.ScenarioService
+			report         cli.ReportService
 			bindings       ports.TaskBindingRepository
 			courseBindings ports.ScenarioCourseBindingRepository
 			repo           ports.SubmissionRepository
@@ -286,17 +285,16 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 				tokens := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "fixture-drive-token"})
 				return drive.NewMaterialRetrieverWithTokenSource(cfg, tokens)
 			}),
-			fx.Populate(&poller, &courses, &scenarios, &bindings, &courseBindings, &repo))
-		return app, poller, courses, scenarios, bindings, repo, courseBindings
+			fx.Populate(&poller, &courses, &report, &bindings, &courseBindings, &repo))
+		return app, poller, courses, report, bindings, repo, courseBindings
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	app, poller, courses, scenarios, bindings, repo, courseBindings := newApp()
+	app, poller, courses, report, bindings, repo, _ := newApp()
 	g.Expect(app.Start(ctx)).To(Succeed())
 	g.Expect(courses.Add(ctx, "123")).To(Succeed())
-	g.Expect(scenarios.Add(ctx, "science-report")).To(Succeed())
-	g.Expect(courseBindings.Bind(ctx, "science-report", "123")).To(Succeed())
+	g.Expect(report.Configure(ctx, "123")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())
 	g.Expect(bindings.Bind(ctx, "science-report", "unknown-task")).To(Succeed())
 	g.Expect(poller.Refresh(ctx)).To(Succeed())

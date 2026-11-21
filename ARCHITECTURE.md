@@ -47,11 +47,10 @@ Recommended commands:
 ```text
 report-system.exe
 
-report-system.exe scenario list
-report-system.exe scenario add science-report
-report-system.exe scenario enable science-report
-report-system.exe scenario disable science-report
-report-system.exe scenario remove science-report
+report-system.exe report configure <course-id>
+report-system.exe report task-list
+report-system.exe report task-bind <task-id>
+report-system.exe report task-unbind <task-id>
 report-system.exe course list
 report-system.exe course add <course-url-or-id>
 report-system.exe course remove <course-id>
@@ -81,7 +80,7 @@ cmd/
     ├── main.go
     └── commands/
         ├── root.go
-        ├── scenario.go
+        ├── report.go
         ├── teacher.go
         └── notification.go
 
@@ -179,20 +178,13 @@ report-system
 │   ├── add <course-url-or-id>
 │   ├── tasks <course-url-or-id>
 │   └── remove <course-id>
-├── scenario
-│   ├── list
-│   ├── add <name>
-│   ├── enable <name>
-│   ├── disable <name>
-│   ├── remove <name>
-│   ├── course-bind <scenario> <course-id>
-│   ├── course-unbind <scenario> <course-id>
-│   ├── course-list <scenario>
-│   ├── data-set <scenario> <course-id> --field name=value
-│   ├── data-list <scenario> <course-id>
-│   ├── task-bind <scenario> <task-id>
+├── report
+│   ├── configure <course-id>
+│   ├── data-set <course-id> --field name=value
+│   ├── data-list <course-id>
+│   ├── task-bind <task-id>
 │   ├── task-unbind <task-id>
-│   └── task-list <scenario>
+│   └── task-list
 ├── teacher
 │   ├── list
 │   ├── show <id>
@@ -209,21 +201,21 @@ report-system
         └── retry-all
 ```
 
-`scenario data-set <scenario> <course-id> --field name=value` is a persistence
-command for course-specific report metadata. It updates only the named fields
-in SQLite; report rendering remains part of the polling workflow. The command
-must reject an inactive or unbound scenario-course pair.
+`report data-set <course-id> --field name=value` is a persistence command for
+course-specific report metadata. It updates only the named fields in SQLite;
+report rendering remains part of the polling workflow. The report must first
+be configured for an active course.
 
 Each command should use `RunE` so errors are returned to the root executor rather than handled inside command logic.
 
 ```go
-func NewScenarioAddCommand(service ScenarioService) *cobra.Command {
+func NewReportConfigureCommand(service ReportService) *cobra.Command {
     var command = &cobra.Command{
-        Use:   "add <scenario-name>",
-        Short: "Register a scenario",
+        Use:   "configure <course-id>",
+        Short: "Configure the report for a course",
         Args:  cobra.ExactArgs(1),
         RunE: func(cmd *cobra.Command, args []string) error {
-            return service.Add(cmd.Context(), args[0])
+            return service.Configure(cmd.Context(), args[0])
         },
     }
     return command
@@ -293,9 +285,9 @@ Config
     └── NotificationRetries
 ```
 
-Scenario registration, task-to-scenario bindings, teachers, notification channels, checkpoints, report runs, and delivery states are not configuration. They are runtime data and must be stored in SQLite.
+Report course/task bindings, teachers, notification channels, checkpoints, report runs, and delivery states are runtime data and must be stored in SQLite.
 
-There is no scenario YAML/JSON configuration. Adding or enabling a scenario is done through the CLI and persisted in the database.
+There is no report YAML/JSON configuration. Report setup is done through the CLI and persisted in the database.
 
 Fx provides the configuration to constructors:
 
@@ -363,7 +355,7 @@ var CLIModule = fx.Module(
     "cli",
     fx.Provide(
         NewRootCommand,
-        NewScenarioCommand,
+        NewReportCommand,
         NewTeacherCommand,
         NewNotificationCommand,
     ),
@@ -627,7 +619,7 @@ Infrastructure
 
 Presentation
 ├── Cobra root command
-├── scenario commands
+├── report commands
 ├── teacher commands
 ├── notification commands
 └── console output and exit codes
