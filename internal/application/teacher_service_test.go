@@ -6,6 +6,7 @@ import (
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/teacher"
+	"strings"
 	"testing"
 )
 
@@ -88,6 +89,62 @@ func TestTeacherServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 	if _, err := service.AddChannel(context.Background(), 1, "email", "x"); err == nil {
 		t.Fatal("channel error missing")
+	}
+}
+
+type profileSourceStub struct {
+	profile teacher.Profile
+	err     error
+}
+
+func (s profileSourceStub) GetProfile(context.Context, string) (teacher.Profile, error) {
+	return s.profile, s.err
+}
+
+type contactRepositoryStub struct {
+	recipient teacher.Recipient
+	channel   teacher.Channel
+	err       error
+}
+
+func (r *contactRepositoryStub) RegisterContact(_ context.Context, recipient *teacher.Recipient, channel *teacher.Channel) error {
+	if r.err != nil {
+		return r.err
+	}
+	recipient.ID = 7
+	channel.ID = 8
+	channel.RecipientID = recipient.ID
+	r.recipient, r.channel = *recipient, *channel
+	return nil
+}
+
+func TestTeacherContactServiceResolvesProfileBeforeAtomicRegistration(t *testing.T) {
+	repo := &contactRepositoryStub{}
+	service := application.NewTeacherContactService(repo, profileSourceStub{profile: teacher.Profile{ClassroomID: "user-1", Name: "Teacher", Email: "teacher@example.com"}})
+	result, err := service.RegisterPhone(context.Background(), "user-1", "+380000000")
+	if err != nil || result.Recipient.Email != "teacher@example.com" || result.Channel.Kind != "phone" || result.Channel.RecipientID != 7 {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if repo.recipient.ClassroomID != "user-1" || repo.channel.Destination != "+380000000" {
+		t.Fatalf("stored recipient=%#v channel=%#v", repo.recipient, repo.channel)
+	}
+}
+
+func TestTeacherContactServiceDoesNotWriteWhenProfileLookupFails(t *testing.T) {
+	repo := &contactRepositoryStub{}
+	service := application.NewTeacherContactService(repo, profileSourceStub{err: errors.New("profile unavailable")})
+	if _, err := service.RegisterPhone(context.Background(), "user-1", "+380000000"); err == nil || !strings.Contains(err.Error(), "resolve Classroom profile") {
+		t.Fatalf("error=%v", err)
+	}
+	if repo.recipient.ID != 0 || repo.channel.ID != 0 {
+		t.Fatalf("contact was partially written: %#v %#v", repo.recipient, repo.channel)
+	}
+}
+
+func TestTeacherContactServicePropagatesAtomicWriteFailure(t *testing.T) {
+	service := application.NewTeacherContactService(&contactRepositoryStub{err: errors.New("write failed")}, profileSourceStub{profile: teacher.Profile{Name: "Teacher", Email: "teacher@example.com"}})
+	if _, err := service.RegisterPhone(context.Background(), "user-1", "+380000000"); err == nil || !strings.Contains(err.Error(), "register teacher contact") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

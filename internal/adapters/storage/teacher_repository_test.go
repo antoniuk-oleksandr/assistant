@@ -92,3 +92,27 @@ func TestTeacherRepositoryReportsMissingAndClosedDatabase(t *testing.T) {
 		t.Fatal("closed channel create unexpectedly succeeded")
 	}
 }
+
+func TestTeacherContactRepositoryRegistersRecipientAndPhoneAtomically(t *testing.T) {
+	ctx := context.Background()
+	var db *sql.DB
+	var repo ports.TeacherContactRepository
+	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherContactRepository), fx.Populate(&db, &repo))
+	if err := app.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer app.Stop(ctx)
+	now := time.Now().UTC()
+	recipient := teacher.Recipient{Name: "Teacher", Email: "teacher@example.com", ClassroomID: "user-1", Status: teacher.Active, CreatedAt: now, UpdatedAt: now}
+	channel := teacher.Channel{Kind: "phone", Destination: "+380000000", Status: teacher.Active, CreatedAt: now, UpdatedAt: now}
+	if err := repo.RegisterContact(ctx, &recipient, &channel); err != nil {
+		t.Fatal(err)
+	}
+	if recipient.ID == 0 || channel.ID == 0 || channel.RecipientID != recipient.ID {
+		t.Fatalf("recipient=%#v channel=%#v", recipient, channel)
+	}
+	var count int
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM notification_channels WHERE teacher_id=?`, recipient.ID).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("channel count=%d err=%v", count, err)
+	}
+}

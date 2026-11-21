@@ -189,7 +189,15 @@ go run ./cmd/assistent course remove <course-id>
 
 ### CLI scope
 
-The current Cobra CLI exposes `scenario` and `course`. Teacher, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands. Do not assume commands such as `teacher list` or `notification retry` exist.
+The current Cobra CLI exposes `scenario`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
+
+To register a teacher's phone without manually entering their email, resolve the Classroom profile by stable user ID:
+
+```bash
+go run ./cmd/assistent teacher phone-set <classroom-user-id> --phone "+380..."
+```
+
+The command requires the OAuth scope `https://www.googleapis.com/auth/classroom.profile.emails`, stores the resolved name and email, and creates the phone notification channel atomically.
 
 ## First-time setup
 

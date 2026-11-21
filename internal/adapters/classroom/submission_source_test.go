@@ -101,6 +101,40 @@ func TestHTTPClassroomClientListsCourseParticipantsAcrossPages(t *testing.T) {
 	}
 }
 
+func TestHTTPClassroomClientGetsUserProfile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/userProfiles/user-1" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":"user-1","name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}`))
+	}))
+	defer server.Close()
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client())
+	profile, err := client.GetUserProfile(context.Background(), "user-1")
+	if err != nil || profile.ID != "user-1" || profile.Name.FullName != "Teacher One" || profile.EmailAddress != "teacher@example.test" {
+		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+}
+
+func TestSubmissionSourceGetsUserProfile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"id":"user-1","name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}`))
+	}))
+	defer server.Close()
+	source := NewSubmissionSourceWithClient(NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client()))
+	profile, err := source.GetProfile(context.Background(), "user-1")
+	if err != nil || profile.ClassroomID != "user-1" || profile.Name != "Teacher One" || profile.Email != "teacher@example.test" {
+		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+}
+
+func TestSubmissionSourceReportsUnsupportedProfileClient(t *testing.T) {
+	source := NewSubmissionSourceWithClient(courseworkOnlyClient{})
+	if _, err := source.GetProfile(context.Background(), "user-1"); err == nil || !strings.Contains(err.Error(), "profile client unavailable") {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
 	tests := []struct {
 		name     string
