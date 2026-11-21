@@ -654,6 +654,11 @@ course add https://classroom.google.com/c/OTAwNDIzOTQ1Mjk3
 
 This stores `900423945297`, not the encoded URL segment.
 
+Classroom task lifecycle metadata is stored separately: provider creation and
+update timestamps, local discovery and last-seen timestamps, due date, due
+time, and `GOOGLE_CLASSROOM_TIMEZONE` used to interpret the due fields. The
+default timezone is UTC when the variable is not configured.
+
 The `.env` file is never written to reports or logs and is not committed to version control.
 
 Recommended layout:

@@ -71,6 +71,9 @@ REPORT_RENDERER=google-sheets
 
 GOOGLE_SHEETS_REPORT_TITLE=Scientific activity report
 GOOGLE_SHEETS_BASE_URL=https://sheets.googleapis.com/v4
+
+# Used to interpret Google Classroom due dates and times.
+GOOGLE_CLASSROOM_TIMEZONE=Europe/Kyiv
 ```
 
 ### Google Sheets OAuth

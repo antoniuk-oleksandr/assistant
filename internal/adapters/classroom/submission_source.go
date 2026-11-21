@@ -92,20 +92,29 @@ type DriveFile struct {
 }
 
 type SubmissionSource struct {
-	client  ClassroomClient
-	mu      sync.RWMutex
-	courses map[string]string
+	client   ClassroomClient
+	timeZone string
+	mu       sync.RWMutex
+	courses  map[string]string
 }
 
 // NewSubmissionSource is the Fx constructor. The HTTP transport is still
 // replaceable through NewSubmissionSourceWithClient for unit and integration
 // tests. Credentials are read only at the infrastructure boundary.
 func NewSubmissionSource() *SubmissionSource {
-	return NewSubmissionSourceWithClient(NewHTTPClassroomClient(HTTPConfigFromEnvironment(), http.DefaultClient))
+	config := HTTPConfigFromEnvironment()
+	return NewSubmissionSourceWithClientAndTimeZone(NewHTTPClassroomClient(config, http.DefaultClient), config.TimeZone)
 }
 
 func NewSubmissionSourceWithClient(client ClassroomClient) *SubmissionSource {
-	return &SubmissionSource{client: client, courses: make(map[string]string)}
+	return NewSubmissionSourceWithClientAndTimeZone(client, "UTC")
+}
+
+func NewSubmissionSourceWithClientAndTimeZone(client ClassroomClient, timeZone string) *SubmissionSource {
+	if strings.TrimSpace(timeZone) == "" {
+		timeZone = "UTC"
+	}
+	return &SubmissionSource{client: client, timeZone: timeZone, courses: make(map[string]string)}
 }
 
 func (s *SubmissionSource) ListTasks(ctx context.Context, courseID string) ([]task.Task, error) {
@@ -120,7 +129,7 @@ func (s *SubmissionSource) ListTasks(ctx context.Context, courseID string) ([]ta
 	s.mu.Unlock()
 	result := make([]task.Task, 0, len(items))
 	for _, item := range items {
-		result = append(result, toTask(item, courseID))
+		result = append(result, toTask(item, courseID, s.timeZone))
 	}
 	return result, nil
 }
@@ -158,8 +167,8 @@ func (s *SubmissionSource) ListSubmissions(ctx context.Context, taskID string) (
 	return result, nil
 }
 
-func toTask(item CourseWork, courseID string) task.Task {
-	return task.Task{Provider: "google-classroom", ExternalID: item.ID, CourseID: courseID, Title: item.Title, Description: item.Description, CreatedAtExternal: item.CreationTime, UpdatedAtExternal: item.UpdateTime, DueAt: dueAt(item.DueDate, item.DueTime), Status: task.Discovered}
+func toTask(item CourseWork, courseID, timeZone string) task.Task {
+	return task.Task{Provider: "google-classroom", ExternalID: item.ID, CourseID: courseID, Title: item.Title, Description: item.Description, CreatedAtExternal: item.CreationTime, UpdatedAtExternal: item.UpdateTime, DueDate: dueDate(item.DueDate), DueTime: dueTime(item.DueTime), TimeZone: timeZone, DueAt: dueAt(item.DueDate, item.DueTime), Status: task.Discovered}
 }
 
 func toSubmission(item StudentSubmission) submission.Submission {
@@ -217,12 +226,27 @@ func dueAt(date *Date, clock *Time) string {
 	return fmt.Sprintf("%04d-%02d-%02dT%02d:%02d:00", date.Year, date.Month, date.Day, clock.Hours, clock.Minutes)
 }
 
+func dueDate(date *Date) string {
+	if date == nil {
+		return ""
+	}
+	return fmt.Sprintf("%04d-%02d-%02d", date.Year, date.Month, date.Day)
+}
+
+func dueTime(clock *Time) string {
+	if clock == nil {
+		return ""
+	}
+	return fmt.Sprintf("%02d:%02d:00", clock.Hours, clock.Minutes)
+}
+
 type HTTPConfig struct {
 	BaseURL      string
 	AccessToken  string
 	ClientID     string
 	ClientSecret string
 	RefreshToken string
+	TimeZone     string
 }
 
 func HTTPConfigFromEnvironment() HTTPConfig {
@@ -237,7 +261,7 @@ func HTTPConfigFromEnvironment() HTTPConfig {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID"), ClientSecret: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN")}
+	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID"), ClientSecret: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN"), TimeZone: get("GOOGLE_CLASSROOM_TIMEZONE")}
 }
 
 type HTTPClassroomClient struct {

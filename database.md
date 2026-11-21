@@ -69,6 +69,10 @@ Google Classroom coursework items discovered by the application.
 | `title` | TEXT | NOT NULL | Task title |
 | `description` | TEXT | NULL | Task description |
 | `created_at_external` | TEXT | NULL | Time reported by Classroom |
+| `updated_at_external` | TEXT | NULL | Last update time reported by Classroom |
+| `due_date` | TEXT | NULL | Classroom due date in `YYYY-MM-DD` form |
+| `due_time` | TEXT | NULL | Classroom due time in `HH:MM:SS` form |
+| `time_zone` | TEXT | NULL | Timezone used to interpret the Classroom due date/time |
 | `due_at` | TEXT | NULL | Deadline |
 | `discovered_at` | TEXT | NOT NULL | First local discovery time |
 | `last_seen_at` | TEXT | NOT NULL | Last polling time |
