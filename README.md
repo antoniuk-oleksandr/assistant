@@ -81,6 +81,27 @@ GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN=...
 
 The three values must belong to the same OAuth client and authorized Google account. The refresh token is a secret used to obtain short-lived access tokens without interactive authorization.
 
+### Report-ready email
+
+When Resend is configured, the application sends a report-ready email to the
+configured target address after creating a Google Sheet. The message body is read from
+`templates/report-ready-email.txt` by default, and the
+`<google_sheet_link>` tag is replaced with the generated Sheet URL.
+
+Create the API key in the [Resend API keys dashboard](https://resend.com/api-keys).
+For testing, `onboarding@resend.dev` can be used as the sender to the Resend
+account owner. For other recipients, verify a sending domain in Resend and use
+an address from that domain in `RESEND_FROM`. `RESEND_BASE_URL` is optional and
+defaults to `https://api.resend.com`.
+
+```env
+RESEND_API_KEY=...
+REPORT_TARGET_EMAIL=owner@example.com
+RESEND_FROM=onboarding@resend.dev
+# Optional custom template:
+# REPORT_READY_EMAIL_TEMPLATE=templates/report-ready-email.txt
+```
+
 ### Google Drive OAuth
 
 ```env

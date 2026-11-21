@@ -3,6 +3,7 @@ package fxmodules
 import (
 	"github.com/alex/assistent/internal/adapters/classroom"
 	"github.com/alex/assistent/internal/adapters/drive"
+	"github.com/alex/assistent/internal/adapters/notification"
 	"github.com/alex/assistent/internal/adapters/parser"
 	"github.com/alex/assistent/internal/adapters/renderer"
 	"github.com/alex/assistent/internal/adapters/storage"
@@ -19,7 +20,7 @@ import (
 )
 
 var PlatformModule = fx.Module("platform",
-	fx.Provide(config.Load, config.Database, config.Drive, database.NewSQLite, locking.NewProcessLock),
+	fx.Provide(config.Load, config.Database, config.Drive, config.Email, database.NewSQLite, locking.NewProcessLock),
 )
 
 var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository, storage.NewReportRunRepository, fx.Annotate(storage.NewReportOutputRepository, fx.As(new(ports.ReportOutputRepository))), fx.Annotate(storage.NewReportResultRepository, fx.As(new(ports.ReportResultRepository))), fx.Annotate(storage.NewReportDeliveryRepository, fx.As(new(ports.ReportDeliveryRepository))), fx.Annotate(storage.NewReminderRepository, fx.As(new(ports.ReminderRepository))), fx.Annotate(storage.NewTeacherRepository, fx.As(new(ports.TeacherRepository))), fx.Annotate(storage.NewHistoryRepository, fx.As(new(ports.HistoryRepository)))))
@@ -29,14 +30,14 @@ var ClassroomStorageModule = fx.Module("classroom-storage", fx.Provide(storage.N
 var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
 	application.NewPollingServiceWithScenarioCollection,
-	fx.Annotate(application.NewScenarioCollectionServiceWithRendererResultAndCourseData),
+	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewScenarioServiceWithCourseBindingsAndData, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService)), fx.As(new(cli.ScenarioCourseDataService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
 	fx.Annotate(application.NewCourseTaskService, fx.As(new(cli.CourseTaskService))),
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(classroom.NewSubmissionSource, drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer),
+	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier),
 )
 
 func newMaterialParsing() *application.MaterialParsing {

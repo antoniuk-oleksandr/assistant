@@ -60,6 +60,8 @@ func (fxPollingSource) ListSubmissions(context.Context, string) ([]submission.Su
 var _ = Describe("application modules", func() {
 	BeforeEach(func() {
 		GinkgoT().Setenv("REPORT_RENDERER", "local-xlsx")
+		GinkgoT().Setenv("RESEND_API_KEY", "")
+		GinkgoT().Setenv("REPORT_TARGET_EMAIL", "")
 	})
 
 	It("registers the compiled science report implementation", func() {

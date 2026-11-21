@@ -22,6 +22,7 @@ type ScenarioCollectionService struct {
 	outputs     ports.ReportOutputRepository
 	results     ports.ReportResultRepository
 	courseData  ports.ScenarioCourseDataRepository
+	notifier    ports.ReportReadyNotifier
 	clock       func() time.Time
 }
 
@@ -40,6 +41,12 @@ func NewScenarioCollectionServiceWithRendererAndResult(submissions ports.Submiss
 func NewScenarioCollectionServiceWithRendererResultAndCourseData(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository, courseData ports.ScenarioCourseDataRepository) *ScenarioCollectionService {
 	service := NewScenarioCollectionServiceWithRendererAndResult(submissions, runs, renderer, outputs, results)
 	service.courseData = courseData
+	return service
+}
+
+func NewScenarioCollectionServiceWithReportNotifier(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository, courseData ports.ScenarioCourseDataRepository, notifier ports.ReportReadyNotifier) *ScenarioCollectionService {
+	service := NewScenarioCollectionServiceWithRendererResultAndCourseData(submissions, runs, renderer, outputs, results, courseData)
+	service.notifier = notifier
 	return service
 }
 
@@ -109,6 +116,11 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 			return run, s.persistFailure(ctx, &run, fmt.Errorf("render report package: %w", err))
 		}
 		result.ResultPath = output.Path
+		if s.notifier != nil && s.notifier.Enabled() {
+			if err := s.notifier.Notify(ctx, report.Result{ID: run.ID, RunID: run.ID, ScenarioID: scenarioID, TaskID: taskID, Data: *result.ReportData}, output.Path); err != nil {
+				return run, s.persistFailure(ctx, &run, fmt.Errorf("notify report owner: %w", err))
+			}
+		}
 		if s.outputs != nil {
 			if err := s.outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: output.Format, Path: output.Path, Version: output.Version, CreatedAt: output.CreatedAt}); err != nil {
 				return run, s.persistFailure(ctx, &run, fmt.Errorf("persist report output: %w", err))

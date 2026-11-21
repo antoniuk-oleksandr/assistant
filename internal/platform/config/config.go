@@ -36,11 +36,20 @@ type ReportConfig struct {
 	Renderer string
 }
 
+type EmailConfig struct {
+	APIKey       string
+	TargetEmail  string
+	From         string
+	BaseURL      string
+	TemplatePath string
+}
+
 type Config struct {
 	Database DatabaseConfig
 	Drive    DriveConfig
 	Sheets   SheetsConfig
 	Report   ReportConfig
+	Email    EmailConfig
 }
 
 func Load() (Config, error) {
@@ -77,6 +86,10 @@ func Load() (Config, error) {
 	if reportRenderer == "" {
 		reportRenderer = "google-sheets"
 	}
+	templatePath := get("REPORT_READY_EMAIL_TEMPLATE")
+	if templatePath == "" {
+		templatePath = "templates/report-ready-email.txt"
+	}
 	return Config{
 		Database: DatabaseConfig{SQLitePath: path},
 		Drive: DriveConfig{
@@ -91,6 +104,7 @@ func Load() (Config, error) {
 			ClientSecret: get("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN"), Title: sheetTitle,
 		},
 		Report: ReportConfig{Renderer: reportRenderer},
+		Email:  EmailConfig{APIKey: get("RESEND_API_KEY"), TargetEmail: get("REPORT_TARGET_EMAIL"), From: get("RESEND_FROM"), BaseURL: get("RESEND_BASE_URL"), TemplatePath: templatePath},
 	}, nil
 }
 
@@ -103,3 +117,4 @@ func Drive(cfg Config) DriveConfig { return cfg.Drive }
 func Sheets(cfg Config) SheetsConfig { return cfg.Sheets }
 
 func Report(cfg Config) ReportConfig { return cfg.Report }
+func Email(cfg Config) EmailConfig   { return cfg.Email }
