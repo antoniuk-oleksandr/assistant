@@ -78,6 +78,11 @@ submission; names and emails are copied from the profile only when available.
 Each polling cycle reconciles that roster with submitted Classroom user IDs and
 persists the currently missing participants, including notification state.
 
+The first aggregate report is created when a task enters the persisted
+`three_days_before` phase. A task still in discovery is collected but does not
+create a preliminary report; the report-run and result version records make a
+repeated poll idempotent.
+
 ### Appendix set
 
 The scientific reporting scenario knows a fixed set of 28 possible appendices. The system processes every appendix that is actually submitted. Missing appendices are represented in the aggregate with scenario-defined defaults: zero for numeric counters, a dash or absence marker for scalar fields, and an empty collection for lists. The aggregate still follows the 28-appendix structure.
