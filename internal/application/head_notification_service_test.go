@@ -13,6 +13,7 @@ import (
 
 type headTeacherRepository struct {
 	listErr, channelErr error
+	includeDisabled     bool
 }
 
 func (headTeacherRepository) Create(context.Context, *teacher.Recipient) error { return nil }
@@ -24,7 +25,11 @@ func (r headTeacherRepository) List(context.Context) ([]teacher.Recipient, error
 	if r.listErr != nil {
 		return nil, r.listErr
 	}
-	return []teacher.Recipient{{ID: 7, Name: "Head", Email: "head@example.com", Status: teacher.Active}}, nil
+	items := []teacher.Recipient{{ID: 7, Name: "Head", Email: "head@example.com", Status: teacher.Active}}
+	if r.includeDisabled {
+		items = append(items, teacher.Recipient{ID: 8, Status: teacher.Disabled})
+	}
+	return items, nil
 }
 func (headTeacherRepository) CreateChannel(context.Context, *teacher.Channel) error { return nil }
 func (headTeacherRepository) UpdateChannel(context.Context, *teacher.Channel) error { return nil }
@@ -59,5 +64,9 @@ func TestHeadNotificationServicePropagatesRecipientErrors(t *testing.T) {
 	service = NewHeadNotificationService(headTeacherRepository{channelErr: errors.New("channel list failed")}, NewReminderService(reminderPollingRepository{}, nil))
 	if err := service.Schedule(context.Background(), item, []ports.MissingSubmitter{{Name: "Teacher"}}); err == nil {
 		t.Fatal("channel error was ignored")
+	}
+	service = NewHeadNotificationService(headTeacherRepository{includeDisabled: true}, NewReminderService(reminderPollingRepository{}, []ports.ReminderProvider{reminderPollingProvider{}}))
+	if err := service.Schedule(context.Background(), task.Task{ID: 1, Title: "Report", DueAt: "bad"}, []ports.MissingSubmitter{{Name: "Teacher"}}); err == nil {
+		t.Fatal("reminder scheduling error was ignored")
 	}
 }

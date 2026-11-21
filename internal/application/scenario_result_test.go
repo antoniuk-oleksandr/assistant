@@ -10,6 +10,7 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/submission"
 )
 
 type resultRepository struct {
@@ -63,7 +64,7 @@ func TestScenarioCollectionServicePersistsPartialResult(t *testing.T) {
 
 func TestScenarioCollectionServiceProcessesAnIncrementalUpdateAsANewRun(t *testing.T) {
 	runs := &collectionRunRepository{}
-	service := application.NewScenarioCollectionService(collectionSubmissionRepository{}, runs)
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{items: []submission.Submission{}}, runs)
 	processor := &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed}}
 	first, err := service.ProcessForTask(context.Background(), 3, 7, "science-report", "course-1", processor)
 	if err != nil {
@@ -75,6 +76,39 @@ func TestScenarioCollectionServiceProcessesAnIncrementalUpdateAsANewRun(t *testi
 	}
 	if len(runs.updates) == 0 {
 		t.Fatal("incremental run was not persisted")
+	}
+}
+
+func TestScenarioCollectionServiceSkipsUnchangedIncrementalUpdate(t *testing.T) {
+	runs := &collectionRunRepository{}
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{items: []submission.Submission{}}, runs)
+	processor := &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed}}
+	first, err := service.ProcessForTask(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs.existing = &first
+	second, err := service.ProcessForTaskUpdate(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err != nil || second.ID != first.ID {
+		t.Fatalf("first=%#v second=%#v err=%v", first, second, err)
+	}
+}
+
+func TestScenarioCollectionServiceProcessesChangedIncrementalUpdate(t *testing.T) {
+	runs := &collectionRunRepository{existing: &report.Run{ID: 9, InputFingerprint: "old", Status: report.Completed}}
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{items: []submission.Submission{{ExternalID: "new-submission"}}}, runs)
+	processor := &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed}}
+	got, err := service.ProcessForTaskUpdate(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err != nil || got.ID != 42 {
+		t.Fatalf("run=%#v err=%v", got, err)
+	}
+}
+
+func TestScenarioCollectionServiceReportsIncrementalSubmissionLookupFailure(t *testing.T) {
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{err: errors.New("submission lookup failed")}, &collectionRunRepository{})
+	_, err := service.ProcessForTaskUpdate(context.Background(), 3, 7, "science-report", "course-1", &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed}})
+	if err == nil || !contains(err.Error(), "collect submissions for task 7") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

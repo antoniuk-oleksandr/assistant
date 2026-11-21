@@ -151,6 +151,7 @@ const createReportRuns = `CREATE TABLE IF NOT EXISTS report_runs (
     is_partial INTEGER NOT NULL DEFAULT 0,
     result_path TEXT,
     error_message TEXT,
+    input_fingerprint TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 )`
 
@@ -308,6 +309,9 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 			if err := migrateReminderColumns(ctx, db); err != nil {
 				return errors.Join(fmt.Errorf("migrate SQLite reminder columns: %w", err), db.Close())
 			}
+			if err := migrateReportRunColumns(ctx, db); err != nil {
+				return errors.Join(fmt.Errorf("migrate SQLite report run columns: %w", err), db.Close())
+			}
 			if _, err := db.ExecContext(ctx, createMaterialParses); err != nil {
 				return errors.Join(fmt.Errorf("initialize SQLite material parse schema: %w", err), db.Close())
 			}
@@ -319,6 +323,24 @@ func NewSQLite(lifecycle fx.Lifecycle, cfg config.DatabaseConfig) (*sql.DB, erro
 		OnStop: func(context.Context) error { return db.Close() },
 	})
 	return db, nil
+}
+
+func migrateReportRunColumns(ctx context.Context, db *sql.DB) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('report_runs') WHERE name = 'input_fingerprint')`).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE report_runs ADD COLUMN input_fingerprint TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func migrateReminderColumns(ctx context.Context, db *sql.DB) error {

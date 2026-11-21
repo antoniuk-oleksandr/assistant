@@ -23,16 +23,17 @@ const (
 )
 
 type Run struct {
-	ID           int64
-	ScenarioID   int64
-	TaskID       int64
-	Status       Status
-	StartedAt    *time.Time
-	FinishedAt   *time.Time
-	Partial      bool
-	ResultPath   string
-	ErrorMessage string
-	CreatedAt    time.Time
+	ID               int64
+	ScenarioID       int64
+	TaskID           int64
+	Status           Status
+	StartedAt        *time.Time
+	FinishedAt       *time.Time
+	Partial          bool
+	ResultPath       string
+	ErrorMessage     string
+	InputFingerprint string
+	CreatedAt        time.Time
 }
 
 type Output struct {

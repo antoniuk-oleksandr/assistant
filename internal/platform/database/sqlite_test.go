@@ -53,4 +53,20 @@ var _ = Describe("SQLite initialization", func() {
 		Expect(count).To(Equal(0))
 	})
 
+	It("reopens an existing database and runs column migrations idempotently", func(ctx SpecContext) {
+		path := filepath.Join(GinkgoT().TempDir(), "state.db")
+		start := func() (*fx.App, *sql.DB) {
+			var db *sql.DB
+			app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: path}), fx.Provide(database.NewSQLite), fx.Populate(&db))
+			Expect(app.Start(ctx)).To(Succeed())
+			return app, db
+		}
+		app, db := start()
+		Expect(db.PingContext(ctx)).To(Succeed())
+		Expect(app.Stop(ctx)).To(Succeed())
+		app, db = start()
+		DeferCleanup(app.Stop)
+		Expect(db.PingContext(ctx)).To(Succeed())
+	})
+
 })

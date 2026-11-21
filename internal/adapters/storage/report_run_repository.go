@@ -17,7 +17,7 @@ func NewReportRunRepository(db *sql.DB) ports.ReportRunRepository {
 }
 
 func (r *SQLiteReportRunRepository) Create(ctx context.Context, run *report.Run) error {
-	err := r.db.QueryRowContext(ctx, `INSERT INTO report_runs (scenario_id, task_id, status, started_at, finished_at, is_partial, result_path, error_message, created_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?) RETURNING id`, run.ScenarioID, run.TaskID, run.Status, nullableTime(run.StartedAt), nullableTime(run.FinishedAt), run.Partial, run.ResultPath, run.ErrorMessage, run.CreatedAt.UTC().Format(time.RFC3339Nano)).Scan(&run.ID)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO report_runs (scenario_id, task_id, status, started_at, finished_at, is_partial, result_path, error_message, input_fingerprint, created_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, ?) RETURNING id`, run.ScenarioID, run.TaskID, run.Status, nullableTime(run.StartedAt), nullableTime(run.FinishedAt), run.Partial, run.ResultPath, run.ErrorMessage, run.InputFingerprint, run.CreatedAt.UTC().Format(time.RFC3339Nano)).Scan(&run.ID)
 	if err != nil {
 		return fmt.Errorf("insert report run: %w", err)
 	}
@@ -25,7 +25,7 @@ func (r *SQLiteReportRunRepository) Create(ctx context.Context, run *report.Run)
 }
 
 func (r *SQLiteReportRunRepository) Update(ctx context.Context, run *report.Run) error {
-	result, err := r.db.ExecContext(ctx, `UPDATE report_runs SET status=?, started_at=?, finished_at=?, is_partial=?, result_path=NULLIF(?, ''), error_message=NULLIF(?, '') WHERE id=?`, run.Status, nullableTime(run.StartedAt), nullableTime(run.FinishedAt), run.Partial, run.ResultPath, run.ErrorMessage, run.ID)
+	result, err := r.db.ExecContext(ctx, `UPDATE report_runs SET status=?, started_at=?, finished_at=?, is_partial=?, result_path=NULLIF(?, ''), error_message=NULLIF(?, ''), input_fingerprint=? WHERE id=?`, run.Status, nullableTime(run.StartedAt), nullableTime(run.FinishedAt), run.Partial, run.ResultPath, run.ErrorMessage, run.InputFingerprint, run.ID)
 	if err != nil {
 		return fmt.Errorf("update report run %d: %w", run.ID, err)
 	}
@@ -43,7 +43,7 @@ func (r *SQLiteReportRunRepository) Get(ctx context.Context, id int64) (report.R
 	var run report.Run
 	var started, finished, resultPath, errorMessage sql.NullString
 	var created string
-	err := r.db.QueryRowContext(ctx, `SELECT scenario_id, task_id, status, started_at, finished_at, is_partial, COALESCE(result_path,''), COALESCE(error_message,''), created_at FROM report_runs WHERE id=?`, id).Scan(&run.ScenarioID, &run.TaskID, &run.Status, &started, &finished, &run.Partial, &resultPath, &errorMessage, &created)
+	err := r.db.QueryRowContext(ctx, `SELECT scenario_id, task_id, status, started_at, finished_at, is_partial, COALESCE(result_path,''), COALESCE(error_message,''), COALESCE(input_fingerprint,''), created_at FROM report_runs WHERE id=?`, id).Scan(&run.ScenarioID, &run.TaskID, &run.Status, &started, &finished, &run.Partial, &resultPath, &errorMessage, &run.InputFingerprint, &created)
 	if err != nil {
 		return report.Run{}, fmt.Errorf("get report run %d: %w", id, err)
 	}
