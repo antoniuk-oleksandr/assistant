@@ -8,6 +8,10 @@ type TaskRow struct {
 	Title             string
 	Description       string
 	CreatedAtExternal string
+	UpdatedAtExternal string
+	DueDate           string
+	DueTime           string
+	TimeZone          string
 	DueAt             string
 	DiscoveredAt      string
 	LastSeenAt        string
@@ -15,18 +19,25 @@ type TaskRow struct {
 }
 
 type TaskBindingRow struct {
-	ScenarioID   int64
-	ScenarioName string
-	ScenarioType string
-	TaskID       int64
-	Provider     string
-	ExternalID   string
-	CourseID     string
-	Title        string
-	Description  string
-	DueAt        string
-	TaskStatus   string
-	Status       string
-	BoundAt      string
-	UnboundAt    string
+	ScenarioID        int64
+	ScenarioName      string
+	ScenarioType      string
+	TaskID            int64
+	Provider          string
+	ExternalID        string
+	CourseID          string
+	Title             string
+	Description       string
+	CreatedAtExternal string
+	UpdatedAtExternal string
+	DueDate           string
+	DueTime           string
+	TimeZone          string
+	DueAt             string
+	DiscoveredAt      string
+	LastSeenAt        string
+	TaskStatus        string
+	Status            string
+	BoundAt           string
+	UnboundAt         string
 }

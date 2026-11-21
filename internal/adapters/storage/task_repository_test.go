@@ -95,6 +95,35 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(listed).To(BeEmpty())
 	})
 
+	It("persists provider and local task lifecycle metadata", func(ctx SpecContext) {
+		item := task.Task{
+			Provider: "google-classroom", ExternalID: "task-lifecycle", CourseID: "course-1", Title: "Report",
+			CreatedAtExternal: "2026-01-02T03:04:05Z", UpdatedAtExternal: "2026-01-03T03:04:05Z",
+			DueDate: "2026-01-10", DueTime: "09:30:00", TimeZone: "Europe/Kyiv", DueAt: "2026-01-10T09:30:00",
+		}
+		Expect(tasks.Register(ctx, item)).To(Succeed())
+		first, err := tasks.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(first).To(HaveLen(1))
+		Expect(first[0].CreatedAtExternal).To(Equal(item.CreatedAtExternal))
+		Expect(first[0].UpdatedAtExternal).To(Equal(item.UpdatedAtExternal))
+		Expect(first[0].DueDate).To(Equal(item.DueDate))
+		Expect(first[0].DueTime).To(Equal(item.DueTime))
+		Expect(first[0].TimeZone).To(Equal(item.TimeZone))
+		Expect(first[0].DueAt).To(Equal(item.DueAt))
+		Expect(first[0].DiscoveredAt).NotTo(BeEmpty())
+		Expect(first[0].LastSeenAt).NotTo(BeEmpty())
+
+		item.Title = "Updated report"
+		item.UpdatedAtExternal = "2026-01-04T03:04:05Z"
+		Expect(tasks.Register(ctx, item)).To(Succeed())
+		second, err := tasks.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(second[0].Title).To(Equal("Updated report"))
+		Expect(second[0].UpdatedAtExternal).To(Equal(item.UpdatedAtExternal))
+		Expect(second[0].DiscoveredAt).To(Equal(first[0].DiscoveredAt))
+	})
+
 	It("stores and updates multiple report fields only for a bound course", func(ctx SpecContext) {
 		implementation := scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}
 		Expect(scenarios.Create(ctx, implementation)).To(Succeed())

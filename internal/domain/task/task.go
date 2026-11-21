@@ -23,7 +23,12 @@ type Task struct {
 	Description       string
 	CreatedAtExternal string
 	UpdatedAtExternal string
+	DueDate           string
+	DueTime           string
+	TimeZone          string
 	DueAt             string
+	DiscoveredAt      string
+	LastSeenAt        string
 	Status            Status
 }
 

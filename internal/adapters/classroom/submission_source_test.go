@@ -103,12 +103,12 @@ func TestSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *testing.T)
 		coursework:  []CourseWork{{ID: "task-1", Title: "Report", Description: "Details", CreationTime: "created", DueDate: &Date{Year: 2026, Month: 11, Day: 20}, DueTime: &Time{Hours: 9, Minutes: 5}}},
 		submissions: []StudentSubmission{{ID: "submission-1", UserID: "user-1", State: "TURNED_IN", CreationTime: "created", UpdateTime: "updated", Late: true, Assignment: Assignment{Attachments: []Attachment{{DriveFile: &DriveFileAttachment{File: DriveFile{ID: "file-1", Title: "report.docx", MIMEType: "application/docx", AlternateURL: "https://drive/file-1"}}}, {}}}}},
 	}
-	source := NewSubmissionSourceWithClient(client)
+	source := NewSubmissionSourceWithClientAndTimeZone(client, "Europe/Kyiv")
 	tasks, err := source.ListTasks(context.Background(), "course-1")
 	if err != nil || len(tasks) != 1 {
 		t.Fatalf("ListTasks() = %#v, %v", tasks, err)
 	}
-	if tasks[0].Provider != "google-classroom" || tasks[0].CourseID != "course-1" || tasks[0].DueAt != "2026-11-20T09:05:00" {
+	if tasks[0].Provider != "google-classroom" || tasks[0].CourseID != "course-1" || tasks[0].CreatedAtExternal != "created" || tasks[0].DueDate != "2026-11-20" || tasks[0].DueTime != "09:05:00" || tasks[0].TimeZone != "Europe/Kyiv" || tasks[0].DueAt != "2026-11-20T09:05:00" {
 		t.Fatalf("task mapping = %#v", tasks[0])
 	}
 	items, err := source.ListSubmissions(context.Background(), "task-1")
@@ -257,7 +257,8 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID", "client")
 	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET", "secret")
 	t.Setenv("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN", "refresh")
-	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" {
+	t.Setenv("GOOGLE_CLASSROOM_TIMEZONE", "Europe/Kyiv")
+	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" || got.TimeZone != "Europe/Kyiv" {
 		t.Fatalf("OAuth config = %#v", got)
 	}
 	if got := NewHTTPClassroomClient(HTTPConfig{}, nil); got == nil {
