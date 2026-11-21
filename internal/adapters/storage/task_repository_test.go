@@ -20,6 +20,7 @@ var _ = Describe("SQLite task bindings", func() {
 	var db *sql.DB
 	var tasks ports.TaskRepository
 	var participants ports.ParticipantRosterRepository
+	var missing ports.MissingSubmitterRepository
 	var bindings ports.TaskBindingRepository
 	var courseBindings ports.ScenarioCourseBindingRepository
 	var courseData ports.ScenarioCourseDataRepository
@@ -27,7 +28,7 @@ var _ = Describe("SQLite task bindings", func() {
 
 	BeforeEach(func(ctx SpecContext) {
 		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
-		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewParticipantRosterRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &participants, &bindings, &courseBindings, &courseData, &scenarios))
+		app := fx.New(fx.NopLogger, fx.Supply(cfg), fx.Provide(database.NewSQLite, storage.NewTaskRepository, storage.NewParticipantRosterRepository, storage.NewMissingSubmitterRepository, storage.NewTaskBindingRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewScenarioRepository, storage.NewClassroomCourseRepository), fx.Populate(&db, &tasks, &participants, &missing, &bindings, &courseBindings, &courseData, &scenarios))
 		Expect(app.Start(ctx)).To(Succeed())
 		_, err := db.ExecContext(ctx, `INSERT INTO classroom_courses (provider, external_course_id, source_reference, status, created_at, updated_at) VALUES ('google-classroom', 'course-1', 'course-1', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z'), ('google-classroom', 'course-2', 'course-2', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
 		Expect(err).NotTo(HaveOccurred())
@@ -45,6 +46,8 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(bindings.Active(ctx)).Error().To(MatchError(ContainSubstring("list task bindings")))
 		Expect(participants.Replace(ctx, 1, []task.Participant{{ExternalID: "user-1"}})).Error().To(MatchError(ContainSubstring("begin participant roster replacement")))
 		Expect(participants.List(ctx, 1)).Error().To(MatchError(ContainSubstring("list participant roster")))
+		Expect(missing.Reconcile(ctx, 1, nil)).Error().To(MatchError(ContainSubstring("begin missing submitter reconciliation")))
+		Expect(missing.List(ctx, 1)).Error().To(MatchError(ContainSubstring("list missing submitters")))
 		Expect(courseBindings.Bind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("find active scenario")))
 		Expect(courseBindings.Unbind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("database is closed")))
 		Expect(courseBindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list scenario course bindings")))
@@ -162,6 +165,22 @@ var _ = Describe("SQLite task bindings", func() {
 		}
 		Expect(values["lab_assistant"]).To(Equal("Olena"))
 		Expect(courseData.List(ctx, implementation.Name, "course-2")).Error().NotTo(HaveOccurred())
+	})
+
+	It("reconciles and reloads missing submitters", func(ctx SpecContext) {
+		item := task.Task{Provider: "google-classroom", ExternalID: "missing-task", CourseID: "course-1", Title: "Report"}
+		Expect(tasks.Register(ctx, item)).To(Succeed())
+		stored, err := tasks.List(ctx)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(missing.Reconcile(ctx, stored[0].ID, []ports.MissingSubmitter{{TaskID: stored[0].ID, ExternalUserID: "user-2", Name: "Second", NotificationState: "notified"}})).To(Succeed())
+		items, err := missing.List(ctx, stored[0].ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(Equal([]ports.MissingSubmitter{{TaskID: stored[0].ID, ExternalUserID: "user-2", Name: "Second", NotificationState: "notified"}}))
+		Expect(missing.Reconcile(ctx, stored[0].ID, nil)).To(Succeed())
+		items, err = missing.List(ctx, stored[0].ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(BeEmpty())
+		Expect(missing.Reconcile(ctx, stored[0].ID, []ports.MissingSubmitter{{ExternalUserID: "user-1"}, {ExternalUserID: "user-1"}})).Error().To(MatchError(ContainSubstring("store missing submitter")))
 	})
 
 	It("keeps tasks and active bindings across a database lifecycle", func(ctx SpecContext) {

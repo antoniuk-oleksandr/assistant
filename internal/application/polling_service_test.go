@@ -133,14 +133,40 @@ type pollingSubmissionRepository struct {
 
 type pollingParticipantRepository struct {
 	items map[int64][]task.Participant
+	err   error
+}
+
+type pollingMissingRepository struct {
+	items map[int64][]ports.MissingSubmitter
+	err   error
+}
+
+func (r *pollingMissingRepository) Reconcile(_ context.Context, taskID int64, items []ports.MissingSubmitter) error {
+	if r.err != nil {
+		return r.err
+	}
+	r.items[taskID] = items
+	return nil
+}
+func (r *pollingMissingRepository) List(_ context.Context, taskID int64) ([]ports.MissingSubmitter, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.items[taskID], nil
 }
 
 func (r *pollingParticipantRepository) Replace(_ context.Context, taskID int64, items []task.Participant) error {
+	if r.err != nil {
+		return r.err
+	}
 	r.items[taskID] = items
 	return nil
 }
 
 func (r *pollingParticipantRepository) List(_ context.Context, taskID int64) ([]task.Participant, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
 	return r.items[taskID], nil
 }
 
@@ -249,6 +275,43 @@ var _ = Describe("polling service", func() {
 		Expect(submissions.items).To(HaveLen(1))
 		Expect(submissions.items[0].SubmitterName).To(Equal("Teacher One"))
 		Expect(submissions.items[0].SubmitterEmail).To(Equal("teacher@example.test"))
+	})
+
+	It("reconciles missing submitters and removes users after they submit", func(ctx SpecContext) {
+		item := task.Task{ID: 42, Provider: "google-classroom", ExternalID: "missing-task", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "user-1", Name: "First"}, {ExternalID: "user-2", Name: "Second"}}},
+			submissions:  map[string][][]submission.Submission{"missing-task": {{{ExternalID: "s1", SubmitterID: "user-1", State: submission.Submitted}}, {{ExternalID: "s1", SubmitterID: "user-1", State: submission.Submitted}, {ExternalID: "s2", SubmitterID: "user-2", State: submission.Submitted}}}},
+		}
+		participants := &pollingParticipantRepository{items: map[int64][]task.Participant{}}
+		missing := &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}}
+		service := application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{},
+			pollingBindingRepository{bindings: []task.Binding{{Task: item, Status: "active"}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, participants, missing,
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(missing.items[42]).To(Equal([]ports.MissingSubmitter{{TaskID: 42, ExternalUserID: "user-2", Name: "Second", NotificationState: "pending"}}))
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(missing.items[42]).To(BeEmpty())
+	})
+
+	It("reports missing submitter reconciliation failures", func(ctx SpecContext) {
+		item := task.Task{ID: 43, Provider: "google-classroom", ExternalID: "missing-error", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "user-1"}}},
+			submissions:  map[string][][]submission.Submission{"missing-error": {{{ExternalID: "submission-1", State: submission.Submitted}}}},
+		}
+		service := application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}}, &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}, err: errors.New("missing store failed")})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list missing submitters: missing store failed")))
+	})
+
+	It("reports participant roster lookup failures", func(ctx SpecContext) {
+		item := task.Task{ID: 44, Provider: "google-classroom", ExternalID: "participant-error", CourseID: "course-1"}
+		source := &pollingSource{tasks: map[string][]task.Task{"course-1": {item}}, participants: map[string][]task.Participant{"course-1": {{ExternalID: "user-1"}}}}
+		service := application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}, err: errors.New("roster failed")}, &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("store participants for task \"participant-error\": roster failed")))
 	})
 
 	It("excludes disabled courses and inactive task bindings from submission polling", func(ctx SpecContext) {

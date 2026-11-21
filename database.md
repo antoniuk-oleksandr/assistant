@@ -113,6 +113,23 @@ display/contact fields.
 Primary key: `(task_id, external_user_id)`. Polling replaces the roster
 idempotently when Classroom reports the course students.
 
+### `missing_submitters`
+
+The current reconciliation of expected participants who have not submitted a
+task. Rows are removed when the participant submits; notification state is
+retained while the participant remains missing.
+
+| Column | Type | Description |
+|---|---|---|
+| `task_id` | INTEGER | Coursework task |
+| `external_user_id` | TEXT | Stable Classroom user ID |
+| `name` | TEXT | Optional participant name |
+| `email` | TEXT | Optional participant email |
+| `notification_state` | TEXT | `pending` or a later notification state |
+| `updated_at` | TEXT | Last reconciliation time |
+
+Primary key: `(task_id, external_user_id)`.
+
 ### `scenario_courses`
 
 Explicit binding between a registered course and a scenario. A task can be
