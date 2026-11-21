@@ -14,6 +14,30 @@ type SQLiteTeacherRepository struct{ db *sql.DB }
 func NewTeacherRepository(db *sql.DB) ports.TeacherRepository {
 	return &SQLiteTeacherRepository{db: db}
 }
+
+func NewTeacherContactRepository(db *sql.DB) ports.TeacherContactRepository {
+	return &SQLiteTeacherRepository{db: db}
+}
+
+func (r *SQLiteTeacherRepository) RegisterContact(ctx context.Context, recipient *teacher.Recipient, channel *teacher.Channel) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin teacher contact: %w", err)
+	}
+	defer tx.Rollback()
+	now := recipient.CreatedAt.UTC().Format(time.RFC3339Nano)
+	if err := tx.QueryRowContext(ctx, `INSERT INTO teachers (name,email,classroom_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, recipient.Name, recipient.Email, recipient.ClassroomID, recipient.Status, now, now).Scan(&recipient.ID); err != nil {
+		return fmt.Errorf("insert teacher: %w", err)
+	}
+	channel.RecipientID = recipient.ID
+	if err := tx.QueryRowContext(ctx, `INSERT INTO notification_channels (teacher_id,kind,destination,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, channel.RecipientID, channel.Kind, channel.Destination, channel.Status, channel.CreatedAt.UTC().Format(time.RFC3339Nano), channel.UpdatedAt.UTC().Format(time.RFC3339Nano)).Scan(&channel.ID); err != nil {
+		return fmt.Errorf("insert notification channel: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit teacher contact: %w", err)
+	}
+	return nil
+}
 func (r *SQLiteTeacherRepository) Create(ctx context.Context, item *teacher.Recipient) error {
 	now := item.CreatedAt.UTC().Format(time.RFC3339Nano)
 	err := r.db.QueryRowContext(ctx, `INSERT INTO teachers (name,email,classroom_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, item.Name, item.Email, item.ClassroomID, item.Status, now, now).Scan(&item.ID)

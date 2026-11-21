@@ -58,6 +58,7 @@ report-system.exe course remove <course-id>
 
 report-system.exe teacher list
 report-system.exe teacher add --email user@example.com --name "User Name" --classroom <course-id>
+report-system.exe teacher phone-set <classroom-user-id> --phone "+380..."
 
 report-system.exe notification retry <id>
 report-system.exe notification dlq list

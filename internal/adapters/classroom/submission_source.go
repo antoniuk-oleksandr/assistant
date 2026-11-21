@@ -17,6 +17,7 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	"github.com/alex/assistent/internal/domain/teacher"
 	"github.com/joho/godotenv"
 	"golang.org/x/oauth2"
 )
@@ -35,6 +36,10 @@ type ClassroomClient interface {
 
 type ClassroomParticipantClient interface {
 	ListCourseParticipants(context.Context, string) ([]CourseParticipant, error)
+}
+
+type ClassroomProfileClient interface {
+	GetUserProfile(context.Context, string) (UserProfile, error)
 }
 
 type CourseWork struct {
@@ -77,6 +82,14 @@ type CourseParticipant struct {
 		} `json:"name"`
 		EmailAddress string `json:"emailAddress"`
 	} `json:"profile"`
+}
+
+type UserProfile struct {
+	ID   string `json:"id"`
+	Name struct {
+		FullName string `json:"fullName"`
+	} `json:"name"`
+	EmailAddress string `json:"emailAddress"`
 }
 
 type Assignment struct {
@@ -200,6 +213,18 @@ func (s *SubmissionSource) ListParticipants(ctx context.Context, courseID string
 	return result, nil
 }
 
+func (s *SubmissionSource) GetProfile(ctx context.Context, userID string) (teacher.Profile, error) {
+	client, ok := s.client.(ClassroomProfileClient)
+	if !ok {
+		return teacher.Profile{}, fmt.Errorf("Classroom profile client unavailable")
+	}
+	profile, err := client.GetUserProfile(ctx, userID)
+	if err != nil {
+		return teacher.Profile{}, fmt.Errorf("get Classroom user profile: %w", err)
+	}
+	return teacher.Profile{ClassroomID: profile.ID, Name: profile.Name.FullName, Email: profile.EmailAddress}, nil
+}
+
 func toTask(item CourseWork, courseID, timeZone string) task.Task {
 	return task.Task{Provider: "google-classroom", ExternalID: item.ID, CourseID: courseID, Title: item.Title, Description: item.Description, CreatedAtExternal: item.CreationTime, UpdatedAtExternal: item.UpdateTime, DueDate: dueDate(item.DueDate), DueTime: dueTime(item.DueTime), TimeZone: timeZone, DueAt: dueAt(item.DueDate, item.DueTime), Status: task.Discovered}
 }
@@ -312,7 +337,7 @@ func NewHTTPClassroomClient(cfg HTTPConfig, client *http.Client) *HTTPClassroomC
 		baseURL = defaultBaseURL
 	}
 	if cfg.AccessToken == "" && cfg.ClientID != "" && cfg.ClientSecret != "" && cfg.RefreshToken != "" {
-		oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{"https://www.googleapis.com/auth/classroom.coursework.students.readonly", "https://www.googleapis.com/auth/classroom.rosters.readonly"}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
+		oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{"https://www.googleapis.com/auth/classroom.coursework.students.readonly", "https://www.googleapis.com/auth/classroom.rosters.readonly", "https://www.googleapis.com/auth/classroom.profile.emails"}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
 		client = oauth2.NewClient(context.Background(), oauth.TokenSource(context.Background(), &oauth2.Token{RefreshToken: cfg.RefreshToken}))
 	}
 	return &HTTPClassroomClient{baseURL: baseURL, accessToken: cfg.AccessToken, httpClient: client}
@@ -376,6 +401,14 @@ func (c *HTTPClassroomClient) ListCourseParticipants(ctx context.Context, course
 	}
 }
 
+func (c *HTTPClassroomClient) GetUserProfile(ctx context.Context, userID string) (UserProfile, error) {
+	var profile UserProfile
+	if err := c.get(ctx, "/userProfiles/"+url.PathEscape(userID), "", &profile); err != nil {
+		return UserProfile{}, err
+	}
+	return profile, nil
+}
+
 func (c *HTTPClassroomClient) get(ctx context.Context, path, pageToken string, target any) error {
 	requestURL, err := url.Parse(c.baseURL + path)
 	if err != nil {
@@ -411,3 +444,4 @@ func (c *HTTPClassroomClient) get(ctx context.Context, path, pageToken string, t
 
 var _ ports.SubmissionSource = (*SubmissionSource)(nil)
 var _ ports.ParticipantSource = (*SubmissionSource)(nil)
+var _ ports.ClassroomProfileSource = (*SubmissionSource)(nil)

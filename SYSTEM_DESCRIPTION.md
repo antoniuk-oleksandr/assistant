@@ -570,6 +570,7 @@ teacher channel add <teacher-id> --type email --address <address>
 teacher channel add <teacher-id> --type telegram --chat-id <chat-id>
 teacher channel enable <channel-id>
 teacher channel disable <channel-id>
+teacher phone-set <classroom-user-id> --phone "+380..."
 ```
 
 Notification providers share one interface:
