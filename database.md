@@ -130,6 +130,10 @@ retained while the participant remains missing.
 
 Primary key: `(task_id, external_user_id)`.
 
+Preliminary aggregate generation is keyed by the task lifecycle phase and the
+existing report-run/result version records, so restarting polling does not
+create duplicate preliminary outputs.
+
 ### `scenario_courses`
 
 Explicit binding between a registered course and a scenario. A task can be

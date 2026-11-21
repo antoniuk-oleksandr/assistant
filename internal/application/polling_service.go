@@ -217,11 +217,21 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 		if binding.Task.CourseID != courseID {
 			continue
 		}
+		if !shouldProcessPreliminaryReport(binding.Task) {
+			continue
+		}
 		if err := s.refreshTask(ctx, binding); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func shouldProcessPreliminaryReport(item task.Task) bool {
+	if item.DueDate == "" && item.DueAt == "" {
+		return true
+	}
+	return item.Phase == task.PhaseThreeDaysBefore
 }
 
 func findTask(items []task.Task, provider, courseID, externalID string) task.Task {
