@@ -67,7 +67,8 @@ func TestPollingProcessesBoundScenarioCollection(t *testing.T) {
 }
 
 func TestPollingWaitsForTheThreeDayPreliminaryPhase(t *testing.T) {
-	item := task.Task{ID: 9, ExternalID: "deadline-task", CourseID: "course-1", DueAt: "2026-11-10T12:00:00Z", Phase: task.PhaseDiscovery}
+	deadline := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	item := task.Task{ID: 9, ExternalID: "deadline-task", CourseID: "course-1", DueAt: deadline.Format(time.RFC3339), Phase: task.PhaseDiscovery}
 	source := &pollingSource{
 		tasks:       map[string][]task.Task{"course-1": {item}},
 		submissions: map[string][][]submission.Submission{"deadline-task": {{{ExternalID: "submission-1", State: submission.Submitted}}}},
@@ -78,12 +79,15 @@ func TestPollingWaitsForTheThreeDayPreliminaryPhase(t *testing.T) {
 	registry := scenario.NewRegistryWithProcessors([]scenario.Implementation{{Name: "science-report"}}, map[string]scenario.CollectionProcessor{"science-report": pollingCollectionProcessor{}})
 	bindings := &pollingBindingRepository{bindings: []task.Binding{{ScenarioName: "science-report", ScenarioID: 3, Task: item}}}
 	service := application.NewPollingServiceWithScenarioCollection(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, bindings, submissions, &pollingStateRepository{}, nil, nil, collection, registry)
+	current := deadline.Add(-72*time.Hour - time.Minute)
+	service.SetClock(func() time.Time { return current })
 	if err := service.Refresh(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	if runs.run.ID != 0 {
 		t.Fatalf("preliminary report created during discovery: %#v", runs.run)
 	}
+	current = deadline.Add(-72 * time.Hour)
 	item.Phase = task.PhaseThreeDaysBefore
 	source.tasks["course-1"] = []task.Task{item}
 	bindings.bindings[0].Task = item
@@ -112,7 +116,7 @@ func TestPollingRunReportsCourseLookupFailure(t *testing.T) {
 	service := application.NewPersistentPollingService(
 		pollingCourseRepository{err: errors.New("course lookup failed")}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, &pollingStateRepository{},
 	)
-	if err := service.Run(context.Background(), time.Hour); err == nil || !contains(err.Error(), "list courses for polling: course lookup failed") {
+	if err := service.Run(context.Background(), time.Millisecond); err == nil || !contains(err.Error(), "list courses for polling: course lookup failed") {
 		t.Fatalf("Run() error = %v", err)
 	}
 }

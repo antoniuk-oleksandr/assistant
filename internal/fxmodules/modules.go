@@ -21,7 +21,7 @@ import (
 )
 
 var PlatformModule = fx.Module("platform",
-	fx.Provide(config.Load, config.Database, config.Drive, config.Email, config.Telegram, database.NewSQLite, locking.NewProcessLock),
+	fx.Provide(config.Load, config.Database, config.Drive, config.Email, config.Telegram, config.Deadline, database.NewSQLite, locking.NewProcessLock),
 )
 
 var StorageModule = fx.Module("storage", fx.Provide(storage.NewScenarioRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewParticipantRosterRepository, storage.NewMissingSubmitterRepository, storage.NewScenarioCourseBindingRepository, storage.NewScenarioCourseDataRepository, storage.NewSubmissionRepository, storage.NewPollingStateRepository, storage.NewReportRunRepository, storage.NewTeacherContactRepository, fx.Annotate(storage.NewReportOutputRepository, fx.As(new(ports.ReportOutputRepository))), fx.Annotate(storage.NewReportResultRepository, fx.As(new(ports.ReportResultRepository))), fx.Annotate(storage.NewReportDeliveryRepository, fx.As(new(ports.ReportDeliveryRepository))), fx.Annotate(storage.NewReminderRepository, fx.As(new(ports.ReminderRepository))), fx.Annotate(storage.NewTeacherRepository, fx.As(new(ports.TeacherRepository))), fx.Annotate(storage.NewHistoryRepository, fx.As(new(ports.HistoryRepository)))))
@@ -53,7 +53,7 @@ func configuredReminderProviders(email config.EmailConfig, telegram config.Teleg
 type pollingDeadlineParams struct {
 	fx.In
 	Service  *application.PollingService
-	Deadline config.DeadlineConfig `optional:"true"`
+	Deadline config.DeadlineConfig
 }
 
 func configurePollingDeadlines(params pollingDeadlineParams) {

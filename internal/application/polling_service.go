@@ -12,7 +12,7 @@ import (
 	"github.com/alex/assistent/internal/domain/task"
 )
 
-const DefaultPollInterval = 5 * time.Minute
+const DefaultPollInterval = 24 * time.Hour
 
 // PollingService refreshes registered courses and persists provider state. The
 // provider is deliberately a port so Classroom HTTP details stay outside the
@@ -82,6 +82,13 @@ func (s *PollingService) SetDeadlineWindows(deadlines task.DeadlineWindows) {
 	s.deadlines = deadlines
 }
 
+// SetClock supplies a deterministic clock for deadline and polling tests.
+func (s *PollingService) SetClock(clock func() time.Time) {
+	if clock != nil {
+		s.clock = clock
+	}
+}
+
 func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
 	service := NewPersistentPollingService(courses, source, tasks, bindings, submissions, state)
 	if clock != nil {
@@ -106,19 +113,12 @@ func (s *PollingService) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Run refreshes immediately and then continues polling until ctx is canceled.
-// Checkpointing, restart recovery, and single-instance coordination are kept
-// out of this lifecycle loop for the later recovery work.
+// Run waits for the configured interval before each refresh and continues
+// polling until ctx is canceled. This prevents application startup from
+// triggering report generation outside the scheduled polling cadence.
 func (s *PollingService) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
 		return fmt.Errorf("polling interval must be greater than zero: %s", interval)
-	}
-	checkpoint, err := s.state.LastCheckpoint(ctx)
-	if err != nil {
-		return err
-	}
-	if err := s.refreshAndCheckpoint(ctx, checkpoint); err != nil {
-		return err
 	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -127,7 +127,7 @@ func (s *PollingService) Run(ctx context.Context, interval time.Duration) error 
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
-			checkpoint, err = s.state.LastCheckpoint(ctx)
+			checkpoint, err := s.state.LastCheckpoint(ctx)
 			if err != nil {
 				return err
 			}
@@ -229,6 +229,27 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 	bindings, err := s.bindings.Active(ctx)
 	if err != nil {
 		return fmt.Errorf("list active task bindings: %w", err)
+	}
+	for index := range bindings {
+		if bindings[index].Task.CourseID != courseID {
+			continue
+		}
+		current := bindings[index].Task
+		if current.DueDate != "" || current.DueAt != "" {
+			phase := task.DeterminePhaseWithWindows(current, now, s.deadlines)
+			if current.Phase == "" && phase == task.PhaseDiscovery {
+				bindings[index].Task = current
+				continue
+			}
+			if current.Phase != phase {
+				current.Phase = phase
+				current.PhaseAt = now.UTC().Format(time.RFC3339Nano)
+				if err := s.tasks.Register(ctx, current); err != nil {
+					return fmt.Errorf("store deadline phase for task %q: %w", current.ExternalID, err)
+				}
+			}
+		}
+		bindings[index].Task = current
 	}
 	for _, binding := range bindings {
 		if binding.Task.CourseID != courseID {

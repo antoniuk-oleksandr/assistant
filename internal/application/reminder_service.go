@@ -34,9 +34,9 @@ func NewReminderServiceWithClock(repository ports.ReminderRepository, providers 
 }
 
 func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissions []submission.Submission, targets []ports.ReminderTarget, lead time.Duration) ([]notification.Reminder, error) {
-	deadline, err := time.Parse(time.RFC3339, item.DueAt)
-	if err != nil {
-		return nil, fmt.Errorf("parse task deadline: %w", err)
+	deadline, ok := task.Deadline(item)
+	if !ok {
+		return nil, fmt.Errorf("parse task deadline: invalid deadline %q", item.DueAt)
 	}
 	now := s.clock()
 	if now.Before(deadline.Add(-lead)) || !now.Before(deadline) {

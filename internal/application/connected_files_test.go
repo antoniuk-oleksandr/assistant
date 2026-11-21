@@ -70,6 +70,6 @@ var _ = Describe("polling connected materials", func() {
 			item.Status = submission.Failed
 			return item
 		})
-		Expect(service.Run(pollCtx, time.Hour)).To(MatchError(context.Canceled))
+		Expect(service.Run(pollCtx, time.Millisecond)).To(MatchError(context.Canceled))
 	})
 })

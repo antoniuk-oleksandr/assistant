@@ -144,6 +144,14 @@ func NewSubmissionSourceWithClientAndTimeZone(client ClassroomClient, timeZone s
 	return &SubmissionSource{client: client, timeZone: timeZone, courses: make(map[string]string)}
 }
 
+// RegisterTaskCourse supplies the persisted task context used by scheduled
+// submission fetches when coursework discovery is not run first.
+func (s *SubmissionSource) RegisterTaskCourse(taskID, courseID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.courses[taskID] = courseID
+}
+
 func (s *SubmissionSource) ListTasks(ctx context.Context, courseID string) ([]task.Task, error) {
 	items, err := s.client.ListCourseWork(ctx, courseID)
 	if err != nil {
