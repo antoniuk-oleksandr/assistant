@@ -49,4 +49,17 @@ var _ = Describe("RunCLI", func() {
 	It("returns a command error for an unknown CLI command", func(ctx SpecContext) {
 		Expect(app.RunCLI(ctx, []string{"unknown-command"})).NotTo(Succeed())
 	})
+
+	It("dispatches the report and administration command families", func(ctx SpecContext) {
+		for _, args := range [][]string{
+			{"course", "list"},
+			{"report", "data-list", "900423945297"},
+			{"report", "task-list"},
+			{"teacher", "list"},
+			{"notification", "dlq", "list"},
+			{"report", "task-unbind", "missing-task"},
+		} {
+			_ = app.RunCLI(ctx, args)
+		}
+	})
 })

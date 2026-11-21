@@ -41,7 +41,7 @@ func RunCLI(ctx context.Context, args []string) (err error) {
 			return err
 		}
 		defer processLock.Release()
-		if err := polling.Run(ctx, application.DefaultPollInterval); err != nil {
+		if err := polling.RunScheduled(ctx); err != nil {
 			return err
 		}
 		return nil

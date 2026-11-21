@@ -70,6 +70,11 @@ func DeterminePhase(item Task, now time.Time) Phase {
 	return DeterminePhaseWithWindows(item, now, DefaultDeadlineWindows)
 }
 
+// Deadline returns the task deadline interpreted in its configured timezone.
+func Deadline(item Task) (time.Time, bool) {
+	return deadline(item)
+}
+
 func DeterminePhaseWithWindows(item Task, now time.Time, windows DeadlineWindows) Phase {
 	if windows.PreliminaryBefore <= 0 {
 		windows.PreliminaryBefore = DefaultDeadlineWindows.PreliminaryBefore

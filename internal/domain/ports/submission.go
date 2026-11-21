@@ -15,6 +15,12 @@ type SubmissionSource interface {
 	ListSubmissions(context.Context, string) ([]submission.Submission, error)
 }
 
+// TaskCourseRegistrar supplies persisted task context to sources that fetch
+// submissions without first listing coursework.
+type TaskCourseRegistrar interface {
+	RegisterTaskCourse(string, string)
+}
+
 type IncrementalSubmissionSource interface {
 	SubmissionSource
 	ListTasksSince(context.Context, string, time.Time) ([]task.Task, error)

@@ -85,7 +85,7 @@ func TestReminderServiceExcludesSubmittedAndPreventsDuplicates(t *testing.T) {
 	repository := &reminderRepository{}
 	provider := &reminderProvider{name: "email"}
 	service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
-	taskItem := task.Task{ID: 4, DueAt: "2026-11-20T00:00:00Z"}
+	taskItem := task.Task{ID: 4, DueAt: "2026-11-20T00:00:00", TimeZone: "UTC"}
 	targets := []ports.ReminderTarget{{PersonID: "submitted", Channel: "email", Destination: "s@example.com"}, {PersonID: "missing", Channel: "email", Destination: "m@example.com"}}
 	items, err := service.Schedule(context.Background(), taskItem, []submission.Submission{{SubmitterID: "submitted", State: submission.Submitted}}, targets, 72*time.Hour)
 	if err != nil || len(items) != 1 || items[0].PersonID != "missing" || items[0].Status != notification.Sent || provider.calls != 1 {

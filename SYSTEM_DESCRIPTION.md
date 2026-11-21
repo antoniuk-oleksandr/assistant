@@ -10,7 +10,7 @@ there is no user-selectable scenario layer.
 
 The application:
 
-- monitors Google Classroom every five minutes;
+- schedules bound report tasks from their persisted Classroom deadlines;
 - tracks report tasks explicitly bound to registered courses;
 - reads submitted materials;
 - parses DOCX, XLSX, PDF, Google Docs, Google Sheets, and images through interchangeable interfaces;
@@ -198,7 +198,8 @@ load .env
 initialize SQLite
 acquire process lock
 read last_check_timestamp
-run polling loop every five minutes
+load bound report tasks and their deadlines
+wait for the next deadline event
 ```
 
 Only one process may run at a time. A second instance exits with `ApplicationAlreadyRunning`. The checkpoint is advanced only after a polling cycle completes successfully, so a restart can resume from the last completed check.
@@ -679,6 +680,11 @@ the timestamp at which that phase was reached. The phase names are retained for
 compatibility, but their windows are configurable through
 `REPORT_PRELIMINARY_BEFORE` and `REPORT_REFRESH_BEFORE`. Values accept `d`,
 `h`, `m`, and `s` suffixes, so `5m` and `2m` can be used for local testing.
+The scheduler does not poll on a fixed interval. It waits until
+`due_at - REPORT_PRELIMINARY_BEFORE` to build the first report, then
+`due_at - REPORT_REFRESH_BEFORE` to fetch and rebuild only when submissions
+changed, and finally `due_at` to disable the task binding. It does not build a
+new file at the deadline.
 Re-running the poller while a task remains in the same phase does not change
 the phase timestamp.
 

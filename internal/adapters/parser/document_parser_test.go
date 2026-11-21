@@ -103,6 +103,42 @@ func TestParserStrategiesUseReportAppendixPrecedence(t *testing.T) {
 	}
 }
 
+func TestParserStrategiesHandleWorkspaceExportsAndRejectAmbiguousAppendices(t *testing.T) {
+	strategies := Strategies()
+	origin := submission.ParseContext{ScenarioType: "ScienceReportScenario"}
+	for _, item := range []submission.Material{
+		{Name: "document", MIMEType: "application/vnd.google-apps.document"},
+		{Name: "sheet", MIMEType: "application/vnd.google-apps.spreadsheet"},
+	} {
+		found := false
+		for _, strategy := range strategies {
+			if strategy.CanHandle(item, origin) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("no strategy handles %#v", item)
+		}
+	}
+	for _, name := range []string{"appendix-1.docx", "appendix-29.docx", "appendix-aa.docx"} {
+		if appendixNumber(submission.Material{Name: name}) != 0 {
+			t.Fatalf("ambiguous appendix %q was inferred", name)
+		}
+	}
+	if appendixNumber(submission.Material{Name: "Appendix-04.xlsx"}) != 4 {
+		t.Fatal("case-insensitive appendix name was not inferred")
+	}
+	appendix := 4
+	if appendixNumber(submission.Material{AppendixNumber: &appendix}) != appendix {
+		t.Fatal("explicit appendix number was not retained")
+	}
+	invalid := 29
+	if appendixNumber(submission.Material{AppendixNumber: &invalid}) != 0 {
+		t.Fatal("invalid explicit appendix number was accepted")
+	}
+}
+
 func TestMatchesFormatUsesMIMEAndExportExtensions(t *testing.T) {
 	parser := XLSX{}
 	for _, item := range []submission.Material{

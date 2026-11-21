@@ -15,7 +15,8 @@ no arguments  -> start the long-running background poller
 arguments     -> execute one administrative CLI command and exit
 ```
 
-The poller refreshes immediately and then every five minutes. It uses a SQLite process lock, so only one instance can run against a database.
+The background process waits for the next persisted report deadline event. It
+uses a SQLite process lock, so only one instance can run against a database.
 
 ```bash
 just run
@@ -78,10 +79,12 @@ GOOGLE_CLASSROOM_TIMEZONE=Europe/Kyiv
 # Deadline windows; supports 3d, 5m, 2h, and other positive durations.
 REPORT_PRELIMINARY_BEFORE=3d
 REPORT_REFRESH_BEFORE=1d
+
 ```
 
 For fast local testing, set `REPORT_PRELIMINARY_BEFORE=5m` and
-`REPORT_REFRESH_BEFORE=2m`.
+`REPORT_REFRESH_BEFORE=2m`. The scheduler will wait for those exact deadline
+offsets.
 
 ### Google Sheets OAuth
 

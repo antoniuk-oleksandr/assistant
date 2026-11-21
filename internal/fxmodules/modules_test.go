@@ -92,6 +92,7 @@ var _ = Describe("application modules", func() {
 		app := fx.New(
 			fx.NopLogger,
 			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
+			fx.Supply(config.DeadlineConfig{PreliminaryBefore: 72 * time.Hour, RefreshBefore: 24 * time.Hour}),
 			fx.Provide(database.NewSQLite, storage.NewClassroomCourseRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, application.NewPollingService),
 			PollingModule,
 		)
@@ -103,6 +104,7 @@ var _ = Describe("application modules", func() {
 		app := fx.New(
 			fx.NopLogger,
 			fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}),
+			fx.Supply(config.DeadlineConfig{PreliminaryBefore: 72 * time.Hour, RefreshBefore: 24 * time.Hour}),
 			fx.Provide(database.NewSQLite, storage.NewClassroomCourseRepository, storage.NewTaskRepository, storage.NewTaskBindingRepository, storage.NewSubmissionRepository, application.NewPollingService),
 			PollingModule,
 			fx.Invoke(func(polling *application.PollingService, lifecycle fx.Lifecycle) {

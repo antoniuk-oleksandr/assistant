@@ -256,6 +256,24 @@ var _ = Describe("polling service", func() {
 		Expect(tasks.registered[0].PhaseAt).To(Equal(phaseAt))
 	})
 
+	It("recomputes stale bound phases and never processes after the deadline", func(ctx SpecContext) {
+		deadline := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+		item := task.Task{ID: 51, Provider: "google-classroom", ExternalID: "deadline-task", CourseID: "course-1", DueAt: deadline.Format(time.RFC3339), Phase: task.PhaseOneDayBefore}
+		tasks := &pollingTaskRepository{registered: []task.Task{item}}
+		source := &pollingSource{submissions: map[string][][]submission.Submission{"deadline-task": {nil}}}
+		bindings := pollingBindingRepository{bindings: []task.Binding{{ScenarioName: "science-report", ScenarioID: 1, Task: item, Status: "active"}}}
+		service := application.NewPollingServiceWithClock(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			source, tasks, bindings, &pollingSubmissionRepository{}, nil,
+			func() time.Time { return deadline.Add(2 * time.Minute) },
+		)
+		service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: 2 * time.Minute, RefreshBefore: time.Minute})
+
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(tasks.registered[0].Phase).To(Equal(task.PhaseCompleted))
+		Expect(source.subCalls).To(BeEmpty())
+	})
+
 	It("persists the course roster and matches submissions by stable user ID", func(ctx SpecContext) {
 		item := task.Task{ID: 41, Provider: "google-classroom", ExternalID: "roster-task", CourseID: "course-1"}
 		source := &pollingSource{
@@ -475,7 +493,7 @@ var _ = Describe("polling service", func() {
 			source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
 		)
 
-		Expect(service.Run(pollingCtx, time.Hour)).To(Succeed())
+		Expect(service.Run(pollingCtx, time.Millisecond)).To(Succeed())
 		Expect(state.lastCalls).To(Equal(1))
 		Expect(state.saved).To(HaveLen(1))
 		Expect(state.saved[0]).To(BeTemporally(">=", checkpoint))
@@ -489,7 +507,7 @@ var _ = Describe("polling service", func() {
 			&pollingSource{taskErr: errors.New("provider unavailable")}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
 		)
 
-		Expect(service.Run(ctx, time.Hour)).To(MatchError(ContainSubstring("list tasks for course \"course-1\": provider unavailable")))
+		Expect(service.Run(ctx, time.Millisecond)).To(MatchError(ContainSubstring("list tasks for course \"course-1\": provider unavailable")))
 		Expect(state.lastCalls).To(Equal(1))
 		Expect(state.saved).To(BeEmpty())
 	})
@@ -517,13 +535,13 @@ var _ = Describe("polling service", func() {
 		service := application.NewPersistentPollingService(
 			pollingCourseRepository{}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
 		)
-		Expect(service.Run(ctx, time.Hour)).To(MatchError("checkpoint failed"))
+		Expect(service.Run(ctx, time.Millisecond)).To(MatchError("checkpoint failed"))
 
 		state = &pollingStateRepository{saveErr: errors.New("save failed")}
 		service = application.NewPersistentPollingService(
 			pollingCourseRepository{}, &pollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, state,
 		)
-		Expect(service.Run(ctx, time.Hour)).To(MatchError("save failed"))
+		Expect(service.Run(ctx, time.Millisecond)).To(MatchError("save failed"))
 	})
 
 	It("returns a checkpoint error from a later polling tick", func(ctx SpecContext) {

@@ -40,7 +40,8 @@ report-system.exe
     └── command arguments → CLI command
 ```
 
-The background application starts the five-minute polling loop by default. CLI commands use the same application modules and repositories.
+The background application waits for persisted report deadline events. CLI
+commands use the same application modules and repositories.
 
 Recommended commands:
 
