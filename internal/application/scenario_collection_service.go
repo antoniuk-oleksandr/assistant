@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -9,6 +11,7 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/submission"
 )
 
 var ErrNilCollectionProcessor = errors.New("nil collection processor")
@@ -65,14 +68,34 @@ func (s *ScenarioCollectionService) ProcessForTaskUpdate(ctx context.Context, sc
 }
 
 func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor, force bool) (report.Run, error) {
+	var existing report.Run
+	var found bool
 	if !force {
-		if existing, found, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
+		if current, currentFound, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
 			return report.Run{}, fmt.Errorf("find report run: %w", err)
-		} else if found {
+		} else if currentFound {
+			return current, nil
+		}
+	} else if current, currentFound, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
+		return report.Run{}, fmt.Errorf("find report run: %w", err)
+	} else {
+		existing, found = current, currentFound
+	}
+	var items []submission.Submission
+	var fingerprint string
+	if force {
+		var err error
+		items, err = s.submissions.ListByTask(ctx, taskID)
+		if err != nil {
+			return report.Run{}, fmt.Errorf("collect submissions for task %d: %w", taskID, err)
+		}
+		fingerprint = submissionsFingerprint(items)
+		if found && existing.InputFingerprint != "" && existing.InputFingerprint == fingerprint {
 			return existing, nil
 		}
 	}
 	run := report.NewRun(scenarioID, taskID, s.clock())
+	run.InputFingerprint = fingerprint
 	if err := s.runs.Create(ctx, &run); err != nil {
 		return report.Run{}, fmt.Errorf("persist report run: %w", err)
 	}
@@ -85,9 +108,13 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 	if err := s.runs.Update(ctx, &run); err != nil {
 		return run, fmt.Errorf("persist collecting report run: %w", err)
 	}
-	items, err := s.submissions.ListByTask(ctx, taskID)
-	if err != nil {
-		return run, s.persistFailure(ctx, &run, fmt.Errorf("collect submissions for task %d: %w", taskID, err))
+	if items == nil {
+		var err error
+		items, err = s.submissions.ListByTask(ctx, taskID)
+		if err != nil {
+			return run, s.persistFailure(ctx, &run, fmt.Errorf("collect submissions for task %d: %w", taskID, err))
+		}
+		run.InputFingerprint = submissionsFingerprint(items)
 	}
 	if err := run.Transition(report.Processing, s.clock()); err != nil {
 		return run, s.persistFailure(ctx, &run, err)
@@ -173,6 +200,15 @@ func (s *ScenarioCollectionService) existingRun(ctx context.Context, scenarioID,
 		return report.Run{}, false, err
 	}
 	return run, true, nil
+}
+
+func submissionsFingerprint(items []submission.Submission) string {
+	encoded, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:])
 }
 
 func (s *ScenarioCollectionService) persistFailure(ctx context.Context, run *report.Run, cause error) error {

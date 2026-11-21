@@ -67,3 +67,10 @@ func TestScheduleMissingRemindersPropagatesRepositoryError(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestScheduleMissingRemindersSkipsTasksWithoutDueDate(t *testing.T) {
+	service := &PollingService{missing: reminderPollingMissingRepository{err: errors.New("should not be read")}, reminders: NewReminderService(reminderPollingRepository{}, nil)}
+	if err := service.scheduleMissingReminders(context.Background(), task.Task{ID: 1}); err != nil {
+		t.Fatal(err)
+	}
+}
