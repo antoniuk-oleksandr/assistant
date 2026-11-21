@@ -180,7 +180,7 @@ var _ = Describe("SQLite task bindings", func() {
 		items, err = missing.List(ctx, stored[0].ID)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(items).To(BeEmpty())
-		Expect(missing.Reconcile(ctx, stored[0].ID, []ports.MissingSubmitter{{ExternalUserID: "user-1"}, {ExternalUserID: "user-1"}})).Error().To(MatchError(ContainSubstring("store missing submitter")))
+		Expect(missing.Reconcile(ctx, stored[0].ID, []ports.MissingSubmitter{{}, {ExternalUserID: "user-1"}, {ExternalUserID: "user-1"}})).Error().To(MatchError(ContainSubstring("store missing submitter")))
 	})
 
 	It("keeps tasks and active bindings across a database lifecycle", func(ctx SpecContext) {
