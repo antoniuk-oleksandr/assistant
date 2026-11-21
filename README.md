@@ -1,5 +1,7 @@
 # Scheduled Report Aggregation System
 
+[![codecov](https://codecov.io/gh/antoniuk-oleksandr/assistant/graph/badge.svg?token=KM23EQMH96)](https://codecov.io/gh/antoniuk-oleksandr/assistant)
+
 Scheduled Report Aggregation System is a local Go application for collecting, validating, aggregating, and distributing periodic departmental submissions. Its first concrete workflow is scientific activity reporting from Google Classroom.
 
 It discovers Classroom coursework, reads submissions and attached materials, maps them to a fixed 28-appendix scientific-report structure, preserves supporting evidence, creates an aggregate report, and stores operational state in SQLite.
