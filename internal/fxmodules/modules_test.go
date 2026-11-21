@@ -39,6 +39,12 @@ func TestNewFxLogger(t *testing.T) {
 	}
 }
 
+func TestDeliveryProviders(t *testing.T) {
+	if got := deliveryProviders(nil); len(got) != 1 || got[0] != nil {
+		t.Fatalf("delivery providers = %#v", got)
+	}
+}
+
 type fxPollingSource struct{}
 
 func (fxPollingSource) ListTasks(context.Context, string) ([]task.Task, error) {
