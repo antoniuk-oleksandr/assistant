@@ -76,6 +76,8 @@ Google Classroom coursework items discovered by the application.
 | `due_at` | TEXT | NULL | Deadline |
 | `discovered_at` | TEXT | NOT NULL | First local discovery time |
 | `last_seen_at` | TEXT | NOT NULL | Last polling time |
+| `phase` | TEXT | NOT NULL | Current lifecycle phase: `discovery`, `three_days_before`, `one_day_before`, `deadline_reached`, or `completed` |
+| `phase_at` | TEXT | NOT NULL | Time when the current lifecycle phase was reached |
 | `status` | TEXT | NOT NULL | `discovered`, `bound`, `closed`, `ignored` |
 
 Unique constraint: `(provider, course_id, external_task_id)`.

@@ -34,7 +34,7 @@ func TestMigrateTaskColumnsAddsLifecycleMetadataToExistingDatabase(t *testing.T)
 	if err := migrateTaskColumns(context.Background(), db); err != nil {
 		t.Fatal(err)
 	}
-	for _, column := range []string{"updated_at_external", "due_date", "due_time", "time_zone"} {
+	for _, column := range []string{"updated_at_external", "due_date", "due_time", "time_zone", "phase", "phase_at"} {
 		var exists bool
 		if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info('tasks') WHERE name = ?)`, column).Scan(&exists); err != nil {
 			t.Fatal(err)

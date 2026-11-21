@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/alex/assistent/internal/adapters/mappers"
 	"github.com/alex/assistent/internal/adapters/models"
@@ -17,9 +18,17 @@ type SQLiteTaskRepository struct{ db *sql.DB }
 func NewTaskRepository(db *sql.DB) ports.TaskRepository { return &SQLiteTaskRepository{db: db} }
 
 func (r *SQLiteTaskRepository) Register(ctx context.Context, item task.Task) error {
-	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (provider, external_task_id, course_id, title, description, created_at_external, updated_at_external, due_date, due_time, time_zone, due_at, discovered_at, last_seen_at, status)
-VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), `+sqliteNowUTC+`, `+sqliteNowUTC+`, ?)
-ON CONFLICT(provider, course_id, external_task_id) DO UPDATE SET title=excluded.title, description=excluded.description, created_at_external=excluded.created_at_external, updated_at_external=excluded.updated_at_external, due_date=excluded.due_date, due_time=excluded.due_time, time_zone=excluded.time_zone, due_at=excluded.due_at, last_seen_at=excluded.last_seen_at`, item.Provider, item.ExternalID, item.CourseID, item.Title, item.Description, item.CreatedAtExternal, item.UpdatedAtExternal, item.DueDate, item.DueTime, item.TimeZone, item.DueAt, task.Discovered)
+	phase := item.Phase
+	if phase == "" {
+		phase = task.PhaseDiscovery
+	}
+	phaseAt := item.PhaseAt
+	if phaseAt == "" {
+		phaseAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO tasks (provider, external_task_id, course_id, title, description, created_at_external, updated_at_external, due_date, due_time, time_zone, due_at, discovered_at, last_seen_at, phase, phase_at, status)
+VALUES (?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), NULLIF(?, ''), `+sqliteNowUTC+`, `+sqliteNowUTC+`, ?, ?, ?)
+ON CONFLICT(provider, course_id, external_task_id) DO UPDATE SET title=excluded.title, description=excluded.description, created_at_external=excluded.created_at_external, updated_at_external=excluded.updated_at_external, due_date=excluded.due_date, due_time=excluded.due_time, time_zone=excluded.time_zone, due_at=excluded.due_at, last_seen_at=excluded.last_seen_at, phase=excluded.phase, phase_at=excluded.phase_at`, item.Provider, item.ExternalID, item.CourseID, item.Title, item.Description, item.CreatedAtExternal, item.UpdatedAtExternal, item.DueDate, item.DueTime, item.TimeZone, item.DueAt, phase, phaseAt, task.Discovered)
 	if err != nil {
 		return fmt.Errorf("register task %q: %w", item.ExternalID, err)
 	}
@@ -27,7 +36,7 @@ ON CONFLICT(provider, course_id, external_task_id) DO UPDATE SET title=excluded.
 }
 
 func (r *SQLiteTaskRepository) List(ctx context.Context) ([]task.Task, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, provider, external_task_id, course_id, title, COALESCE(description, ''), COALESCE(created_at_external, ''), COALESCE(updated_at_external, ''), COALESCE(due_date, ''), COALESCE(due_time, ''), COALESCE(time_zone, ''), COALESCE(due_at, ''), discovered_at, last_seen_at, status FROM tasks ORDER BY course_id, external_task_id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, provider, external_task_id, course_id, title, COALESCE(description, ''), COALESCE(created_at_external, ''), COALESCE(updated_at_external, ''), COALESCE(due_date, ''), COALESCE(due_time, ''), COALESCE(time_zone, ''), COALESCE(due_at, ''), discovered_at, last_seen_at, COALESCE(phase, 'discovery'), COALESCE(phase_at, ''), status FROM tasks ORDER BY course_id, external_task_id`)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -35,7 +44,7 @@ func (r *SQLiteTaskRepository) List(ctx context.Context) ([]task.Task, error) {
 	result := make([]task.Task, 0)
 	for rows.Next() {
 		var row models.TaskRow
-		if err := rows.Scan(&row.ID, &row.Provider, &row.ExternalID, &row.CourseID, &row.Title, &row.Description, &row.CreatedAtExternal, &row.UpdatedAtExternal, &row.DueDate, &row.DueTime, &row.TimeZone, &row.DueAt, &row.DiscoveredAt, &row.LastSeenAt, &row.Status); err != nil {
+		if err := rows.Scan(&row.ID, &row.Provider, &row.ExternalID, &row.CourseID, &row.Title, &row.Description, &row.CreatedAtExternal, &row.UpdatedAtExternal, &row.DueDate, &row.DueTime, &row.TimeZone, &row.DueAt, &row.DiscoveredAt, &row.LastSeenAt, &row.Phase, &row.PhaseAt, &row.Status); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		result = append(result, mappers.ToTask(row))
@@ -165,7 +174,7 @@ func (r *SQLiteScenarioCourseBindingRepository) List(ctx context.Context, scenar
 	return result, nil
 }
 
-const bindingSelect = `SELECT s.id, s.name, s.implementation_type, t.id, t.provider, t.external_task_id, t.course_id, t.title, COALESCE(t.description, ''), COALESCE(t.created_at_external, ''), COALESCE(t.updated_at_external, ''), COALESCE(t.due_date, ''), COALESCE(t.due_time, ''), COALESCE(t.time_zone, ''), COALESCE(t.due_at, ''), t.discovered_at, t.last_seen_at, t.status, st.status, st.bound_at, COALESCE(st.unbound_at, '') FROM scenario_tasks st JOIN scenarios s ON s.id=st.scenario_id JOIN tasks t ON t.id=st.task_id`
+const bindingSelect = `SELECT s.id, s.name, s.implementation_type, t.id, t.provider, t.external_task_id, t.course_id, t.title, COALESCE(t.description, ''), COALESCE(t.created_at_external, ''), COALESCE(t.updated_at_external, ''), COALESCE(t.due_date, ''), COALESCE(t.due_time, ''), COALESCE(t.time_zone, ''), COALESCE(t.due_at, ''), t.discovered_at, t.last_seen_at, COALESCE(t.phase, 'discovery'), COALESCE(t.phase_at, ''), t.status, st.status, st.bound_at, COALESCE(st.unbound_at, '') FROM scenario_tasks st JOIN scenarios s ON s.id=st.scenario_id JOIN tasks t ON t.id=st.task_id`
 
 func (r *SQLiteTaskBindingRepository) Bind(ctx context.Context, scenarioName, externalTaskID string) error {
 	var scenarioID, taskID int64
@@ -251,7 +260,7 @@ func scanBindings(rows *sql.Rows, err error) ([]task.Binding, error) {
 	result := make([]task.Binding, 0)
 	for rows.Next() {
 		var row models.TaskBindingRow
-		if err := rows.Scan(&row.ScenarioID, &row.ScenarioName, &row.ScenarioType, &row.TaskID, &row.Provider, &row.ExternalID, &row.CourseID, &row.Title, &row.Description, &row.CreatedAtExternal, &row.UpdatedAtExternal, &row.DueDate, &row.DueTime, &row.TimeZone, &row.DueAt, &row.DiscoveredAt, &row.LastSeenAt, &row.TaskStatus, &row.Status, &row.BoundAt, &row.UnboundAt); err != nil {
+		if err := rows.Scan(&row.ScenarioID, &row.ScenarioName, &row.ScenarioType, &row.TaskID, &row.Provider, &row.ExternalID, &row.CourseID, &row.Title, &row.Description, &row.CreatedAtExternal, &row.UpdatedAtExternal, &row.DueDate, &row.DueTime, &row.TimeZone, &row.DueAt, &row.DiscoveredAt, &row.LastSeenAt, &row.Phase, &row.PhaseAt, &row.TaskStatus, &row.Status, &row.BoundAt, &row.UnboundAt); err != nil {
 			return nil, fmt.Errorf("scan task binding: %w", err)
 		}
 		result = append(result, mappers.ToTaskBinding(row))

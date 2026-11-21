@@ -28,6 +28,7 @@ type PollingService struct {
 	parsing     *MaterialParsing
 	collection  *ScenarioCollectionService
 	registry    scenario.Registry
+	clock       func() time.Time
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -47,7 +48,15 @@ func NewPollingServiceWithParsing(courses ports.ClassroomCourseRepository, sourc
 }
 
 func NewPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry}
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, clock: func() time.Time { return time.Now().UTC() }}
+}
+
+func NewPollingServiceWithClock(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, clock func() time.Time) *PollingService {
+	service := NewPersistentPollingService(courses, source, tasks, bindings, submissions, state)
+	if clock != nil {
+		service.clock = clock
+	}
+	return service
 }
 
 func (s *PollingService) Refresh(ctx context.Context) error {
@@ -141,7 +150,28 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 	if err != nil {
 		return fmt.Errorf("list tasks for course %q: %w", courseID, err)
 	}
+	var existing []task.Task
+	if s.tasks != nil {
+		existing, err = s.tasks.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list persisted tasks: %w", err)
+		}
+	}
+	now := time.Now().UTC()
+	if s.clock != nil {
+		now = s.clock()
+	}
 	for _, item := range items {
+		if s.tasks == nil {
+			continue
+		}
+		previous := findTask(existing, item.Provider, item.CourseID, item.ExternalID)
+		item.Phase = task.DeterminePhase(item, now)
+		if previous.Phase == item.Phase {
+			item.PhaseAt = previous.PhaseAt
+		} else {
+			item.PhaseAt = now.UTC().Format(time.RFC3339Nano)
+		}
 		if err := s.tasks.Register(ctx, item); err != nil {
 			return fmt.Errorf("store task %q: %w", item.ExternalID, err)
 		}
@@ -159,6 +189,15 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 		}
 	}
 	return nil
+}
+
+func findTask(items []task.Task, provider, courseID, externalID string) task.Task {
+	for _, item := range items {
+		if item.Provider == provider && item.CourseID == courseID && item.ExternalID == externalID {
+			return item
+		}
+	}
+	return task.Task{}
 }
 
 func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) error {

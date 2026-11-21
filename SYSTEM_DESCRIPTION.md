@@ -659,6 +659,11 @@ update timestamps, local discovery and last-seen timestamps, due date, due
 time, and `GOOGLE_CLASSROOM_TIMEZONE` used to interpret the due fields. The
 default timezone is UTC when the variable is not configured.
 
+Each task also stores one idempotent lifecycle phase: `discovery`,
+`three_days_before`, `one_day_before`, `deadline_reached`, or `completed`, plus
+the timestamp at which that phase was reached. Re-running the poller while a
+task remains in the same phase does not change the phase timestamp.
+
 The `.env` file is never written to reports or logs and is not committed to version control.
 
 Recommended layout:

@@ -15,6 +15,8 @@ type TaskRow struct {
 	DueAt             string
 	DiscoveredAt      string
 	LastSeenAt        string
+	Phase             string
+	PhaseAt           string
 	Status            string
 }
 
@@ -36,6 +38,8 @@ type TaskBindingRow struct {
 	DueAt             string
 	DiscoveredAt      string
 	LastSeenAt        string
+	Phase             string
+	PhaseAt           string
 	TaskStatus        string
 	Status            string
 	BoundAt           string
