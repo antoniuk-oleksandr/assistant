@@ -133,6 +133,8 @@ Primary key: `(task_id, external_user_id)`.
 Preliminary aggregate generation is keyed by the task lifecycle phase and the
 existing report-run/result version records, so restarting polling does not
 create duplicate preliminary outputs.
+Incremental updates use a new report run and preserve the previous run and
+result records for source traceability.
 
 ### `scenario_courses`
 

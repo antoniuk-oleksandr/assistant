@@ -51,18 +51,26 @@ func NewScenarioCollectionServiceWithReportNotifier(submissions ports.Submission
 }
 
 func (s *ScenarioCollectionService) Process(ctx context.Context, scenarioID, taskID int64, processor scenario.CollectionProcessor) (report.Run, error) {
-	return s.process(ctx, scenarioID, taskID, "", "", processor)
+	return s.process(ctx, scenarioID, taskID, "", "", processor, false)
 }
 
 func (s *ScenarioCollectionService) ProcessForTask(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor) (report.Run, error) {
-	return s.process(ctx, scenarioID, taskID, scenarioName, courseID, processor)
+	return s.process(ctx, scenarioID, taskID, scenarioName, courseID, processor, false)
 }
 
-func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor) (report.Run, error) {
-	if existing, found, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
-		return report.Run{}, fmt.Errorf("find report run: %w", err)
-	} else if found {
-		return existing, nil
+// ProcessForTaskUpdate creates a new report run from the current submissions,
+// preserving the previous run and its source records for auditability.
+func (s *ScenarioCollectionService) ProcessForTaskUpdate(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor) (report.Run, error) {
+	return s.process(ctx, scenarioID, taskID, scenarioName, courseID, processor, true)
+}
+
+func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, taskID int64, scenarioName, courseID string, processor scenario.CollectionProcessor, force bool) (report.Run, error) {
+	if !force {
+		if existing, found, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
+			return report.Run{}, fmt.Errorf("find report run: %w", err)
+		} else if found {
+			return existing, nil
+		}
 	}
 	run := report.NewRun(scenarioID, taskID, s.clock())
 	if err := s.runs.Create(ctx, &run); err != nil {

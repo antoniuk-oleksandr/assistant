@@ -61,6 +61,23 @@ func TestScenarioCollectionServicePersistsPartialResult(t *testing.T) {
 	}
 }
 
+func TestScenarioCollectionServiceProcessesAnIncrementalUpdateAsANewRun(t *testing.T) {
+	runs := &collectionRunRepository{}
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{}, runs)
+	processor := &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed}}
+	first, err := service.ProcessForTask(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.ProcessForTaskUpdate(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err != nil || second.ID != first.ID || second.Status != report.Completed {
+		t.Fatalf("first=%#v second=%#v err=%v", first, second, err)
+	}
+	if len(runs.updates) == 0 {
+		t.Fatal("incremental run was not persisted")
+	}
+}
+
 func TestScenarioCollectionServicePersistsFailedResultAndReportsPersistenceError(t *testing.T) {
 	runs := &collectionRunRepository{}
 	results := &resultRepository{}
