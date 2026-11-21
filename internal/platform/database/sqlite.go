@@ -50,6 +50,8 @@ const createTasks = `CREATE TABLE IF NOT EXISTS tasks (
     due_at TEXT,
     discovered_at TEXT NOT NULL,
     last_seen_at TEXT NOT NULL,
+    phase TEXT NOT NULL DEFAULT 'discovery',
+    phase_at TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK (status IN ('discovered', 'bound', 'closed', 'ignored')),
     UNIQUE(provider, course_id, external_task_id)
 )`
@@ -298,6 +300,8 @@ func migrateTaskColumns(ctx context.Context, db *sql.DB) error {
 		{"due_date", "TEXT"},
 		{"due_time", "TEXT"},
 		{"time_zone", "TEXT"},
+		{"phase", "TEXT NOT NULL DEFAULT 'discovery'"},
+		{"phase_at", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		var exists bool
 		if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_table_info('tasks') WHERE name = ?)`, column.name).Scan(&exists); err != nil {

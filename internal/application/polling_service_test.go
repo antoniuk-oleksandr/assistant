@@ -88,6 +88,12 @@ func (r *pollingTaskRepository) Register(_ context.Context, item task.Task) erro
 	if r.err != nil {
 		return r.err
 	}
+	for index, existing := range r.registered {
+		if existing.Provider == item.Provider && existing.CourseID == item.CourseID && existing.ExternalID == item.ExternalID {
+			r.registered[index] = item
+			return nil
+		}
+	}
 	r.registered = append(r.registered, item)
 	return nil
 }
@@ -171,7 +177,38 @@ var _ = Describe("polling service", func() {
 			source, tasks, pollingBindingRepository{}, &pollingSubmissionRepository{},
 		)
 		Expect(service.Refresh(ctx)).To(Succeed())
-		Expect(tasks.registered).To(ConsistOf(item))
+		Expect(tasks.registered).To(HaveLen(1))
+		Expect(tasks.registered[0].ExternalID).To(Equal(item.ExternalID))
+		Expect(tasks.registered[0].Phase).To(Equal(task.PhaseDiscovery))
+	})
+
+	It("persists each deadline phase and keeps repeated phases idempotent", func(ctx SpecContext) {
+		item := task.Task{Provider: "google-classroom", ExternalID: "deadline-task", CourseID: "course-1", DueDate: "2026-11-10", DueTime: "12:00:00", TimeZone: "UTC"}
+		source := &nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}}
+		tasks := &pollingTaskRepository{}
+		current := time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)
+		service := application.NewPollingServiceWithClock(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			source, tasks, pollingBindingRepository{}, &pollingSubmissionRepository{}, nil,
+			func() time.Time { return current },
+		)
+
+		refresh := func(want task.Phase) {
+			Expect(service.Refresh(ctx)).To(Succeed())
+			Expect(tasks.registered).To(HaveLen(1))
+			Expect(tasks.registered[0].Phase).To(Equal(want))
+			Expect(tasks.registered[0].PhaseAt).NotTo(BeEmpty())
+		}
+		refresh(task.PhaseThreeDaysBefore)
+		current = time.Date(2026, 11, 9, 12, 0, 0, 0, time.UTC)
+		refresh(task.PhaseOneDayBefore)
+		current = time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+		refresh(task.PhaseDeadlineReached)
+		current = current.Add(time.Minute)
+		refresh(task.PhaseCompleted)
+		phaseAt := tasks.registered[0].PhaseAt
+		refresh(task.PhaseCompleted)
+		Expect(tasks.registered[0].PhaseAt).To(Equal(phaseAt))
 	})
 
 	It("excludes disabled courses and inactive task bindings from submission polling", func(ctx SpecContext) {
@@ -206,7 +243,9 @@ var _ = Describe("polling service", func() {
 		Expect(service.Refresh(ctx)).To(Succeed())
 		Expect(source.taskCalls).To(Equal([]string{"course-active"}))
 		Expect(source.subCalls).To(Equal([]string{"task-active"}))
-		Expect(tasks.registered).To(ConsistOf(activeTask, inactiveTask))
+		Expect(tasks.registered).To(HaveLen(2))
+		Expect(tasks.registered[0].Phase).To(Equal(task.PhaseDiscovery))
+		Expect(tasks.registered[1].Phase).To(Equal(task.PhaseDiscovery))
 		Expect(submissions.items).To(HaveLen(1))
 		Expect(submissions.items[0].ExternalID).To(Equal("submission-active"))
 	})
@@ -243,7 +282,7 @@ var _ = Describe("polling service", func() {
 		Expect(service.Refresh(ctx)).To(Succeed())
 		Expect(source.taskCalls).To(Equal([]string{"course-active", "course-active"}))
 		Expect(source.subCalls).To(Equal([]string{"task-active", "task-active"}))
-		Expect(tasks.registered).To(HaveLen(2))
+		Expect(tasks.registered).To(HaveLen(1))
 		Expect(submissions.items).To(HaveLen(2))
 		Expect(submissions.items[0].State).To(Equal(submission.Submitted))
 		Expect(submissions.items[1].State).To(Equal(submission.Returned))
