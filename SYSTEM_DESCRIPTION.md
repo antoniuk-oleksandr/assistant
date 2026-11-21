@@ -83,6 +83,10 @@ The first aggregate report is created when a task enters the persisted
 create a preliminary report; the report-run and result version records make a
 repeated poll idempotent.
 
+When the task enters `one_day_before`, polling reprocesses the current
+submissions in a new report run, preserving the prior aggregate and its source
+records while incorporating late submissions.
+
 ### Appendix set
 
 The scientific reporting scenario knows a fixed set of 28 possible appendices. The system processes every appendix that is actually submitted. Missing appendices are represented in the aggregate with scenario-defined defaults: zero for numeric counters, a dash or absence marker for scalar fields, and an empty collection for lists. The aggregate still follows the 28-appendix structure.

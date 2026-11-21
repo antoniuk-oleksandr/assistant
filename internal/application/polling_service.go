@@ -231,7 +231,7 @@ func shouldProcessPreliminaryReport(item task.Task) bool {
 	if item.DueDate == "" && item.DueAt == "" {
 		return true
 	}
-	return item.Phase == task.PhaseThreeDaysBefore
+	return item.Phase == task.PhaseThreeDaysBefore || item.Phase == task.PhaseOneDayBefore
 }
 
 func findTask(items []task.Task, provider, courseID, externalID string) task.Task {
@@ -276,8 +276,14 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 		if err != nil {
 			return fmt.Errorf("resolve collection processor for scenario %q: %w", binding.ScenarioName, err)
 		}
-		if _, err := s.collection.ProcessForTask(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor); err != nil {
-			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, err)
+		var processErr error
+		if item.Phase == task.PhaseOneDayBefore {
+			_, processErr = s.collection.ProcessForTaskUpdate(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor)
+		} else {
+			_, processErr = s.collection.ProcessForTask(ctx, binding.ScenarioID, item.ID, binding.ScenarioName, item.CourseID, processor)
+		}
+		if processErr != nil {
+			return fmt.Errorf("process collection for task %q: %w", item.ExternalID, processErr)
 		}
 	}
 	return nil
