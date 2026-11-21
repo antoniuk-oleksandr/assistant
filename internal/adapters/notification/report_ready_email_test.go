@@ -50,6 +50,25 @@ func TestReminderEmailProviderUsesConfiguredResendClient(t *testing.T) {
 	}
 }
 
+func TestReportDeliveryEmailProviderUsesConfiguredResendClient(t *testing.T) {
+	provider := NewReportDeliveryEmailProvider(config.EmailConfig{})
+	if provider.Name() != "email" {
+		t.Fatalf("disabled delivery provider name = %q", provider.Name())
+	}
+	if err := provider.Deliver(context.Background(), report.Result{}, "owner@example.com"); err == nil {
+		t.Fatal("disabled provider unexpectedly delivered a report")
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	configured := NewReportDeliveryEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com", BaseURL: server.URL}).(*reportDeliveryEmailProvider)
+	if configured.Name() != "email" {
+		t.Fatalf("configured delivery provider name = %q", configured.Name())
+	}
+	if err := configured.Deliver(context.Background(), report.Result{ErrorMessage: "partial"}, "owner@example.com"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestNewReportReadyNotifierEnablesConfiguredResend(t *testing.T) {
 	notifier := NewReportReadyNotifier(config.EmailConfig{APIKey: "re_test", TargetEmail: "target@example.com", TemplatePath: "templates/report-ready-email.txt"})
 	if !notifier.Enabled() {

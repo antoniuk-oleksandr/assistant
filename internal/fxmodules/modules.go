@@ -32,6 +32,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	application.NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders,
 	application.NewReminderService,
 	application.NewHeadNotificationService,
+	application.NewDeliveryService,
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewScenarioServiceWithCourseBindingsAndData, fx.As(new(cli.ScenarioService)), fx.As(new(cli.ScenarioTaskBindingService)), fx.As(new(cli.ScenarioCourseDataService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
@@ -40,11 +41,15 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier, notification.NewReminderEmailProvider, reminderProviders),
+	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier, notification.NewReminderEmailProvider, notification.NewReportDeliveryEmailProvider, reminderProviders, deliveryProviders),
 )
 
 func reminderProviders(provider ports.ReminderProvider) []ports.ReminderProvider {
 	return []ports.ReminderProvider{provider}
+}
+
+func deliveryProviders(provider ports.ResultDeliveryProvider) []ports.ResultDeliveryProvider {
+	return []ports.ResultDeliveryProvider{provider}
 }
 
 func newMaterialParsing() *application.MaterialParsing {
