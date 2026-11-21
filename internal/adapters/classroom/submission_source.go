@@ -100,11 +100,11 @@ type SubmissionSource struct {
 // NewSubmissionSource is the Fx constructor. The HTTP transport is still
 // replaceable through NewSubmissionSourceWithClient for unit and integration
 // tests. Credentials are read only at the infrastructure boundary.
-func NewSubmissionSource() ports.SubmissionSource {
+func NewSubmissionSource() *SubmissionSource {
 	return NewSubmissionSourceWithClient(NewHTTPClassroomClient(HTTPConfigFromEnvironment(), http.DefaultClient))
 }
 
-func NewSubmissionSourceWithClient(client ClassroomClient) ports.IncrementalSubmissionSource {
+func NewSubmissionSourceWithClient(client ClassroomClient) *SubmissionSource {
 	return &SubmissionSource{client: client, courses: make(map[string]string)}
 }
 

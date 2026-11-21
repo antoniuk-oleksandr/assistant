@@ -628,14 +628,23 @@ Secrets and machine-specific values are loaded from environment variables, typic
 ```text
 GOOGLE_CREDENTIALS_PATH
 GOOGLE_CLASSROOM_ID
-SMTP_HOST
-SMTP_PORT
-SMTP_USERNAME
-SMTP_PASSWORD
+RESEND_API_KEY
+REPORT_TARGET_EMAIL
+RESEND_FROM
+REPORT_READY_EMAIL_TEMPLATE
 TELEGRAM_BOT_TOKEN
 SQLITE_DATABASE_PATH
 LOG_DIRECTORY
 ```
+
+After a Google Sheet is generated, the configured target email receives a
+report-ready email through Resend. Its body is
+loaded from `templates/report-ready-email.txt` unless
+`REPORT_READY_EMAIL_TEMPLATE` is set. The `<google_sheet_link>` tag is replaced
+with the generated Sheet URL. `RESEND_FROM` must be a verified Resend sender
+address (or `onboarding@resend.dev` for Resend account-owner testing);
+`REPORT_TARGET_EMAIL` is the recipient and `RESEND_BASE_URL` defaults to
+`https://api.resend.com`.
 
 `GOOGLE_CLASSROOM_ID` is the normalized numeric course ID. The preferred way to register it is:
 

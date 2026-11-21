@@ -1,0 +1,6 @@
+Your scientific activity report is ready.
+
+Open the generated Google Sheet here:
+<google_sheet_link>
+
+This message was sent automatically by the Scheduled Report Aggregation System.
