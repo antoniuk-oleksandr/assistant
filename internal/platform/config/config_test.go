@@ -94,6 +94,23 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid"}))
 	})
 
+	It("loads Google SMTP notification settings", func() {
+		GinkgoT().Setenv("SMTP_HOST", "smtp.gmail.com")
+		GinkgoT().Setenv("SMTP_PORT", "587")
+		GinkgoT().Setenv("SMTP_USERNAME", "sender@gmail.com")
+		GinkgoT().Setenv("SMTP_PASSWORD", "app-password")
+		GinkgoT().Setenv("SMTP_FROM", "reports@gmail.com")
+		loaded, err := config.Load()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Email(loaded)).To(Equal(config.EmailConfig{SMTPHost: "smtp.gmail.com", SMTPPort: 587, SMTPUsername: "sender@gmail.com", SMTPPassword: "app-password", From: "reports@gmail.com", TemplatePath: "templates/report-ready-email.txt"}))
+	})
+
+	It("rejects an invalid SMTP port", func() {
+		GinkgoT().Setenv("SMTP_PORT", "not-a-port")
+		_, err := config.Load()
+		Expect(err).To(MatchError("SMTP_PORT must be a valid TCP port"))
+	})
+
 	It("loads minute-scale deadline windows", func() {
 		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
 		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "2m")

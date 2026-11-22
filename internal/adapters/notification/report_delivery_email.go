@@ -3,7 +3,6 @@ package notification
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
@@ -11,19 +10,19 @@ import (
 )
 
 type reportDeliveryEmailProvider struct {
-	client resendClient
+	client smtpSender
 	from   string
 }
 
 func NewReportDeliveryEmailProvider(cfg config.EmailConfig) ports.ResultDeliveryProvider {
-	if cfg.APIKey == "" || cfg.From == "" {
+	if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
 		return noopReportDeliveryProvider{}
 	}
-	baseURL := cfg.BaseURL
-	if baseURL == "" {
-		baseURL = "https://api.resend.com"
+	from := cfg.From
+	if from == "" {
+		from = cfg.SMTPUsername
 	}
-	return &reportDeliveryEmailProvider{client: &resendHTTPClient{baseURL: baseURL, apiKey: cfg.APIKey, client: http.DefaultClient}, from: cfg.From}
+	return &reportDeliveryEmailProvider{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from}
 }
 
 func (p *reportDeliveryEmailProvider) Name() string { return "email" }
@@ -40,5 +39,5 @@ type noopReportDeliveryProvider struct{}
 
 func (noopReportDeliveryProvider) Name() string { return "email" }
 func (noopReportDeliveryProvider) Deliver(context.Context, report.Result, string) error {
-	return fmt.Errorf("Resend report delivery is not configured")
+	return fmt.Errorf("Google SMTP report delivery is not configured")
 }

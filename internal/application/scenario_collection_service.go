@@ -153,7 +153,7 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 		result.ResultPath = output.Path
 		if s.notifier != nil && s.notifier.Enabled() {
 			if err := s.notifier.Notify(ctx, report.Result{ID: run.ID, RunID: run.ID, ScenarioID: scenarioID, TaskID: taskID, Data: *result.ReportData}, output.Path); err != nil {
-				return run, s.persistFailure(ctx, &run, fmt.Errorf("notify report owner: %w", err))
+				return run, s.persistFailure(ctx, &run, fmt.Errorf("notify report recipients: %w", err))
 			}
 		}
 		if s.outputs != nil {
