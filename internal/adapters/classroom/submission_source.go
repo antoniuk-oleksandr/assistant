@@ -338,7 +338,7 @@ func HTTPConfigFromEnvironment() HTTPConfig {
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
-	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID"), ClientSecret: get("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN"), TimeZone: get("GOOGLE_CLASSROOM_TIMEZONE")}
+	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLIENT_ID"), ClientSecret: get("GOOGLE_CLIENT_SECRET"), RefreshToken: get("GOOGLE_REFRESH_TOKEN"), TimeZone: get("GOOGLE_CLASSROOM_TIMEZONE")}
 }
 
 type HTTPClassroomClient struct {
@@ -447,7 +447,9 @@ func (c *HTTPClassroomClient) get(ctx context.Context, path, pageToken string, t
 		return fmt.Errorf("build Classroom request: %w", err)
 	}
 	query := requestURL.Query()
-	query.Set("pageSize", "100")
+	if !strings.HasPrefix(path, "/userProfiles/") {
+		query.Set("pageSize", "100")
+	}
 	if pageToken != "" {
 		query.Set("pageToken", pageToken)
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
@@ -73,7 +74,7 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 	if !force {
 		if current, currentFound, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
 			return report.Run{}, fmt.Errorf("find report run: %w", err)
-		} else if currentFound {
+		} else if currentFound && current.Status != report.Failed {
 			return current, nil
 		}
 	} else if current, currentFound, err := s.existingRun(ctx, scenarioID, taskID); err != nil {
@@ -90,7 +91,7 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 			return report.Run{}, fmt.Errorf("collect submissions for task %d: %w", taskID, err)
 		}
 		fingerprint = submissionsFingerprint(items)
-		if found && existing.InputFingerprint != "" && existing.InputFingerprint == fingerprint {
+		if found && existing.Status != report.Failed && existing.InputFingerprint != "" && existing.InputFingerprint == fingerprint {
 			return existing, nil
 		}
 	}
@@ -137,7 +138,7 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 			result.ReportData.CourseData[item.Name] = item.Value
 		}
 	}
-	if result.ReportData != nil && s.renderer != nil {
+	if result.ReportData != nil {
 		var persistedResult *report.Result
 		if s.results != nil {
 			value := report.NewResult(run.ID, scenarioID, taskID, *result.ReportData, s.clock())
@@ -146,19 +147,21 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 			}
 			persistedResult = &value
 		}
-		output, err := s.renderer.RenderAndSave(ctx, *result.ReportData)
-		if err != nil {
-			return run, s.persistFailure(ctx, &run, fmt.Errorf("render report package: %w", err))
-		}
-		result.ResultPath = output.Path
-		if s.notifier != nil && s.notifier.Enabled() {
-			if err := s.notifier.Notify(ctx, report.Result{ID: run.ID, RunID: run.ID, ScenarioID: scenarioID, TaskID: taskID, Data: *result.ReportData}, output.Path); err != nil {
-				return run, s.persistFailure(ctx, &run, fmt.Errorf("notify report recipients: %w", err))
+		if processErr == nil && result.Outcome != scenario.Failed && s.renderer != nil {
+			output, err := s.renderer.RenderAndSave(ctx, *result.ReportData)
+			if err != nil {
+				return run, s.persistFailure(ctx, &run, fmt.Errorf("render report package: %w", err))
 			}
-		}
-		if s.outputs != nil {
-			if err := s.outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: output.Format, Path: output.Path, Version: output.Version, CreatedAt: output.CreatedAt}); err != nil {
-				return run, s.persistFailure(ctx, &run, fmt.Errorf("persist report output: %w", err))
+			result.ResultPath = output.Path
+			if s.notifier != nil && s.notifier.Enabled() {
+				if err := s.notifier.Notify(ctx, report.Result{ID: run.ID, RunID: run.ID, ScenarioID: scenarioID, TaskID: taskID, Data: *result.ReportData}, output.Path); err != nil {
+					log.Printf("notify report recipients for task %d: %v", taskID, err)
+				}
+			}
+			if s.outputs != nil {
+				if err := s.outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: output.Format, Path: output.Path, Version: output.Version, CreatedAt: output.CreatedAt}); err != nil {
+					return run, s.persistFailure(ctx, &run, fmt.Errorf("persist report output: %w", err))
+				}
 			}
 		}
 		if persistedResult != nil {

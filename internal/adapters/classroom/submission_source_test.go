@@ -106,6 +106,9 @@ func TestHTTPClassroomClientGetsUserProfile(t *testing.T) {
 		if r.URL.Path != "/userProfiles/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
+		if r.URL.Query().Get("pageSize") != "" {
+			t.Fatalf("unexpected pageSize query: %s", r.URL.RawQuery)
+		}
 		_, _ = w.Write([]byte(`{"id":"user-1","name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}`))
 	}))
 	defer server.Close()
@@ -350,9 +353,9 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	if got := HTTPConfigFromEnvironment(); got.BaseURL != defaultBaseURL || got.AccessToken != "" {
 		t.Fatalf("default HTTP config = %#v", got)
 	}
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID", "client")
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET", "secret")
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN", "refresh")
+	t.Setenv("GOOGLE_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "secret")
+	t.Setenv("GOOGLE_REFRESH_TOKEN", "refresh")
 	t.Setenv("GOOGLE_CLASSROOM_TIMEZONE", "Europe/Kyiv")
 	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" || got.TimeZone != "Europe/Kyiv" {
 		t.Fatalf("OAuth config = %#v", got)

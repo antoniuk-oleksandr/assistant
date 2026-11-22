@@ -60,6 +60,23 @@ func TestTelegramProviderSendsReportReadyThroughConfiguredChatID(t *testing.T) {
 	}
 }
 
+func TestTelegramProviderSendsDirectMessage(t *testing.T) {
+	var requestBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+	if err := provider.SendMessage(context.Background(), "chat-7", "connected"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(requestBody, `"chat_id":"chat-7"`) || !strings.Contains(requestBody, "connected") {
+		t.Fatalf("request body = %s", requestBody)
+	}
+}
+
 func TestTelegramProviderUsesConfiguredChatIDWhenDestinationIsEmpty(t *testing.T) {
 	var requestBody string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,5 +108,30 @@ func TestTelegramProviderRejectsMissingTokenAndHTTPFailure(t *testing.T) {
 	provider = NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
 	if err := provider.SendReminder(context.Background(), notification.Reminder{}); err == nil {
 		t.Fatal("closed server unexpectedly succeeded")
+	}
+}
+
+func TestTelegramProviderReadsPrivateMessagesAndContacts(t *testing.T) {
+	var requestBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/botsecret/getUpdates" {
+			if r.URL.Query().Get("offset") != "7" || r.URL.Query().Get("timeout") != "10" {
+				t.Fatalf("query=%s", r.URL.RawQuery)
+			}
+			_, _ = io.WriteString(w, `{"ok":true,"result":[{"update_id":7,"message":{"text":"/start pair_token","chat":{"id":42,"type":"private"}}}]}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		requestBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+	updates, err := provider.GetUpdates(context.Background(), 7, 10)
+	if err != nil || len(updates) != 1 || updates[0].ChatID != "42" || updates[0].Text != "/start pair_token" {
+		t.Fatalf("updates=%#v err=%v", updates, err)
+	}
+	if requestBody != "" {
+		t.Fatalf("unexpected send request body=%s", requestBody)
 	}
 }

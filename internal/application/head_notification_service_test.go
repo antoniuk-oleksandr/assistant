@@ -37,7 +37,9 @@ func (r headTeacherRepository) ListActiveChannels(context.Context, int64) ([]tea
 	if r.channelErr != nil {
 		return nil, r.channelErr
 	}
-	return []teacher.Channel{{RecipientID: 7, Kind: "email", Destination: "head@example.com", Status: teacher.Active}}, nil
+	return []teacher.Channel{
+		{RecipientID: 7, Kind: "email", Destination: "head@example.com", Status: teacher.Active},
+	}, nil
 }
 
 func TestHeadNotificationServiceSchedulesMissingPeople(t *testing.T) {

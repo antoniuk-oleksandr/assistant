@@ -44,16 +44,16 @@ var _ = Describe("configuration loading", func() {
 	})
 
 	It("loads Drive OAuth settings and defaults snapshots next to the SQLite database", func() {
-		for _, key := range []string{"GOOGLE_DRIVE_BASE_URL", "GOOGLE_DRIVE_MATERIAL_DIR", "GOOGLE_DRIVE_OAUTH_CLIENT_ID", "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET", "GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"} {
+		for _, key := range []string{"GOOGLE_DRIVE_BASE_URL", "GOOGLE_DRIVE_MATERIAL_DIR", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"} {
 			GinkgoT().Setenv(key, "")
 			Expect(os.Unsetenv(key)).To(Succeed())
 		}
-		GinkgoT().Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "process-client")
+		GinkgoT().Setenv("GOOGLE_CLIENT_ID", "process-client")
 		Expect(os.WriteFile(".env", []byte(`SQLITE_DATABASE_PATH=test-state/state.db
 GOOGLE_DRIVE_BASE_URL=https://drive.example.invalid/v3
-GOOGLE_DRIVE_OAUTH_CLIENT_ID=file-client
-GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=fixture-secret
-GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
+GOOGLE_CLIENT_ID=file-client
+GOOGLE_CLIENT_SECRET=fixture-secret
+GOOGLE_REFRESH_TOKEN=fixture-refresh
 `), 0600)).To(Succeed())
 		loaded, err := config.Load()
 		Expect(err).NotTo(HaveOccurred())
@@ -75,9 +75,9 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 
 	It("loads Google Sheets report settings", func() {
 		GinkgoT().Setenv("GOOGLE_SHEETS_BASE_URL", "https://sheets.example.invalid/v4")
-		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_CLIENT_ID", "client")
-		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET", "secret")
-		GinkgoT().Setenv("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN", "refresh")
+		GinkgoT().Setenv("GOOGLE_CLIENT_ID", "client")
+		GinkgoT().Setenv("GOOGLE_CLIENT_SECRET", "secret")
+		GinkgoT().Setenv("GOOGLE_REFRESH_TOKEN", "refresh")
 		GinkgoT().Setenv("GOOGLE_SHEETS_REPORT_TITLE", "Department report")
 		GinkgoT().Setenv("REPORT_RENDERER", "google-sheets")
 		loaded, err := config.Load()

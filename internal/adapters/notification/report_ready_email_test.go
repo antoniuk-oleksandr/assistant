@@ -16,6 +16,7 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
 	"github.com/alex/assistent/internal/platform/config"
 )
@@ -29,6 +30,18 @@ type fakeReportReadyTelegram struct {
 	destination string
 	message     string
 	err         error
+}
+
+type fakeReportReadyProfile struct{ classroomID string }
+
+func (f fakeReportReadyProfile) GetProfile(context.Context, string) (teacher.Profile, error) {
+	return teacher.Profile{ClassroomID: f.classroomID}, nil
+}
+
+type failingReportReadyProfile struct{}
+
+func (failingReportReadyProfile) GetProfile(context.Context, string) (teacher.Profile, error) {
+	return teacher.Profile{}, errors.New("profile unavailable")
 }
 
 func (f *fakeReportReadyTelegram) SendReportReady(_ context.Context, destination, message string) error {
@@ -246,7 +259,7 @@ func TestReportReadyNotifierRendersAndSendsThroughSMTP(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierSendsSameBodyToTelegramWhenPhoneIsConfigured(t *testing.T) {
+func TestReportReadyNotifierSendsSameBodyToPairedTelegramChat(t *testing.T) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
@@ -258,7 +271,7 @@ func TestReportReadyNotifierSendsSameBodyToTelegramWhenPhoneIsConfigured(t *test
 		client: email, from: "reports@example.com", template: templatePath, telegram: telegram,
 		recipients: fakeReportRecipients{
 			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
-			channels: map[int64][]teacher.Channel{1: {{Kind: "phone", Destination: "+380501234567", Status: teacher.Active}}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "telegram", Destination: "chat-1", Status: teacher.Active}}},
 		},
 	}
 	if err := notifier.Notify(context.Background(), report.Result{}, "https://sheet.example"); err != nil {
@@ -269,7 +282,59 @@ func TestReportReadyNotifierSendsSameBodyToTelegramWhenPhoneIsConfigured(t *test
 	}
 }
 
-func TestReportReadyNotifierSkipsTelegramWithoutPhone(t *testing.T) {
+func TestReportReadyNotifierSendsOnlyToClassroomAdministrator(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	email := &fakeSMTPSender{}
+	telegram := &fakeReportReadyTelegram{}
+	notifier := &ReportReadyNotifier{
+		client: email, from: "reports@example.com", template: templatePath, telegram: telegram,
+		profile: fakeReportReadyProfile{classroomID: "admin"},
+		recipients: fakeReportRecipients{
+			people: []teacher.Recipient{
+				{ID: 1, ClassroomID: "student", Email: "student@example.com", Status: teacher.Active},
+				{ID: 2, ClassroomID: "admin", Email: "admin@example.com", Status: teacher.Active},
+			},
+			channels: map[int64][]teacher.Channel{2: {{Kind: "telegram", Destination: "admin-chat", Status: teacher.Active}}},
+		},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
+		t.Fatal(err)
+	}
+	if email.to != "admin@example.com" || telegram.destination != "admin-chat" {
+		t.Fatalf("email recipient=%q Telegram destination=%q", email.to, telegram.destination)
+	}
+}
+
+func TestReportReadyNotifierReportsAdministratorLookupFailure(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{
+		client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath,
+		profile: failingReportReadyProfile{}, recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Status: teacher.Active}}},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "resolve report administrator") {
+		t.Fatalf("Notify() error = %v", err)
+	}
+}
+
+func TestNewReportReadyNotifierWithTelegramUsesConfiguredProfile(t *testing.T) {
+	notifier := NewReportReadyNotifierWithTelegramAndProfile(
+		config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"},
+		fakeReportRecipients{}, &fakeReportReadyTelegram{}, fakeReportReadyProfile{classroomID: "admin"},
+	)
+	if _, ok := notifier.(*ReportReadyNotifier); !ok {
+		t.Fatalf("notifier type = %T", notifier)
+	}
+}
+
+func TestReportReadyNotifierSkipsTelegramWithoutPairing(t *testing.T) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -299,7 +364,7 @@ func TestReportReadyNotifierReturnsTelegramError(t *testing.T) {
 		telegram: &fakeReportReadyTelegram{err: errors.New("telegram unavailable")},
 		recipients: fakeReportRecipients{
 			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
-			channels: map[int64][]teacher.Channel{1: {{Kind: "phone", Destination: "+380", Status: teacher.Active}}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "telegram", Destination: "chat-1", Status: teacher.Active}}},
 		},
 	}
 	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "send report Telegram message") {
@@ -320,6 +385,91 @@ func TestReportReadyNotifierReturnsChannelLookupError(t *testing.T) {
 	}
 	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "list report channels") {
 		t.Fatalf("Notify() error = %v", err)
+	}
+}
+
+func TestPreliminaryReportNotifierSendsMissingSummaryToEmailAndTelegram(t *testing.T) {
+	email := &fakeSMTPSender{}
+	telegram := &fakeReportReadyTelegram{}
+	notifier := &preliminaryReportNotifier{
+		client: email, from: "reports@example.com", telegram: telegram,
+		recipients: fakeReportRecipients{
+			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "telegram", Destination: "chat-1", Status: teacher.Active}}},
+		},
+	}
+	item := task.Task{Title: "Task 18"}
+	missing := []ports.MissingSubmitter{{Name: "Dmytro", Email: "dmytro@example.com"}}
+	if err := notifier.Notify(context.Background(), item, missing); err != nil {
+		t.Fatal(err)
+	}
+	if email.to != "admin@example.com" || !strings.Contains(email.body, "Dmytro <dmytro@example.com>") || telegram.message != email.body {
+		t.Fatalf("email=%#v telegram=%q", email, telegram.message)
+	}
+}
+
+func TestPreliminaryReportNotifierSaysEverybodySubmitted(t *testing.T) {
+	email := &fakeSMTPSender{}
+	notifier := &preliminaryReportNotifier{
+		client: email, from: "reports@example.com",
+		recipients: fakeReportRecipients{
+			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "telegram", Destination: "chat-1", Status: teacher.Active}}},
+		},
+	}
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task 18"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if email.body != "Everybody has already sent the files for Task 18." {
+		t.Fatalf("message=%q", email.body)
+	}
+}
+
+func TestPreliminaryReportNotifierRequiresTelegramBoundAdmin(t *testing.T) {
+	email := &fakeSMTPSender{}
+	notifier := &preliminaryReportNotifier{client: email, recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}}}}
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task 18"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if email.to != "" {
+		t.Fatalf("unexpected email recipient %q", email.to)
+	}
+}
+
+func TestPreliminaryReportNotifierPropagatesRecipientAndChannelErrors(t *testing.T) {
+	notifier := &preliminaryReportNotifier{
+		client:     &fakeSMTPSender{},
+		recipients: fakeReportRecipients{err: errors.New("recipient lookup failed")},
+	}
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err == nil || !strings.Contains(err.Error(), "list preliminary report recipients") {
+		t.Fatalf("recipient error = %v", err)
+	}
+	notifier.recipients = fakeReportRecipients{
+		people:     []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+		channelErr: errors.New("channel lookup failed"),
+	}
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err == nil || !strings.Contains(err.Error(), "list preliminary report channels") {
+		t.Fatalf("channel error = %v", err)
+	}
+}
+
+func TestPreliminaryReportNotifierPropagatesEmailError(t *testing.T) {
+	notifier := &preliminaryReportNotifier{
+		client: &fakeSMTPSender{err: errors.New("SMTP unavailable")},
+		recipients: fakeReportRecipients{
+			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "telegram", Destination: "chat-1", Status: teacher.Active}}},
+		},
+	}
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err == nil || !strings.Contains(err.Error(), "send preliminary summary email") {
+		t.Fatalf("email error = %v", err)
+	}
+}
+
+func TestNewPreliminaryReportNotifierDisablesWithoutSMTP(t *testing.T) {
+	notifier := NewPreliminaryReportNotifier(config.EmailConfig{}, nil, nil)
+	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err != nil {
+		t.Fatal(err)
 	}
 }
 

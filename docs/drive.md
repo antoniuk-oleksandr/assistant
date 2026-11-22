@@ -16,9 +16,9 @@ Set these values in the process environment or a private, untracked `.env`:
 
 | Variable | Value |
 | --- | --- |
-| `GOOGLE_DRIVE_OAUTH_CLIENT_ID` | Google OAuth client ID |
-| `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET` | Google OAuth client secret |
-| `GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN` | Offline refresh token authorized for both Drive scopes |
+| `GOOGLE_CLIENT_ID` | Shared Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Shared Google OAuth client secret |
+| `GOOGLE_REFRESH_TOKEN` | Offline refresh token authorized for the required Google APIs |
 | `GOOGLE_DRIVE_MATERIAL_DIR` | Optional private directory for local attachment snapshots |
 
 All three OAuth values are required together. Drive gets and refreshes access

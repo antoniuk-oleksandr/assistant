@@ -22,17 +22,22 @@ type ReportReadyNotifier struct {
 	template   string
 	recipients ports.TeacherRepository
 	telegram   ports.ReportReadyTelegramSender
+	profile    ports.ClassroomProfileSource
 }
 
 func NewReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepository) ports.ReportReadyNotifier {
-	return newReportReadyNotifier(cfg, recipients, nil)
+	return newReportReadyNotifier(cfg, recipients, nil, nil)
 }
 
 func NewReportReadyNotifierWithTelegram(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender) ports.ReportReadyNotifier {
-	return newReportReadyNotifier(cfg, recipients, telegram)
+	return newReportReadyNotifier(cfg, recipients, telegram, nil)
 }
 
-func newReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender) ports.ReportReadyNotifier {
+func NewReportReadyNotifierWithTelegramAndProfile(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender, profile ports.ClassroomProfileSource) ports.ReportReadyNotifier {
+	return newReportReadyNotifier(cfg, recipients, telegram, profile)
+}
+
+func newReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender, profile ports.ClassroomProfileSource) ports.ReportReadyNotifier {
 	if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
 		return noopReportReadyNotifier{}
 	}
@@ -40,7 +45,7 @@ func newReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepo
 	if from == "" {
 		from = cfg.SMTPUsername
 	}
-	return &ReportReadyNotifier{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from, template: resolveTemplatePath(cfg.TemplatePath), recipients: recipients, telegram: telegram}
+	return &ReportReadyNotifier{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from, template: resolveTemplatePath(cfg.TemplatePath), recipients: recipients, telegram: telegram, profile: profile}
 }
 
 func resolveTemplatePath(path string) string {
@@ -78,38 +83,53 @@ func (n *ReportReadyNotifier) Notify(ctx context.Context, _ report.Result, link 
 	if err != nil {
 		return fmt.Errorf("list report recipients: %w", err)
 	}
-	for _, person := range people {
-		if person.Status != teacher.Active {
-			continue
-		}
-		if person.Email == "" {
-			continue
-		}
-		if err := n.client.Send(ctx, n.from, person.Email, "Scientific activity report is ready", body); err != nil {
-			return fmt.Errorf("send report email to %s with Google SMTP: %w", person.Email, err)
+	admin, err := n.findAdministrator(ctx, people)
+	if err != nil {
+		return err
+	}
+	if admin.ID == 0 {
+		return nil
+	}
+	if admin.Email != "" {
+		if err := n.client.Send(ctx, n.from, admin.Email, "Scientific activity report is ready", body); err != nil {
+			return fmt.Errorf("send report email to %s with Google SMTP: %w", admin.Email, err)
 		}
 	}
 	if n.telegram != nil {
-		for _, person := range people {
-			if person.Status != teacher.Active {
-				continue
-			}
-			channels, err := n.recipients.ListActiveChannels(ctx, person.ID)
-			if err != nil {
-				return fmt.Errorf("list report channels for %d: %w", person.ID, err)
-			}
-			for _, channel := range channels {
-				if channel.Kind != "phone" || channel.Destination == "" {
-					continue
-				}
-				if err := n.telegram.SendReportReady(ctx, "", body); err != nil {
+		channels, err := n.recipients.ListActiveChannels(ctx, admin.ID)
+		if err != nil {
+			return fmt.Errorf("list report channels for %d: %w", admin.ID, err)
+		}
+		for _, channel := range channels {
+			if channel.Kind == "telegram" && channel.Destination != "" {
+				if err := n.telegram.SendReportReady(ctx, channel.Destination, body); err != nil {
 					return fmt.Errorf("send report Telegram message: %w", err)
 				}
-				return nil
+				break
 			}
 		}
 	}
 	return nil
+}
+
+func (n *ReportReadyNotifier) findAdministrator(ctx context.Context, people []teacher.Recipient) (teacher.Recipient, error) {
+	classroomID := ""
+	if n.profile != nil {
+		profile, err := n.profile.GetProfile(ctx, "me")
+		if err != nil {
+			return teacher.Recipient{}, fmt.Errorf("resolve report administrator: %w", err)
+		}
+		classroomID = profile.ClassroomID
+	}
+	for _, person := range people {
+		if person.Status != teacher.Active {
+			continue
+		}
+		if classroomID == "" || person.ClassroomID == classroomID {
+			return person, nil
+		}
+	}
+	return teacher.Recipient{}, nil
 }
 
 func (n *ReportReadyNotifier) renderMessage(link string) (string, error) {

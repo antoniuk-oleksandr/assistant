@@ -21,3 +21,10 @@ type Channel struct {
 	Status               Status
 	CreatedAt, UpdatedAt time.Time
 }
+
+type TelegramPairing struct {
+	ID, RecipientID int64
+	TokenHash       string
+	ExpiresAt       time.Time
+	UsedAt          *time.Time
+}

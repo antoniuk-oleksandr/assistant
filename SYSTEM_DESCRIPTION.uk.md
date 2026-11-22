@@ -595,7 +595,7 @@ teacher show <teacher-id>
 
 ```text
 teacher edit <teacher-id> --name "Нове Ім'я"
-teacher phone-set <teacher-id-or-classroom-user-id> --phone "+380..."
+teacher telegram-bind <teacher-id-or-classroom-user-id>
 ```
 
 #### Увімкнення та вимкнення
@@ -1124,7 +1124,7 @@ teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher phone-set <teacher-id-or-classroom-user-id> --phone <phone-number>
+teacher telegram-bind <teacher-id-or-classroom-user-id>
 ```
 
 Керування невдалими повідомленнями:

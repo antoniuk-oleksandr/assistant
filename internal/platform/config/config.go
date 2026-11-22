@@ -48,9 +48,10 @@ type EmailConfig struct {
 }
 
 type TelegramConfig struct {
-	Token   string
-	BaseURL string
-	ChatID  string
+	Token    string
+	Username string
+	BaseURL  string
+	ChatID   string
 }
 
 type DeadlineConfig struct {
@@ -127,17 +128,17 @@ func Load() (Config, error) {
 		Drive: DriveConfig{
 			BaseURL:      get("GOOGLE_DRIVE_BASE_URL"),
 			MaterialDir:  materialDir,
-			ClientID:     get("GOOGLE_DRIVE_OAUTH_CLIENT_ID"),
-			ClientSecret: get("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"),
-			RefreshToken: get("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN"),
+			ClientID:     get("GOOGLE_CLIENT_ID"),
+			ClientSecret: get("GOOGLE_CLIENT_SECRET"),
+			RefreshToken: get("GOOGLE_REFRESH_TOKEN"),
 		},
 		Sheets: SheetsConfig{
-			BaseURL: get("GOOGLE_SHEETS_BASE_URL"), ClientID: get("GOOGLE_SHEETS_OAUTH_CLIENT_ID"),
-			ClientSecret: get("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN"), Title: sheetTitle,
+			BaseURL: get("GOOGLE_SHEETS_BASE_URL"), ClientID: get("GOOGLE_CLIENT_ID"),
+			ClientSecret: get("GOOGLE_CLIENT_SECRET"), RefreshToken: get("GOOGLE_REFRESH_TOKEN"), Title: sheetTitle,
 		},
 		Report:   ReportConfig{Renderer: reportRenderer},
 		Email:    EmailConfig{SMTPHost: get("SMTP_HOST"), SMTPPort: smtpPort, SMTPUsername: get("SMTP_USERNAME"), SMTPPassword: get("SMTP_PASSWORD"), From: get("SMTP_FROM"), TemplatePath: templatePath},
-		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL"), ChatID: get("TELEGRAM_CHAT_ID")},
+		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), Username: get("TELEGRAM_BOT_USERNAME"), BaseURL: get("TELEGRAM_BASE_URL"), ChatID: get("TELEGRAM_CHAT_ID")},
 		Deadline: DeadlineConfig{PreliminaryBefore: preliminary, RefreshBefore: refresh},
 	}, nil
 }

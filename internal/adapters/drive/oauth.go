@@ -16,7 +16,7 @@ func newTokenSource(cfg config.DriveConfig, endpoint string, client *http.Client
 		return nil, nil
 	}
 	if cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.RefreshToken == "" {
-		return nil, errors.New("Drive OAuth requires GOOGLE_DRIVE_OAUTH_CLIENT_ID, GOOGLE_DRIVE_OAUTH_CLIENT_SECRET, and GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN")
+		return nil, errors.New("Drive OAuth requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN")
 	}
 	oauth := oauth2.Config{
 		ClientID:     cfg.ClientID,
