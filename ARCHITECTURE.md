@@ -57,8 +57,7 @@ report-system.exe course add <course-url-or-id>
 report-system.exe course remove <course-id>
 
 report-system.exe teacher list
-report-system.exe teacher add --email user@example.com --name "User Name" --classroom <course-id>
-report-system.exe teacher phone-set <classroom-user-id> --phone "+380..."
+report-system.exe teacher phone-set <teacher-id> --phone "+380..."
 
 report-system.exe notification retry <id>
 report-system.exe notification dlq list
@@ -271,10 +270,12 @@ Config
 │   ├── CourseID
 │   └── OAuthTokenPath
 ├── Email
-│   ├── ResendAPIKey
-│   ├── TargetEmail
+│   ├── SMTPHost
+│   ├── SMTPPort
+│   ├── SMTPUsername
+│   ├── SMTPPassword
 │   ├── From
-│   └── BaseURL
+│   └── TemplatePath
 ├── Telegram
 │   └── BotToken
 ├── Logging
@@ -638,7 +639,7 @@ Adapter
 Infrastructure adapter
 ```
 
-Domain defines ports. Application services use those ports, while Infrastructure integrations implement them. The Domain and Application layers do not depend on Google Classroom, SQLite, Resend, Telegram, or a particular parser library.
+Domain defines ports. Application services use those ports, while Infrastructure integrations implement them. The Domain and Application layers do not depend on Google Classroom, SQLite, Google SMTP, Telegram, or a particular parser library.
 
 For example:
 
@@ -666,7 +667,7 @@ The GoF Adapter is a concrete object that translates an external API or data mod
 
 - `GoogleClassroomAdapter` implements `SubmissionSource`;
 - `SQLiteScenarioRepository` implements `ScenarioRepository`;
-- `ResendNotificationAdapter` implements `ReportReadyNotifier`;
+- `GoogleSMTPNotificationAdapter` implements `ReportReadyNotifier`;
 - `TelegramNotificationAdapter` implements `NotificationProvider`.
 
 The adapter pattern is one implementation mechanism inside the broader Ports and Adapters architecture.
@@ -694,7 +695,7 @@ RetryingReportReadyNotifier
     ↓
 LoggingReportReadyNotifier
     ↓
-ResendNotificationAdapter
+GoogleSMTPNotificationAdapter
 ```
 
 The same approach can wrap Google clients with logging, metrics, or retry behavior without changing the underlying adapter.

@@ -39,10 +39,11 @@ type ReportConfig struct {
 }
 
 type EmailConfig struct {
-	APIKey       string
-	TargetEmail  string
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
 	From         string
-	BaseURL      string
 	TemplatePath string
 }
 
@@ -112,6 +113,14 @@ func Load() (Config, error) {
 	if templatePath == "" {
 		templatePath = "templates/report-ready-email.txt"
 	}
+	smtpPort := 587
+	if configuredPort := strings.TrimSpace(get("SMTP_PORT")); configuredPort != "" {
+		parsedPort, parseErr := strconv.Atoi(configuredPort)
+		if parseErr != nil || parsedPort < 1 || parsedPort > 65535 {
+			return Config{}, errors.New("SMTP_PORT must be a valid TCP port")
+		}
+		smtpPort = parsedPort
+	}
 	return Config{
 		Database: DatabaseConfig{SQLitePath: path},
 		Drive: DriveConfig{
@@ -126,7 +135,7 @@ func Load() (Config, error) {
 			ClientSecret: get("GOOGLE_SHEETS_OAUTH_CLIENT_SECRET"), RefreshToken: get("GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN"), Title: sheetTitle,
 		},
 		Report:   ReportConfig{Renderer: reportRenderer},
-		Email:    EmailConfig{APIKey: get("RESEND_API_KEY"), TargetEmail: get("REPORT_TARGET_EMAIL"), From: get("RESEND_FROM"), BaseURL: get("RESEND_BASE_URL"), TemplatePath: templatePath},
+		Email:    EmailConfig{SMTPHost: get("SMTP_HOST"), SMTPPort: smtpPort, SMTPUsername: get("SMTP_USERNAME"), SMTPPassword: get("SMTP_PASSWORD"), From: get("SMTP_FROM"), TemplatePath: templatePath},
 		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL")},
 		Deadline: DeadlineConfig{PreliminaryBefore: preliminary, RefreshBefore: refresh},
 	}, nil

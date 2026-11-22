@@ -72,6 +72,41 @@ func (mr *MockSubmissionSourceMockRecorder) ListTasks(arg0, arg1 any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockSubmissionSource)(nil).ListTasks), arg0, arg1)
 }
 
+// MockTaskCourseRegistrar is a mock of TaskCourseRegistrar interface.
+type MockTaskCourseRegistrar struct {
+	ctrl     *gomock.Controller
+	recorder *MockTaskCourseRegistrarMockRecorder
+}
+
+// MockTaskCourseRegistrarMockRecorder is the mock recorder for MockTaskCourseRegistrar.
+type MockTaskCourseRegistrarMockRecorder struct {
+	mock *MockTaskCourseRegistrar
+}
+
+// NewMockTaskCourseRegistrar creates a new mock instance.
+func NewMockTaskCourseRegistrar(ctrl *gomock.Controller) *MockTaskCourseRegistrar {
+	mock := &MockTaskCourseRegistrar{ctrl: ctrl}
+	mock.recorder = &MockTaskCourseRegistrarMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockTaskCourseRegistrar) EXPECT() *MockTaskCourseRegistrarMockRecorder {
+	return m.recorder
+}
+
+// RegisterTaskCourse mocks base method.
+func (m *MockTaskCourseRegistrar) RegisterTaskCourse(arg0, arg1 string) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterTaskCourse", arg0, arg1)
+}
+
+// RegisterTaskCourse indicates an expected call of RegisterTaskCourse.
+func (mr *MockTaskCourseRegistrarMockRecorder) RegisterTaskCourse(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterTaskCourse", reflect.TypeOf((*MockTaskCourseRegistrar)(nil).RegisterTaskCourse), arg0, arg1)
+}
+
 // MockIncrementalSubmissionSource is a mock of IncrementalSubmissionSource interface.
 type MockIncrementalSubmissionSource struct {
 	ctrl     *gomock.Controller

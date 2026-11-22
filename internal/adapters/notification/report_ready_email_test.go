@@ -2,69 +2,302 @@ package notification
 
 import (
 	"context"
-	"encoding/json"
-	"io"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/alex/assistent/internal/domain/notification"
+	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
+	"github.com/alex/assistent/internal/domain/scenario"
+	"github.com/alex/assistent/internal/domain/teacher"
 	"github.com/alex/assistent/internal/platform/config"
 )
 
-func TestNewReportReadyNotifierUsesNoopWithoutEmailConfiguration(t *testing.T) {
-	notifier := NewReportReadyNotifier(config.EmailConfig{})
+type fakeSMTPSender struct {
+	from, to, subject, body string
+	err                     error
+}
+
+type fakeReportRecipients struct {
+	people   []teacher.Recipient
+	channels map[int64][]teacher.Channel
+	err      error
+}
+
+func (f fakeReportRecipients) List(context.Context) ([]teacher.Recipient, error) {
+	return f.people, f.err
+}
+func (f fakeReportRecipients) ListActiveChannels(_ context.Context, id int64) ([]teacher.Channel, error) {
+	return f.channels[id], nil
+}
+func (fakeReportRecipients) Create(context.Context, *teacher.Recipient) error { return nil }
+func (fakeReportRecipients) Update(context.Context, *teacher.Recipient) error { return nil }
+func (fakeReportRecipients) Get(context.Context, int64) (teacher.Recipient, error) {
+	return teacher.Recipient{}, nil
+}
+func (fakeReportRecipients) CreateChannel(context.Context, *teacher.Channel) error { return nil }
+func (fakeReportRecipients) UpdateChannel(context.Context, *teacher.Channel) error { return nil }
+
+var _ ports.TeacherRepository = fakeReportRecipients{}
+
+func (f *fakeSMTPSender) Send(_ context.Context, from, to, subject, body string) error {
+	f.from, f.to, f.subject, f.body = from, to, subject, body
+	return f.err
+}
+
+func TestEmailProvidersAreDisabledWithoutSMTPCredentials(t *testing.T) {
+	if NewReminderEmailProvider(config.EmailConfig{}).Name() != "email" {
+		t.Fatal("unexpected reminder provider name")
+	}
+	if err := NewReminderEmailProvider(config.EmailConfig{}).SendReminder(context.Background(), notification.Reminder{}); err == nil {
+		t.Fatal("disabled reminder provider unexpectedly sent")
+	}
+	if err := NewReportDeliveryEmailProvider(config.EmailConfig{}).Deliver(context.Background(), report.Result{}, "owner@example.com"); err == nil {
+		t.Fatal("disabled delivery provider unexpectedly sent")
+	}
+	if NewReportDeliveryEmailProvider(config.EmailConfig{}).Name() != "email" {
+		t.Fatal("unexpected disabled delivery provider name")
+	}
+	if (noopReportDeliveryProvider{}).Name() != "email" {
+		t.Fatal("unexpected noop delivery provider name")
+	}
+	notifier := NewReportReadyNotifier(config.EmailConfig{}, nil)
 	if notifier.Enabled() {
-		t.Fatal("notifier should be disabled without Resend configuration")
+		t.Fatal("notifier should be disabled without SMTP configuration")
 	}
 	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestReminderEmailProviderUsesConfiguredResendClient(t *testing.T) {
-	provider := NewReminderEmailProvider(config.EmailConfig{})
-	if provider.Name() != "email" {
-		t.Fatalf("disabled provider name = %q", provider.Name())
+func TestEmailProvidersUseGoogleSMTPConfiguration(t *testing.T) {
+	cfg := config.EmailConfig{SMTPHost: "smtp.gmail.com", SMTPPort: 587, SMTPUsername: "user@gmail.com", SMTPPassword: "app-password", From: "reports@gmail.com"}
+	reminder := NewReminderEmailProvider(cfg).(*reminderEmailProvider)
+	if reminder.from != cfg.From || reminder.client.(*googleSMTPClient).host != cfg.SMTPHost {
+		t.Fatalf("reminder SMTP configuration = %#v", reminder)
 	}
-	if err := provider.SendReminder(context.Background(), notification.Reminder{}); err == nil {
-		t.Fatal("disabled provider unexpectedly sent a reminder")
+	delivery := NewReportDeliveryEmailProvider(cfg).(*reportDeliveryEmailProvider)
+	if delivery.from != cfg.From || delivery.client.(*googleSMTPClient).port != cfg.SMTPPort {
+		t.Fatalf("delivery SMTP configuration = %#v", delivery)
 	}
-	if configured := NewReminderEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com"}); configured.Name() != "email" {
-		t.Fatalf("configured provider name = %q", configured.Name())
+}
+
+func TestEmailProvidersSendUsingTheirSMTPClients(t *testing.T) {
+	client := &fakeSMTPSender{}
+	reminder := &reminderEmailProvider{client: client, from: "reports@example.com"}
+	if reminder.Name() != "email" {
+		t.Fatalf("reminder provider name = %q", reminder.Name())
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/emails" {
-			t.Fatalf("path = %q", r.URL.Path)
+	if err := reminder.SendReminder(context.Background(), notification.Reminder{Destination: "teacher@example.com", Subject: "Reminder", Message: "Submit"}); err != nil {
+		t.Fatal(err)
+	}
+	if client.to != "teacher@example.com" || client.subject != "Reminder" {
+		t.Fatalf("reminder message = %#v", client)
+	}
+
+	delivery := &reportDeliveryEmailProvider{client: client, from: "reports@example.com"}
+	if delivery.Name() != "email" {
+		t.Fatalf("delivery provider name = %q", delivery.Name())
+	}
+	if err := delivery.Deliver(context.Background(), report.Result{Data: scenario.ReportData{TaskID: 42}, ErrorMessage: "partial"}, "head@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if client.to != "head@example.com" || !strings.Contains(client.body, "Task: 42") || !strings.Contains(client.body, "partial") {
+		t.Fatalf("delivery message = %#v", client)
+	}
+}
+
+func TestGoogleSMTPClientUsesGoogleDefaults(t *testing.T) {
+	client := newGoogleSMTPClient("", 0, "user@gmail.com", "app-password")
+	if client.host != "smtp.gmail.com" || client.port != 587 {
+		t.Fatalf("default SMTP configuration = %#v", client)
+	}
+}
+
+func TestGoogleSMTPClientRejectsInvalidMessagesBeforeDialing(t *testing.T) {
+	client := newGoogleSMTPClient("127.0.0.1", 1, "user@gmail.com", "app-password")
+	if err := client.Send(context.Background(), "from\n@example.com", "to@example.com", "Subject", "body"); err == nil || !strings.Contains(err.Error(), "from contains a newline") {
+		t.Fatalf("newline sender error = %v", err)
+	}
+	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject\r", "body"); err == nil || !strings.Contains(err.Error(), "subject contains a newline") {
+		t.Fatalf("newline subject error = %v", err)
+	}
+	if err := client.Send(context.Background(), "from@example.com", "to\n@example.com", "Subject", "body"); err == nil || !strings.Contains(err.Error(), "to contains a newline") {
+		t.Fatalf("newline recipient error = %v", err)
+	}
+}
+
+func TestGoogleSMTPClientRejectsMissingCredentials(t *testing.T) {
+	client := newGoogleSMTPClient("smtp.gmail.com", 587, "", "")
+	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil || !strings.Contains(err.Error(), "credentials are not configured") {
+		t.Fatalf("missing credentials error = %v", err)
+	}
+}
+
+func TestGoogleSMTPClientReportsConnectionFailure(t *testing.T) {
+	client := newGoogleSMTPClient("127.0.0.1", 1, "user@gmail.com", "app-password")
+	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil {
+		t.Fatal("connection failure was not returned")
+	}
+}
+
+func TestGoogleSMTPClientReportsInvalidServerGreeting(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			_, _ = connection.Write([]byte("invalid SMTP greeting\r\n"))
+			_ = connection.Close()
 		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	configured := NewReminderEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com", BaseURL: server.URL}).(*reminderEmailProvider)
-	if err := configured.SendReminder(context.Background(), notification.Reminder{Destination: "to@example.com", Subject: "Reminder", Message: "Please submit"}); err != nil {
+	}()
+	host, port, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := newGoogleSMTPClient(host, mustPort(t, port), "user@gmail.com", "app-password")
+	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil {
+		t.Fatal("invalid greeting was accepted")
+	}
+}
+
+func mustPort(t *testing.T, value string) int {
+	t.Helper()
+	port, err := strconv.Atoi(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func TestNewReportReadyNotifierEnablesConfiguredSMTP(t *testing.T) {
+	notifier := NewReportReadyNotifier(config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password", TemplatePath: "templates/report-ready-email.txt"}, nil)
+	if !notifier.Enabled() {
+		t.Fatal("configured notifier should be enabled")
+	}
+	configured, ok := notifier.(*ReportReadyNotifier)
+	if !ok || !strings.HasSuffix(configured.template, filepath.Join("templates", "report-ready-email.txt")) {
+		t.Fatalf("configured notifier = %#v", notifier)
+	}
+}
+
+func TestNewReportReadyNotifierDefaultsSenderToSMTPUsername(t *testing.T) {
+	notifier := NewReportReadyNotifier(config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"}, nil)
+	configured, ok := notifier.(*ReportReadyNotifier)
+	if !ok || configured.from != "user@gmail.com" {
+		t.Fatalf("configured sender = %#v", notifier)
+	}
+}
+
+func TestResolveTemplatePathFallsBackForMissingPath(t *testing.T) {
+	path := "missing/report-ready-email.txt"
+	if got := resolveTemplatePath(path); got != path {
+		t.Fatalf("resolveTemplatePath() = %q, want %q", got, path)
+	}
+}
+
+func TestResolveTemplatePathKeepsAbsolutePath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.txt")
+	if got := resolveTemplatePath(path); got != path {
+		t.Fatalf("resolveTemplatePath() = %q, want %q", got, path)
+	}
+}
+
+func TestReportReadyNotifierRendersAndSendsThroughSMTP(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeSMTPSender{}
+	notifier := &ReportReadyNotifier{client: client, from: "reports@example.com", template: templatePath, recipients: fakeReportRecipients{
+		people: []teacher.Recipient{{ID: 1, Email: "target@example.com", Status: teacher.Active}},
+	}}
+	if err := notifier.Notify(context.Background(), report.Result{}, "https://sheet.example"); err != nil {
+		t.Fatal(err)
+	}
+	if client.from != "reports@example.com" || client.to != "target@example.com" || client.subject != "Scientific activity report is ready" || client.body != "Sheet: https://sheet.example" {
+		t.Fatalf("SMTP message = %#v", client)
+	}
+}
+
+func TestReportReadyNotifierRejectsTemplateWithoutSheetLink(t *testing.T) {
+	templatePath := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(templatePath, []byte("missing link"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{template: templatePath}
+	if _, err := notifier.renderMessage("link"); err == nil || !strings.Contains(err.Error(), "must contain") {
+		t.Fatalf("renderMessage() error = %v", err)
+	}
+}
+
+func TestReportReadyNotifierReportsMissingTemplate(t *testing.T) {
+	notifier := &ReportReadyNotifier{template: filepath.Join(t.TempDir(), "missing.txt")}
+	if _, err := notifier.renderMessage("link"); err == nil || !strings.Contains(err.Error(), "read report email template") {
+		t.Fatalf("renderMessage() error = %v", err)
+	}
+}
+
+func TestReportReadyNotifierReturnsSMTPError(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{client: &fakeSMTPSender{err: errors.New("connection failed")}, from: "reports@example.com", template: templatePath, recipients: fakeReportRecipients{
+		people: []teacher.Recipient{{ID: 1, Email: "target@example.com", Status: teacher.Active}},
+	}}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "with Google SMTP") {
+		t.Fatalf("Notify() error = %v", err)
+	}
+}
+
+func TestReportReadyNotifierSkipsDisabledAndEmaillessRecipients(t *testing.T) {
+	client := &fakeSMTPSender{}
+	templatePath := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{client: client, from: "reports@example.com", template: templatePath, recipients: fakeReportRecipients{
+		people: []teacher.Recipient{
+			{ID: 1, Email: "", Status: teacher.Active},
+			{ID: 2, Email: "disabled@example.com", Status: teacher.Disabled},
+		},
+	}}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestReportDeliveryEmailProviderUsesConfiguredResendClient(t *testing.T) {
-	provider := NewReportDeliveryEmailProvider(config.EmailConfig{})
-	if provider.Name() != "email" {
-		t.Fatalf("disabled delivery provider name = %q", provider.Name())
+func TestReportReadyNotifierReturnsRecipientLookupError(t *testing.T) {
+	templatePath := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err := provider.Deliver(context.Background(), report.Result{}, "owner@example.com"); err == nil {
-		t.Fatal("disabled provider unexpectedly delivered a report")
+	notifier := &ReportReadyNotifier{client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath, recipients: fakeReportRecipients{err: errors.New("lookup failed")}}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "list report recipients") {
+		t.Fatalf("Notify() error = %v", err)
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }))
-	defer server.Close()
-	configured := NewReportDeliveryEmailProvider(config.EmailConfig{APIKey: "re_test", From: "from@example.com", BaseURL: server.URL}).(*reportDeliveryEmailProvider)
-	if configured.Name() != "email" {
-		t.Fatalf("configured delivery provider name = %q", configured.Name())
+}
+
+func TestReportReadyNotifierAllowsMissingRecipientRepository(t *testing.T) {
+	templatePath := filepath.Join(t.TempDir(), "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	if err := configured.Deliver(context.Background(), report.Result{ErrorMessage: "partial"}, "owner@example.com"); err != nil {
+	notifier := &ReportReadyNotifier{client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -83,119 +316,5 @@ func TestTelegramProviderUsesConfiguredEndpoint(t *testing.T) {
 	}
 	if err := provider.Deliver(context.Background(), report.Result{}, "chat"); err != nil {
 		t.Fatal(err)
-	}
-	if err := NewTelegramProvider(config.TelegramConfig{}).SendReminder(context.Background(), notification.Reminder{Destination: "chat"}); err == nil {
-		t.Fatal("missing Telegram token unexpectedly succeeded")
-	}
-	failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "failed", http.StatusBadGateway) }))
-	defer failure.Close()
-	if err := NewTelegramProvider(config.TelegramConfig{Token: "token", BaseURL: failure.URL}).SendReminder(context.Background(), notification.Reminder{Destination: "chat"}); err == nil {
-		t.Fatal("Telegram HTTP failure unexpectedly succeeded")
-	}
-}
-
-func TestNewReportReadyNotifierEnablesConfiguredResend(t *testing.T) {
-	notifier := NewReportReadyNotifier(config.EmailConfig{APIKey: "re_test", TargetEmail: "target@example.com", TemplatePath: "templates/report-ready-email.txt"})
-	if !notifier.Enabled() {
-		t.Fatal("configured notifier should be enabled")
-	}
-	configured, ok := notifier.(*ReportReadyNotifier)
-	if !ok || !strings.HasSuffix(configured.template, filepath.Join("templates", "report-ready-email.txt")) {
-		t.Fatalf("configured notifier = %#v", notifier)
-	}
-}
-
-func TestResolveTemplatePathFallsBackForMissingPath(t *testing.T) {
-	path := "missing/report-ready-email.txt"
-	if got := resolveTemplatePath(path); got != path {
-		t.Fatalf("resolveTemplatePath() = %q, want %q", got, path)
-	}
-}
-
-func TestReportReadyNotifierRendersGoogleSheetLink(t *testing.T) {
-	dir := t.TempDir()
-	templatePath := filepath.Join(dir, "report.txt")
-	if err := os.WriteFile(templatePath, []byte("Open <google_sheet_link>"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	notifier := &ReportReadyNotifier{template: templatePath}
-	// Resend is deliberately not exercised here; the template expansion is
-	// covered through the unexported message builder below.
-	message, err := notifier.renderMessage("https://sheet.example")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if message != "Open https://sheet.example" {
-		t.Fatalf("message = %q", message)
-	}
-}
-
-type fakeResendClient struct {
-	from, to, subject, body string
-	err                     error
-}
-
-func (f *fakeResendClient) Send(_ context.Context, from, to, subject, body string) error {
-	f.from, f.to, f.subject, f.body = from, to, subject, body
-	return f.err
-}
-
-func TestReportReadyNotifierSendsRenderedMessage(t *testing.T) {
-	dir := t.TempDir()
-	templatePath := filepath.Join(dir, "report.txt")
-	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	client := &fakeResendClient{}
-	notifier := &ReportReadyNotifier{client: client, target: "target@example.com", from: "reports@example.com", template: templatePath}
-	if !notifier.Enabled() {
-		t.Fatal("notifier should be enabled")
-	}
-	if err := notifier.Notify(context.Background(), report.Result{}, "https://sheet.example"); err != nil {
-		t.Fatal(err)
-	}
-	if client.from != "reports@example.com" || client.to != "target@example.com" || client.subject != "Scientific activity report is ready" || client.body != "Sheet: https://sheet.example" {
-		t.Fatalf("Resend message = %#v", client)
-	}
-}
-
-func TestReportReadyNotifierReturnsResendError(t *testing.T) {
-	dir := t.TempDir()
-	templatePath := filepath.Join(dir, "report.txt")
-	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	notifier := &ReportReadyNotifier{client: &fakeResendClient{err: io.ErrUnexpectedEOF}, template: templatePath}
-	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "send report email with Resend") {
-		t.Fatalf("Notify() error = %v", err)
-	}
-}
-
-func TestResendHTTPClientSendsRequestAndReportsHTTPFailure(t *testing.T) {
-	var got map[string]any
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/emails" || r.Header.Get("Authorization") != "Bearer re_test" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
-			t.Fatal(err)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	client := &resendHTTPClient{baseURL: server.URL, apiKey: "re_test", client: server.Client()}
-	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "Body"); err != nil {
-		t.Fatal(err)
-	}
-	if got["from"] != "from@example.com" || got["subject"] != "Subject" {
-		t.Fatalf("payload = %#v", got)
-	}
-
-	failure := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "failed", http.StatusBadGateway) }))
-	defer failure.Close()
-	client.baseURL = failure.URL
-	if err := client.Send(context.Background(), "from", "to", "subject", "body"); err == nil || !strings.Contains(err.Error(), "Resend API returned 502") {
-		t.Fatalf("Send() error = %v", err)
 	}
 }

@@ -555,16 +555,13 @@ Teachers are identified primarily by the email address of their Google account. 
 ```text
 teacher list
 teacher show <teacher-id>
-teacher add --email <email> --name <name> --course <course-id>
 teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher channel add <teacher-id> --type email --address <address>
-teacher channel add <teacher-id> --type telegram --chat-id <chat-id>
+teacher phone-set <teacher-id> --phone <phone-number>
 teacher channel enable <channel-id>
 teacher channel disable <channel-id>
-teacher phone-set <classroom-user-id> --phone "+380..."
 ```
 
 Notification providers share one interface:
@@ -627,9 +624,11 @@ Secrets and machine-specific values are loaded from environment variables, typic
 ```text
 GOOGLE_CREDENTIALS_PATH
 GOOGLE_CLASSROOM_ID
-RESEND_API_KEY
-REPORT_TARGET_EMAIL
-RESEND_FROM
+SMTP_HOST
+SMTP_PORT
+SMTP_USERNAME
+SMTP_PASSWORD
+SMTP_FROM
 REPORT_READY_EMAIL_TEMPLATE
 REMINDER_TEMPLATE_PATH
 TELEGRAM_BOT_TOKEN
@@ -638,14 +637,16 @@ SQLITE_DATABASE_PATH
 LOG_DIRECTORY
 ```
 
-After a Google Sheet is generated, the configured target email receives a
-report-ready email through Resend. Its body is
+After a Google Sheet is generated, each active Classroom participant with an
+email address receives a report-ready email through Google SMTP. Its body is
 loaded from `templates/report-ready-email.txt` unless
 `REPORT_READY_EMAIL_TEMPLATE` is set. The `<google_sheet_link>` tag is replaced
-with the generated Sheet URL. `RESEND_FROM` must be a verified Resend sender
-address (or `onboarding@resend.dev` for Resend account-owner testing);
-`REPORT_TARGET_EMAIL` is the recipient and `RESEND_BASE_URL` defaults to
-`https://api.resend.com`.
+with the generated Sheet URL. Configure a Google app password in
+`SMTP_PASSWORD`, use `smtp.gmail.com` on port `587`, and set `SMTP_FROM` to
+the authenticated Gmail address (or leave it empty to use `SMTP_USERNAME`).
+Report recipients come from active Classroom participants stored in SQLite;
+their email addresses are populated by the Classroom API. Phone channels are
+stored separately for phone-based contact workflows.
 
 Telegram delivery uses `TELEGRAM_BOT_TOKEN` and defaults to
 `https://api.telegram.org`; `TELEGRAM_BASE_URL` can point to a test server.
@@ -654,7 +655,7 @@ disabled by configuration in local tests and no external calls are made unless
 credentials are present.
 
 At the three-day-before-deadline phase, missing roster participants receive one
-Resend email reminder when their profile has an email address. The reminder
+Google SMTP email reminder when their profile has an email address. The reminder
 contains the task title, due date, remaining time, and Classroom task link. Its
 default template is `templates/missing-submission-reminder.txt`; the path can be
 overridden with `REMINDER_TEMPLATE_PATH`. Reminder records retain the rendered

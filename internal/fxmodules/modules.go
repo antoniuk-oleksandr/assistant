@@ -34,6 +34,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	application.NewReminderService,
 	application.NewHeadNotificationService,
 	application.NewDeliveryService,
+	fx.Annotate(application.NewTeacherService, fx.As(new(cli.TeacherPhoneService)), fx.As(new(cli.TeacherListService))),
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewReportService, fx.As(new(cli.ReportService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
@@ -54,10 +55,12 @@ type pollingDeadlineParams struct {
 	fx.In
 	Service  *application.PollingService
 	Deadline config.DeadlineConfig
+	Teachers ports.TeacherRepository `optional:"true"`
 }
 
 func configurePollingDeadlines(params pollingDeadlineParams) {
 	params.Service.SetDeadlineWindows(task.DeadlineWindows{PreliminaryBefore: params.Deadline.PreliminaryBefore, RefreshBefore: params.Deadline.RefreshBefore})
+	params.Service.SetTeacherRepository(params.Teachers)
 }
 
 func configuredDeliveryProviders(email config.EmailConfig, telegram config.TelegramConfig) []ports.ResultDeliveryProvider {
@@ -68,7 +71,7 @@ func newMaterialParsing() *application.MaterialParsing {
 	return application.NewMaterialParsingWithAnalyzer(parser.NewMaterialAnalyzer(), parser.Strategies()...)
 }
 
-var CLIModule = fx.Module("cli", fx.Provide(cli.NewReportCommand, cli.NewClassroomCommandWithTasks, cli.NewTeacherCommand, cli.NewRootCommandWithClassroomAndTeacher))
+var CLIModule = fx.Module("cli", fx.Provide(cli.NewReportCommand, cli.NewClassroomCommandWithTasks, cli.NewTeacherCommandWithPhone, cli.NewRootCommandWithClassroomAndTeacher))
 
 func compiledScenarios() scenario.Registry {
 	return scenario.NewRegistryWithProcessors(

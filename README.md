@@ -82,9 +82,8 @@ REPORT_REFRESH_BEFORE=1d
 
 ```
 
-For fast local testing, set `REPORT_PRELIMINARY_BEFORE=5m` and
-`REPORT_REFRESH_BEFORE=2m`. The scheduler will wait for those exact deadline
-offsets.
+For fast local testing, set `REPORT_PRELIMINARY_BEFORE=2m` and
+`REPORT_REFRESH_BEFORE=1m`. The scheduler waits for those exact deadline offsets.
 
 ### Google Sheets OAuth
 
@@ -98,25 +97,38 @@ The three values must belong to the same OAuth client and authorized Google acco
 
 ### Report-ready email
 
-When Resend is configured, the application sends a report-ready email to the
-configured target address after creating a Google Sheet. The message body is read from
+When Google SMTP is configured, the application sends a report-ready email to each
+active Classroom participant with an email address after creating a Google Sheet. The message body is read from
 `templates/report-ready-email.txt` by default, and the
 `<google_sheet_link>` tag is replaced with the generated Sheet URL.
 
-Create the API key in the [Resend API keys dashboard](https://resend.com/api-keys).
-For testing, `onboarding@resend.dev` can be used as the sender to the Resend
-account owner. For other recipients, verify a sending domain in Resend and use
-an address from that domain in `RESEND_FROM`. `RESEND_BASE_URL` is optional and
-defaults to `https://api.resend.com`.
+Enable 2-Step Verification for the Google account and create a Google app
+password. Google SMTP uses STARTTLS on port 587.
 
 ```env
-RESEND_API_KEY=...
-REPORT_TARGET_EMAIL=owner@example.com
-RESEND_FROM=onboarding@resend.dev
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=sender@gmail.com
+SMTP_PASSWORD=your-google-app-password
+SMTP_FROM=sender@gmail.com
 # Optional custom template:
 # REPORT_READY_EMAIL_TEMPLATE=templates/report-ready-email.txt
 # Optional missing-submission reminder template:
 # REMINDER_TEMPLATE_PATH=templates/missing-submission-reminder.txt
+```
+
+Report recipients are not configured in `.env`. Google Classroom participants
+are synchronized automatically, including their email addresses. Active
+participants with an email address receive the generated report.
+
+Google Classroom participants are synchronized into the local teacher directory
+during polling. Add a phone channel to an automatically discovered participant:
+
+```bash
+go run ./cmd/assistent teacher list
+
+go run ./cmd/assistent teacher phone-set <teacher-id> \\
+  --phone "+380..."
 ```
 
 During the three-day-before-deadline polling phase, the application creates one
@@ -199,13 +211,14 @@ go run ./cmd/assistent course remove <course-id>
 
 The current Cobra CLI exposes `report`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
 
-To register a teacher's phone without manually entering their email, resolve the Classroom profile by stable user ID:
+To register a teacher's phone without manually entering their email, first list the synchronized Classroom teachers and use the local teacher ID:
 
 ```bash
-go run ./cmd/assistent teacher phone-set <classroom-user-id> --phone "+380..."
+go run ./cmd/assistent teacher list
+go run ./cmd/assistent teacher phone-set <teacher-id> --phone "+380..."
 ```
 
-The command requires the OAuth scope `https://www.googleapis.com/auth/classroom.profile.emails`, stores the resolved name and email, and creates the phone notification channel atomically.
+Teacher names and emails are synchronized from the Classroom API. The command only stores or updates the phone notification channel for the selected teacher.
 
 ## First-time setup
 

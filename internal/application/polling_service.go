@@ -10,6 +10,7 @@ import (
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	"github.com/alex/assistent/internal/domain/teacher"
 )
 
 const DefaultPollInterval = 24 * time.Hour
@@ -32,8 +33,15 @@ type PollingService struct {
 	missing      ports.MissingSubmitterRepository
 	reminders    *ReminderService
 	head         *HeadNotificationService
+	teachers     ports.TeacherRepository
 	deadlines    task.DeadlineWindows
 	clock        func() time.Time
+}
+
+// SetTeacherRepository enables automatic synchronization of Classroom roster
+// members into the local notification directory.
+func (s *PollingService) SetTeacherRepository(repository ports.TeacherRepository) {
+	s.teachers = repository
 }
 
 func NewPollingService(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository) *PollingService {
@@ -207,21 +215,26 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 			return fmt.Errorf("store task %q: %w", item.ExternalID, err)
 		}
 	}
-	if s.participants != nil {
+	if s.participants != nil || s.teachers != nil {
 		participantSource, ok := s.source.(ports.ParticipantSource)
 		if ok {
-			persisted, listErr := s.tasks.List(ctx)
+			roster, listErr := participantSource.ListParticipants(ctx, courseID)
 			if listErr != nil {
-				return fmt.Errorf("list tasks for participant roster: %w", listErr)
+				return fmt.Errorf("list Classroom participants for course %q: %w", courseID, listErr)
 			}
-			for _, item := range items {
-				stored := findTask(persisted, item.Provider, item.CourseID, item.ExternalID)
-				roster, listErr := participantSource.ListParticipants(ctx, item.CourseID)
+			if err := s.syncTeachers(ctx, roster); err != nil {
+				return err
+			}
+			if s.participants != nil {
+				persisted, listErr := s.tasks.List(ctx)
 				if listErr != nil {
-					return fmt.Errorf("list participants for task %q: %w", item.ExternalID, listErr)
+					return fmt.Errorf("list tasks for participant roster: %w", listErr)
 				}
-				if err := s.participants.Replace(ctx, stored.ID, roster); err != nil {
-					return fmt.Errorf("store participants for task %q: %w", item.ExternalID, err)
+				for _, item := range items {
+					stored := findTask(persisted, item.Provider, item.CourseID, item.ExternalID)
+					if err := s.participants.Replace(ctx, stored.ID, roster); err != nil {
+						return fmt.Errorf("store participants for task %q: %w", item.ExternalID, err)
+					}
 				}
 			}
 		}
@@ -263,6 +276,45 @@ func (s *PollingService) refreshCourseSince(ctx context.Context, courseID string
 		}
 	}
 	return nil
+}
+
+func (s *PollingService) syncTeachers(ctx context.Context, roster []task.Participant) error {
+	if s.teachers == nil {
+		return nil
+	}
+	existing, err := s.teachers.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list persisted Classroom contacts: %w", err)
+	}
+	for _, participant := range roster {
+		current := findTeacherByClassroomID(existing, participant.ExternalID)
+		if current.ID == 0 {
+			current = teacher.Recipient{Name: participant.Name, Email: participant.Email, ClassroomID: participant.ExternalID, Status: teacher.Active, CreatedAt: s.clock(), UpdatedAt: s.clock()}
+			if err := s.teachers.Create(ctx, &current); err != nil {
+				return fmt.Errorf("store Classroom contact %q: %w", participant.ExternalID, err)
+			}
+			existing = append(existing, current)
+			continue
+		}
+		changed := current.Name != participant.Name || current.Email != participant.Email
+		if !changed {
+			continue
+		}
+		current.Name, current.Email, current.UpdatedAt = participant.Name, participant.Email, s.clock()
+		if err := s.teachers.Update(ctx, &current); err != nil {
+			return fmt.Errorf("update Classroom contact %q: %w", participant.ExternalID, err)
+		}
+	}
+	return nil
+}
+
+func findTeacherByClassroomID(items []teacher.Recipient, classroomID string) teacher.Recipient {
+	for _, item := range items {
+		if item.ClassroomID == classroomID {
+			return item
+		}
+	}
+	return teacher.Recipient{}
 }
 
 func shouldProcessPreliminaryReport(item task.Task) bool {
@@ -309,7 +361,7 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 	if err := s.reconcileMissing(ctx, item.ID, items); err != nil {
 		return err
 	}
-	if s.reminders != nil && item.Phase == task.PhaseThreeDaysBefore {
+	if s.reminders != nil && (item.Phase == task.PhaseThreeDaysBefore || item.Phase == task.PhaseOneDayBefore) {
 		if err := s.scheduleMissingReminders(ctx, item); err != nil {
 			return err
 		}

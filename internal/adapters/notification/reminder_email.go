@@ -3,8 +3,6 @@ package notification
 import (
 	"context"
 	"errors"
-	"net/http"
-	"strings"
 
 	"github.com/alex/assistent/internal/domain/notification"
 	"github.com/alex/assistent/internal/domain/ports"
@@ -12,21 +10,21 @@ import (
 )
 
 type reminderEmailProvider struct {
-	client resendClient
+	client smtpSender
 	from   string
 }
 
-// NewReminderEmailProvider adapts Resend to the domain reminder port. An empty
+// NewReminderEmailProvider adapts Google SMTP to the domain reminder port. An empty
 // configuration returns a disabled provider so local polling remains usable.
 func NewReminderEmailProvider(cfg config.EmailConfig) ports.ReminderProvider {
-	if cfg.APIKey == "" || cfg.From == "" {
+	if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
 		return noopReminderProvider{}
 	}
-	baseURL := cfg.BaseURL
-	if baseURL == "" {
-		baseURL = "https://api.resend.com"
+	from := cfg.From
+	if from == "" {
+		from = cfg.SMTPUsername
 	}
-	return &reminderEmailProvider{client: &resendHTTPClient{baseURL: strings.TrimRight(baseURL, "/"), apiKey: cfg.APIKey, client: http.DefaultClient}, from: cfg.From}
+	return &reminderEmailProvider{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from}
 }
 
 func (p *reminderEmailProvider) Name() string { return "email" }
@@ -39,5 +37,5 @@ type noopReminderProvider struct{}
 
 func (noopReminderProvider) Name() string { return "email" }
 func (noopReminderProvider) SendReminder(context.Context, notification.Reminder) error {
-	return errors.New("Resend reminder email is not configured")
+	return errors.New("Google SMTP reminder email is not configured")
 }

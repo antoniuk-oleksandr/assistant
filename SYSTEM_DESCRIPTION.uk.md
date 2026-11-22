@@ -595,8 +595,7 @@ teacher show <teacher-id>
 
 ```text
 teacher edit <teacher-id> --name "Нове Ім'я"
-teacher channel add <teacher-id> --type email --address "new@example.com"
-teacher channel edit <channel-id> --address "updated@example.com"
+teacher phone-set <teacher-id> --phone "+380..."
 ```
 
 #### Увімкнення та вимкнення
@@ -1120,15 +1119,11 @@ classroom remove <course-id>
 ```text
 teacher list
 teacher show <teacher-id>
-teacher add --email <email> --name <name> --classroom <course-id>
 teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher channel add <teacher-id> --type email --address <address>
-teacher channel add <teacher-id> --type telegram --chat-id <chat-id>
-teacher channel enable <channel-id>
-teacher channel disable <channel-id>
+teacher phone-set <teacher-id> --phone <phone-number>
 ```
 
 Керування невдалими повідомленнями:
