@@ -50,6 +50,7 @@ type EmailConfig struct {
 type TelegramConfig struct {
 	Token   string
 	BaseURL string
+	ChatID  string
 }
 
 type DeadlineConfig struct {
@@ -136,7 +137,7 @@ func Load() (Config, error) {
 		},
 		Report:   ReportConfig{Renderer: reportRenderer},
 		Email:    EmailConfig{SMTPHost: get("SMTP_HOST"), SMTPPort: smtpPort, SMTPUsername: get("SMTP_USERNAME"), SMTPPassword: get("SMTP_PASSWORD"), From: get("SMTP_FROM"), TemplatePath: templatePath},
-		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL")},
+		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), BaseURL: get("TELEGRAM_BASE_URL"), ChatID: get("TELEGRAM_CHAT_ID")},
 		Deadline: DeadlineConfig{PreliminaryBefore: preliminary, RefreshBefore: refresh},
 	}, nil
 }

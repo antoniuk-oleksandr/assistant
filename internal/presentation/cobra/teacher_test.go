@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/alex/assistent/internal/application"
@@ -21,10 +22,17 @@ type teacherContactStub struct {
 type teacherDirectoryStub struct {
 	teachers []teacher.Recipient
 	err      error
+	course   string
+	phone    string
 }
 
-func (s teacherDirectoryStub) List(context.Context) ([]teacher.Recipient, error) {
-	return s.teachers, s.err
+func (s *teacherDirectoryStub) ListForCourse(_ context.Context, course string) ([]application.TeacherDirectoryEntry, error) {
+	s.course = course
+	entries := make([]application.TeacherDirectoryEntry, 0, len(s.teachers))
+	for _, item := range s.teachers {
+		entries = append(entries, application.TeacherDirectoryEntry{Recipient: item, Phone: s.phone})
+	}
+	return entries, s.err
 }
 
 type teacherPhoneStub struct {
@@ -34,6 +42,15 @@ type teacherPhoneStub struct {
 }
 
 func (s *teacherPhoneStub) SetPhone(_ context.Context, id int64, phone string) (teacher.Channel, error) {
+	s.id, s.phone = id, phone
+	return teacher.Channel{RecipientID: id, Destination: phone}, s.err
+}
+
+func (s *teacherPhoneStub) SetPhoneByIdentifier(_ context.Context, identifier, phone string) (teacher.Channel, error) {
+	var id int64
+	if _, err := fmt.Sscan(identifier, &id); err != nil {
+		return teacher.Channel{}, err
+	}
 	s.id, s.phone = id, phone
 	return teacher.Channel{RecipientID: id, Destination: phone}, s.err
 }
@@ -72,14 +89,15 @@ func TestTeacherPhoneSetCommandPropagatesErrorsAndRequiresPhone(t *testing.T) {
 
 func TestTeacherCommandWithPhoneListsTeachersAndSetsPhone(t *testing.T) {
 	phone := &teacherPhoneStub{}
-	command := cli.NewTeacherCommandWithPhone(phone, teacherDirectoryStub{teachers: []teacher.Recipient{{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "classroom-1"}}})
+	directory := &teacherDirectoryStub{phone: "+380501234567", teachers: []teacher.Recipient{{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "classroom-1"}}}
+	command := cli.NewTeacherCommandWithPhone(phone, directory)
 	var output bytes.Buffer
 	command.SetOut(&output)
-	command.SetArgs([]string{"list"})
+	command.SetArgs([]string{"list", "course-1"})
 	if err := command.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(output.Bytes(), []byte("TEACHER ID  NAME  EMAIL  CLASSROOM ID")) || !bytes.Contains(output.Bytes(), []byte("teacher@example.com")) {
+	if directory.course != "course-1" || !bytes.Contains(output.Bytes(), []byte("TEACHER ID  NAME  EMAIL  PHONE  CLASSROOM ID")) || !bytes.Contains(output.Bytes(), []byte("teacher@example.com")) || !bytes.Contains(output.Bytes(), []byte("+380501234567")) {
 		t.Fatalf("list output=%q", output.String())
 	}
 	command.SetArgs([]string{"phone-set", "4", "--phone", "+380501234567"})
@@ -91,15 +109,29 @@ func TestTeacherCommandWithPhoneListsTeachersAndSetsPhone(t *testing.T) {
 	}
 }
 
+func TestTeacherCommandWithPhoneShowsEmptyForMissingPhone(t *testing.T) {
+	command := cli.NewTeacherCommandWithPhone(&teacherPhoneStub{}, &teacherDirectoryStub{teachers: []teacher.Recipient{{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "classroom-1"}}})
+	var output bytes.Buffer
+	command.SetOut(&output)
+	command.SetArgs([]string{"list", "course-1"})
+	if err := command.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(output.Bytes(), []byte("teacher@example.com  empty  classroom-1")) {
+		t.Fatalf("list output=%q", output.String())
+	}
+}
+
 func TestTeacherCommandWithPhoneValidatesIDAndDirectoryErrors(t *testing.T) {
-	command := cli.NewTeacherCommandWithPhone(&teacherPhoneStub{}, teacherDirectoryStub{err: errors.New("directory unavailable")})
-	command.SetArgs([]string{"list"})
+	directory := &teacherDirectoryStub{err: errors.New("directory unavailable")}
+	command := cli.NewTeacherCommandWithPhone(&teacherPhoneStub{}, directory)
+	command.SetArgs([]string{"list", "course-1"})
 	if err := command.Execute(); err == nil || err.Error() != "directory unavailable" {
 		t.Fatalf("directory error=%v", err)
 	}
-	command = cli.NewTeacherCommandWithPhone(&teacherPhoneStub{}, teacherDirectoryStub{})
+	command = cli.NewTeacherCommandWithPhone(&teacherPhoneStub{}, &teacherDirectoryStub{})
 	command.SetArgs([]string{"phone-set", "not-an-id", "--phone", "+380501234567"})
-	if err := command.Execute(); err == nil || err.Error() != "teacher-id must be a positive integer" {
+	if err := command.Execute(); err == nil || err.Error() != "expected integer" {
 		t.Fatalf("ID error=%v", err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
 	"strings"
 	"testing"
@@ -127,6 +128,14 @@ func TestTeacherServiceSetsPhoneForExistingTeacher(t *testing.T) {
 	}
 }
 
+func TestTeacherServiceSetsPhoneByClassroomUserID(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4, ClassroomID: "112268369295214899572"}}
+	channel, err := application.NewTeacherService(repo).SetPhoneByIdentifier(context.Background(), "112268369295214899572", "+380507465019")
+	if err != nil || channel.RecipientID != 4 || channel.Destination != "+380507465019" {
+		t.Fatalf("channel=%#v err=%v", channel, err)
+	}
+}
+
 func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T) {
 	service := application.NewTeacherService(&teacherRepo{})
 	if _, err := service.SetPhone(context.Background(), 0, "+380501234567"); err == nil {
@@ -146,6 +155,40 @@ func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T
 type profileSourceStub struct {
 	profile teacher.Profile
 	err     error
+}
+
+type participantSourceStub struct {
+	participants map[string][]task.Participant
+	courses      []string
+}
+
+func (s *participantSourceStub) ListParticipants(_ context.Context, courseID string) ([]task.Participant, error) {
+	s.courses = append(s.courses, courseID)
+	return s.participants[courseID], nil
+}
+
+func TestTeacherServiceListsOnlyRequestedCourseAndReusesGlobalPhone(t *testing.T) {
+	repo := &teacherRepo{
+		value:    teacher.Recipient{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "user-1"},
+		channels: []teacher.Channel{{RecipientID: 4, Kind: "phone", Destination: "+380501234567", Status: teacher.Active}},
+	}
+	people := &participantSourceStub{participants: map[string][]task.Participant{
+		"123": {{ExternalID: "user-1", Name: "Teacher", Email: "teacher@example.com"}},
+		"456": {{ExternalID: "user-1", Name: "Teacher", Email: "teacher@example.com"}},
+	}}
+	service := application.NewTeacherServiceWithDirectory(repo, people)
+
+	first, err := service.ListForCourse(context.Background(), "123")
+	if err != nil || len(first) != 1 || first[0].Phone != "+380501234567" {
+		t.Fatalf("first course entries=%#v err=%v", first, err)
+	}
+	second, err := service.ListForCourse(context.Background(), "456")
+	if err != nil || len(second) != 1 || second[0].Recipient.ID != 4 || second[0].Phone != "+380501234567" {
+		t.Fatalf("second course entries=%#v err=%v", second, err)
+	}
+	if len(people.courses) != 2 || people.courses[0] != "123" || people.courses[1] != "456" {
+		t.Fatalf("requested courses=%v", people.courses)
+	}
 }
 
 func (s profileSourceStub) GetProfile(context.Context, string) (teacher.Profile, error) {

@@ -14,8 +14,8 @@ import (
 )
 
 type telegramProvider struct {
-	token, baseURL string
-	client         *http.Client
+	token, baseURL, chatID string
+	client                 *http.Client
 }
 
 func NewTelegramProvider(cfg config.TelegramConfig) *telegramProvider {
@@ -23,17 +23,28 @@ func NewTelegramProvider(cfg config.TelegramConfig) *telegramProvider {
 	if baseURL == "" {
 		baseURL = "https://api.telegram.org"
 	}
-	return &telegramProvider{token: cfg.Token, baseURL: strings.TrimRight(baseURL, "/"), client: http.DefaultClient}
+	return &telegramProvider{token: cfg.Token, baseURL: strings.TrimRight(baseURL, "/"), chatID: cfg.ChatID, client: http.DefaultClient}
 }
 
 func (p *telegramProvider) Name() string { return "telegram" }
 
 func (p *telegramProvider) SendReminder(ctx context.Context, item notification.Reminder) error {
-	return p.send(ctx, item.Destination, item.Subject+"\n\n"+item.Message)
+	return p.send(ctx, p.destination(item.Destination), item.Subject+"\n\n"+item.Message)
 }
 
 func (p *telegramProvider) Deliver(ctx context.Context, result report.Result, destination string) error {
-	return p.send(ctx, destination, fmt.Sprintf("Final scientific activity report is ready for task %d.", result.Data.TaskID))
+	return p.send(ctx, p.destination(destination), fmt.Sprintf("Final scientific activity report is ready for task %d.", result.Data.TaskID))
+}
+
+func (p *telegramProvider) SendReportReady(ctx context.Context, destination, message string) error {
+	return p.send(ctx, p.destination(destination), message)
+}
+
+func (p *telegramProvider) destination(destination string) string {
+	if strings.TrimSpace(destination) != "" {
+		return destination
+	}
+	return p.chatID
 }
 
 func (p *telegramProvider) send(ctx context.Context, chatID, text string) error {
@@ -62,3 +73,4 @@ func (p *telegramProvider) send(ctx context.Context, chatID, text string) error 
 
 var _ ports.ReminderProvider = (*telegramProvider)(nil)
 var _ ports.ResultDeliveryProvider = (*telegramProvider)(nil)
+var _ ports.ReportReadyTelegramSender = (*telegramProvider)(nil)

@@ -25,6 +25,17 @@ type fakeSMTPSender struct {
 	err                     error
 }
 
+type fakeReportReadyTelegram struct {
+	destination string
+	message     string
+	err         error
+}
+
+func (f *fakeReportReadyTelegram) SendReportReady(_ context.Context, destination, message string) error {
+	f.destination, f.message = destination, message
+	return f.err
+}
+
 type fakeReportRecipients struct {
 	people   []teacher.Recipient
 	channels map[int64][]teacher.Channel
@@ -228,6 +239,48 @@ func TestReportReadyNotifierRendersAndSendsThroughSMTP(t *testing.T) {
 	}
 	if client.from != "reports@example.com" || client.to != "target@example.com" || client.subject != "Scientific activity report is ready" || client.body != "Sheet: https://sheet.example" {
 		t.Fatalf("SMTP message = %#v", client)
+	}
+}
+
+func TestReportReadyNotifierSendsSameBodyToTelegramWhenPhoneIsConfigured(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	email := &fakeSMTPSender{}
+	telegram := &fakeReportReadyTelegram{}
+	notifier := &ReportReadyNotifier{
+		client: email, from: "reports@example.com", template: templatePath, telegram: telegram,
+		recipients: fakeReportRecipients{
+			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "phone", Destination: "+380501234567", Status: teacher.Active}}},
+		},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "https://sheet.example"); err != nil {
+		t.Fatal(err)
+	}
+	if email.body != "Sheet: https://sheet.example" || telegram.message != email.body {
+		t.Fatalf("email=%q telegram=%q", email.body, telegram.message)
+	}
+}
+
+func TestReportReadyNotifierSkipsTelegramWithoutPhone(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	telegram := &fakeReportReadyTelegram{}
+	notifier := &ReportReadyNotifier{
+		client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath, telegram: telegram,
+		recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}}},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err != nil {
+		t.Fatal(err)
+	}
+	if telegram.message != "" {
+		t.Fatalf("unexpected Telegram message %q", telegram.message)
 	}
 }
 

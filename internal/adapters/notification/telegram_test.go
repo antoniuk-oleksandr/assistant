@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,23 @@ func TestTelegramProviderSendsReminderAndDelivery(t *testing.T) {
 	}
 	if requests != 2 {
 		t.Fatalf("requests = %d, want 2", requests)
+	}
+}
+
+func TestTelegramProviderUsesConfiguredChatIDWhenDestinationIsEmpty(t *testing.T) {
+	var requestBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "-1001234567890"})
+	if err := provider.SendReminder(context.Background(), notification.Reminder{Subject: "subject", Message: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(requestBody, `"chat_id":"-1001234567890"`) {
+		t.Fatalf("request body = %s", requestBody)
 	}
 }
 

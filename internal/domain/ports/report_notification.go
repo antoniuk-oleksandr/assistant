@@ -13,3 +13,7 @@ type ReportReadyNotifier interface {
 	Enabled() bool
 	Notify(context.Context, report.Result, string) error
 }
+
+type ReportReadyTelegramSender interface {
+	SendReportReady(context.Context, string, string) error
+}
