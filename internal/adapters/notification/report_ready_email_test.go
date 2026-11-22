@@ -37,15 +37,19 @@ func (f *fakeReportReadyTelegram) SendReportReady(_ context.Context, destination
 }
 
 type fakeReportRecipients struct {
-	people   []teacher.Recipient
-	channels map[int64][]teacher.Channel
-	err      error
+	people     []teacher.Recipient
+	channels   map[int64][]teacher.Channel
+	err        error
+	channelErr error
 }
 
 func (f fakeReportRecipients) List(context.Context) ([]teacher.Recipient, error) {
 	return f.people, f.err
 }
 func (f fakeReportRecipients) ListActiveChannels(_ context.Context, id int64) ([]teacher.Channel, error) {
+	if f.channelErr != nil {
+		return nil, f.channelErr
+	}
 	return f.channels[id], nil
 }
 func (fakeReportRecipients) Create(context.Context, *teacher.Recipient) error { return nil }
@@ -281,6 +285,41 @@ func TestReportReadyNotifierSkipsTelegramWithoutPhone(t *testing.T) {
 	}
 	if telegram.message != "" {
 		t.Fatalf("unexpected Telegram message %q", telegram.message)
+	}
+}
+
+func TestReportReadyNotifierReturnsTelegramError(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{
+		client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath,
+		telegram: &fakeReportReadyTelegram{err: errors.New("telegram unavailable")},
+		recipients: fakeReportRecipients{
+			people:   []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}},
+			channels: map[int64][]teacher.Channel{1: {{Kind: "phone", Destination: "+380", Status: teacher.Active}}},
+		},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "send report Telegram message") {
+		t.Fatalf("Notify() error = %v", err)
+	}
+}
+
+func TestReportReadyNotifierReturnsChannelLookupError(t *testing.T) {
+	dir := t.TempDir()
+	templatePath := filepath.Join(dir, "report.txt")
+	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	notifier := &ReportReadyNotifier{
+		client: &fakeSMTPSender{}, from: "reports@example.com", template: templatePath,
+		telegram:   &fakeReportReadyTelegram{},
+		recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}}, channelErr: errors.New("channel lookup failed")},
+	}
+	if err := notifier.Notify(context.Background(), report.Result{}, "link"); err == nil || !strings.Contains(err.Error(), "list report channels") {
+		t.Fatalf("Notify() error = %v", err)
 	}
 }
 
