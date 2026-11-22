@@ -73,6 +73,12 @@ GOOGLE_REFRESH_TOKEN=fixture-refresh
 		Expect(err).To(MatchError("SQLITE_DATABASE_PATH must be a non-empty file path"))
 	})
 
+	It("rejects a path containing a NUL byte", func() {
+		Expect(os.WriteFile(".env", []byte(config.SQLitePathEnv+"=state\x00.db\n"), 0600)).To(Succeed())
+		_, err := config.Load()
+		Expect(err).To(MatchError("SQLITE_DATABASE_PATH must be a non-empty file path"))
+	})
+
 	It("loads Google Sheets report settings", func() {
 		GinkgoT().Setenv("GOOGLE_SHEETS_BASE_URL", "https://sheets.example.invalid/v4")
 		GinkgoT().Setenv("GOOGLE_CLIENT_ID", "client")
@@ -106,10 +112,13 @@ GOOGLE_REFRESH_TOKEN=fixture-refresh
 		Expect(config.Email(loaded)).To(Equal(config.EmailConfig{SMTPHost: "smtp.gmail.com", SMTPPort: 587, SMTPUsername: "sender@gmail.com", SMTPPassword: "app-password", From: "reports@gmail.com", TemplatePath: "templates/report-ready-email.txt"}))
 	})
 
-	It("rejects an invalid SMTP port", func() {
-		GinkgoT().Setenv("SMTP_PORT", "not-a-port")
-		_, err := config.Load()
-		Expect(err).To(MatchError("SMTP_PORT must be a valid TCP port"))
+	It("rejects invalid SMTP port values", func() {
+		for _, value := range []string{"not-a-port", "0", "65536"} {
+			GinkgoT().Setenv("SMTP_PORT", value)
+			_, err := config.Load()
+			Expect(err).To(MatchError("SMTP_PORT must be a valid TCP port"))
+			GinkgoT().Setenv("SMTP_PORT", "")
+		}
 	})
 
 	It("loads minute-scale deadline windows", func() {
@@ -134,6 +143,14 @@ GOOGLE_REFRESH_TOKEN=fixture-refresh
 		Expect(err).To(MatchError("REPORT_PRELIMINARY_BEFORE must be a duration such as 3d or 72h"))
 		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
 		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "6m")
+		_, err = config.Load()
+		Expect(err).To(MatchError("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE"))
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "-1d")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "1m")
+		_, err = config.Load()
+		Expect(err).To(MatchError("REPORT_PRELIMINARY_BEFORE must be a duration such as 3d or 72h"))
+		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "5m")
+		GinkgoT().Setenv("REPORT_REFRESH_BEFORE", "-1s")
 		_, err = config.Load()
 		Expect(err).To(MatchError("REPORT_REFRESH_BEFORE must be a duration no greater than REPORT_PRELIMINARY_BEFORE"))
 		GinkgoT().Setenv("REPORT_PRELIMINARY_BEFORE", "0d")

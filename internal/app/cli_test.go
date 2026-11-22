@@ -5,9 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/alex/assistent/internal/app"
 	"github.com/alex/assistent/internal/platform/config"
+	"github.com/alex/assistent/internal/platform/locking"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -44,6 +46,21 @@ var _ = Describe("RunCLI", func() {
 		canceled, cancel := context.WithCancel(ctx)
 		cancel()
 		Expect(app.RunCLI(canceled, nil)).NotTo(Succeed())
+	})
+
+	It("returns an error when another process owns the application lock", func(ctx SpecContext) {
+		path := filepath.Join(GinkgoT().TempDir(), "state.db")
+		Expect(os.Setenv(config.SQLitePathEnv, path)).To(Succeed())
+		lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: path})
+		Expect(lock.Acquire()).To(Succeed())
+		DeferCleanup(lock.Release)
+		Expect(app.RunCLI(ctx, nil)).To(MatchError(ContainSubstring("ApplicationAlreadyRunning")))
+	})
+
+	It("runs the scheduled application until its context is canceled", func(ctx SpecContext) {
+		short, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		defer cancel()
+		Expect(app.RunCLI(short, nil)).To(Succeed())
 	})
 
 	It("returns a command error for an unknown CLI command", func(ctx SpecContext) {

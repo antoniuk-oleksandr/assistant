@@ -37,6 +37,25 @@ var _ = Describe("Material analyzer", func() {
 		}
 	})
 
+	It("classifies remaining MIME and extension formats", func() {
+		analyzer := parser.NewMaterialAnalyzer()
+		for _, tc := range []struct {
+			name, mime, want string
+		}{
+			{"photo", "image/jpeg", "image"},
+			{"notes", "text/csv", "text_document"},
+			{"report", "application/pdf", "pdf_document"},
+			{"sheet", "application/vnd.google-apps.spreadsheet", "spreadsheet"},
+			{"letter", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "word_document"},
+			{"table.csv", "application/octet-stream", "csv_document"},
+			{"archive.bin", "application/octet-stream", "bin_document"},
+		} {
+			proposal, err := analyzer.Analyze(context.Background(), submission.Material{Name: tc.name, MIMEType: tc.mime}, submission.ParseContext{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(proposal.DocumentType).To(Equal(tc.want), tc.name)
+		}
+	})
+
 	It("uses the remaining scenario and role classifications", func() {
 		analyzer := parser.NewMaterialAnalyzer()
 		cases := []struct {

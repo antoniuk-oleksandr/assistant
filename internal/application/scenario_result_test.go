@@ -51,12 +51,15 @@ type resultOutputRepository struct{ err error }
 
 func (r resultOutputRepository) Create(context.Context, ports.ReportOutput) error { return r.err }
 
-type reportReadyNotifierSpy struct{ calls int }
+type reportReadyNotifierSpy struct {
+	calls int
+	err   error
+}
 
 func (n *reportReadyNotifierSpy) Enabled() bool { return true }
 func (n *reportReadyNotifierSpy) Notify(context.Context, report.Result, string) error {
 	n.calls++
-	return nil
+	return n.err
 }
 
 func TestScenarioCollectionServicePersistsPartialResult(t *testing.T) {
@@ -160,6 +163,18 @@ func TestScenarioCollectionServiceDoesNotNotifyForFailedResult(t *testing.T) {
 	}
 	if notifier.calls != 0 {
 		t.Fatalf("report-ready notifications = %d, want 0", notifier.calls)
+	}
+}
+
+func TestScenarioCollectionServiceLogsReportReadyNotificationFailure(t *testing.T) {
+	notifier := &reportReadyNotifierSpy{err: errors.New("notification failed")}
+	service := application.NewScenarioCollectionServiceWithReportNotifier(
+		collectionSubmissionRepository{}, &collectionRunRepository{}, resultRenderer{}, resultOutputRepository{}, nil, nil, notifier,
+	)
+	if _, err := service.Process(context.Background(), 3, 7, &collectionProcessor{
+		result: scenario.ProcessResult{Outcome: scenario.Completed, ReportData: &scenario.ReportData{}},
+	}); err != nil {
+		t.Fatalf("Process() error = %v", err)
 	}
 }
 

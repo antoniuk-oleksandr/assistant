@@ -33,7 +33,6 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	compiledScenarios,
 	application.NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders,
 	application.NewReminderService,
-	application.NewHeadNotificationService,
 	application.NewDeliveryService,
 	application.NewTelegramPairingService,
 	fx.Annotate(application.NewTeacherServiceWithDirectoryAndTelegram, fx.As(new(cli.TeacherListService)), fx.As(new(cli.TelegramPairingService))),

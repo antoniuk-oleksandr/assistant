@@ -51,6 +51,13 @@ var _ = Describe("SQLite task bindings", func() {
 		Expect(courseBindings.Bind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("find active scenario")))
 		Expect(courseBindings.Unbind(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("database is closed")))
 		Expect(courseBindings.List(ctx, "scenario")).Error().To(MatchError(ContainSubstring("list scenario course bindings")))
+		Expect(courseData.Set(ctx, "scenario", "course-1", map[string]string{"field": "value"})).Error().To(MatchError(ContainSubstring("find active scenario course")))
+		Expect(courseData.List(ctx, "scenario", "course-1")).Error().To(MatchError(ContainSubstring("list scenario course data")))
+		Expect(scenarios.Create(ctx, scenario.Implementation{Name: "scenario", Type: "type"})).Error().To(MatchError(ContainSubstring("register scenario")))
+		Expect(scenarios.List(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
+		Expect(scenarios.ListActive(ctx)).Error().To(MatchError(ContainSubstring("list scenarios")))
+		Expect(scenarios.SetStatus(ctx, "scenario", scenario.Active)).Error().To(MatchError(ContainSubstring("set status for")))
+		Expect(scenarios.Remove(ctx, "scenario")).Error().To(MatchError(ContainSubstring("begin transaction")))
 	})
 
 	It("registers assignments idempotently and only returns active bindings", func(ctx SpecContext) {

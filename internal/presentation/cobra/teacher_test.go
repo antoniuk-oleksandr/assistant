@@ -32,6 +32,19 @@ func (s *teacherPairingStub) CreateTelegramPairing(context.Context, string) (str
 	return s.link, nil
 }
 
+type failingTeacherWriter struct{}
+
+func (failingTeacherWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
+
+type rejectingTeacherWriter struct{ value string }
+
+func (w rejectingTeacherWriter) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte(w.value)) {
+		return 0, errors.New("row output failed")
+	}
+	return len(data), nil
+}
+
 func TestTeacherListCommand(t *testing.T) {
 	directory := &teacherDirectoryStub{teachers: []teacher.Recipient{{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "classroom-1"}}}
 	command := cli.NewTeacherCommand(&teacherPairingStub{}, directory)
@@ -64,5 +77,29 @@ func TestTeacherCommandPropagatesDirectoryErrors(t *testing.T) {
 	command.SetArgs([]string{"list", "course-1"})
 	if err := command.Execute(); err == nil || err.Error() != "directory unavailable" {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestTeacherCommandsPropagateOutputErrors(t *testing.T) {
+	command := cli.NewTeacherCommand(&teacherPairingStub{link: "link"}, &teacherDirectoryStub{teachers: []teacher.Recipient{{ID: 1}}})
+	command.SetOut(failingTeacherWriter{})
+	command.SetArgs([]string{"list", "course-1"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("teacher list ignored output failure")
+	}
+	command = cli.NewTeacherCommand(&teacherPairingStub{link: "link"}, &teacherDirectoryStub{})
+	command.SetOut(failingTeacherWriter{})
+	command.SetArgs([]string{"telegram-bind", "1"})
+	if err := command.Execute(); err == nil {
+		t.Fatal("telegram bind ignored output failure")
+	}
+}
+
+func TestTeacherCommandsPropagateRowOutputErrors(t *testing.T) {
+	command := cli.NewTeacherCommand(&teacherPairingStub{}, &teacherDirectoryStub{teachers: []teacher.Recipient{{ID: 1, Name: "Teacher"}}})
+	command.SetOut(rejectingTeacherWriter{value: "Teacher"})
+	command.SetArgs([]string{"list", "course-1"})
+	if err := command.Execute(); err == nil || err.Error() != "row output failed" {
+		t.Fatalf("teacher row error=%v", err)
 	}
 }

@@ -152,4 +152,11 @@ var _ = Describe("classroom commands", func() {
 		command.SetArgs([]string{"tasks", "123"})
 		Expect(command.Execute()).To(MatchError("task list failed"))
 	})
+
+	It("propagates discovered task output errors", func() {
+		command := cli.NewClassroomCommandWithTasks(&classroomServiceStub{}, &courseTaskServiceStub{items: []application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}}})
+		command.SetOut(rejectOutputWriter{rejected: "task-1"})
+		command.SetArgs([]string{"tasks", "123"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
+	})
 })

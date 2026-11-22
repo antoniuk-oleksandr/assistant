@@ -75,6 +75,20 @@ type fakeTemplateUploader struct {
 	path  string
 }
 
+type sheetsOnlyClient struct{}
+
+func (sheetsOnlyClient) CreateSpreadsheet(context.Context, string) (string, error) {
+	return "sheet", nil
+}
+func (sheetsOnlyClient) AddSheets(context.Context, string, []string) error          { return nil }
+func (sheetsOnlyClient) WriteValues(context.Context, string, string, [][]any) error { return nil }
+
+type sheetsWriterWithoutClearer struct{ sheetsOnlyClient }
+
+func (sheetsWriterWithoutClearer) WriteRanges(context.Context, string, []sheetValueRange) error {
+	return nil
+}
+
 func (f *fakeTemplateUploader) UploadSpreadsheet(_ context.Context, title, path string) (string, error) {
 	f.title, f.path = title, path
 	if f.err != nil {
@@ -188,6 +202,15 @@ func TestGoogleSheetsReportRendererTemplateErrors(t *testing.T) {
 	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "Drive write access") {
 		t.Fatalf("missing uploader error = %v", err)
 	}
+	base.client = sheetsOnlyClient{}
+	base.uploader = &fakeTemplateUploader{id: "sheet"}
+	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "cell updates") {
+		t.Fatalf("missing writer error = %v", err)
+	}
+	base.client = sheetsWriterWithoutClearer{}
+	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "cell clearing") {
+		t.Fatalf("missing clearer error = %v", err)
+	}
 }
 
 func loadTemplateLayoutFromPath(t *testing.T, path string) (map[int]int, []int, [][]any) {
@@ -201,6 +224,9 @@ func loadTemplateLayoutFromPath(t *testing.T, path string) (map[int]int, []int, 
 }
 
 func TestConfiguredReportRendererSelectsExplicitLocalArtifact(t *testing.T) {
+	if renderer, err := NewConfiguredReportRenderer(config.Config{}); err != nil || renderer == nil {
+		t.Fatalf("default renderer = %v %T", err, renderer)
+	}
 	renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "local-xlsx"}})
 	if err != nil {
 		t.Fatal(err)
@@ -217,6 +243,13 @@ func TestConfiguredReportRendererSelectsGoogleSheets(t *testing.T) {
 	}
 	if _, ok := renderer.(*GoogleSheetsReportRenderer); !ok {
 		t.Fatalf("renderer type = %T", renderer)
+	}
+}
+
+func TestConfiguredReportRendererReportsDriveConfigurationErrors(t *testing.T) {
+	_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, Drive: config.DriveConfig{ClientID: "client"}})
+	if err == nil || !strings.Contains(err.Error(), "Google Drive OAuth requires") {
+		t.Fatalf("Drive configuration error = %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,9 +38,13 @@ func TestRetryServiceUsesDelaysAndMovesExhaustedFailuresToDLQ(t *testing.T) {
 }
 
 func TestRetryServiceUsesProductionConstructor(t *testing.T) {
-	service := application.NewRetryService(&reminderRepository{}, []ports.ReminderProvider{})
+	repository := &reminderRepository{items: []notification.Reminder{{ID: 1, Channel: "email", Status: notification.Failed}}}
+	service := application.NewRetryService(repository, []ports.ReminderProvider{&reminderProvider{name: "email"}})
 	if service == nil {
 		t.Fatal("NewRetryService() returned nil")
+	}
+	if _, err := service.Retry(context.Background(), 1); err != nil {
+		t.Fatalf("Retry() with production clock: %v", err)
 	}
 }
 
@@ -82,5 +87,13 @@ func TestRetryServiceReportsRepositoryFailures(t *testing.T) {
 	service = application.NewRetryServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
 	if _, err := service.Retry(context.Background(), 1); err == nil || err.Error() != "persist retry result: write failed" {
 		t.Fatalf("update error=%v", err)
+	}
+}
+
+func TestRetryServiceStopsBulkRetryOnItemFailure(t *testing.T) {
+	repository := &reminderRepository{items: []notification.Reminder{{ID: 1, Channel: "missing", Status: notification.Failed}}}
+	service := application.NewRetryServiceWithClock(repository, nil, func() time.Time { return time.Now().UTC() })
+	if _, err := service.RetryAll(context.Background()); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("RetryAll() error = %v", err)
 	}
 }

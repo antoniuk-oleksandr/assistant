@@ -118,6 +118,19 @@ var _ = Describe("SQLite submission repository", func() {
 		Expect(err).To(MatchError(ContainSubstring("list submissions: sql: database is closed")))
 	})
 
+	It("reports malformed submission rows while listing", func(ctx SpecContext) {
+		_, err := db.ExecContext(ctx, `INSERT INTO tasks
+			(provider, external_task_id, course_id, title, discovered_at, last_seen_at, status)
+			VALUES ('google-classroom', 'task-malformed', 'course-1', 'Report', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'discovered')`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = db.ExecContext(ctx, `INSERT INTO submissions
+			(task_id, external_submission_id, state, late, first_seen_at, last_seen_at)
+			VALUES (1, 'submission-malformed', 'new', 'not-a-bool', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')`)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = repo.ListByTask(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("scan submission")))
+	})
+
 	It("rolls back a snapshot replacement and submission update when another material fails to persist", func(ctx SpecContext) {
 		Expect(storage.NewTaskRepository(db).Register(ctx, task.Task{Provider: "google-classroom", ExternalID: "task-1", CourseID: "course-1", Title: "Report"})).To(Succeed())
 		size := int64(100)

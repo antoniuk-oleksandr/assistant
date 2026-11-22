@@ -18,7 +18,8 @@ func TestTeacherRepositoryRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	var db *sql.DB
 	var repo ports.TeacherRepository
-	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository), fx.Populate(&db, &repo))
+	var pairings ports.TelegramPairingRepository
+	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository, storage.NewTelegramPairingRepository), fx.Populate(&db, &repo, &pairings))
 	if err := app.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -92,13 +93,20 @@ func TestTelegramPairingRepositoryRoundTrip(t *testing.T) {
 	if err != nil || got.UsedAt == nil {
 		t.Fatalf("consumed pairing=%#v err=%v", got, err)
 	}
+	if err := pairings.ConsumeTelegramPairing(ctx, pairing.ID, now); err != ports.ErrTeacherNotFound {
+		t.Fatalf("second consume error = %v", err)
+	}
+	if _, err := pairings.GetTelegramPairing(ctx, "missing"); err == nil {
+		t.Fatal("missing pairing unexpectedly found")
+	}
 }
 
 func TestTeacherRepositoryReportsMissingAndClosedDatabase(t *testing.T) {
 	ctx := context.Background()
 	var db *sql.DB
 	var repo ports.TeacherRepository
-	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository), fx.Populate(&db, &repo))
+	var pairings ports.TelegramPairingRepository
+	app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}), fx.Provide(database.NewSQLite, storage.NewTeacherRepository, storage.NewTelegramPairingRepository), fx.Populate(&db, &repo, &pairings))
 	if err := app.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +134,17 @@ func TestTeacherRepositoryReportsMissingAndClosedDatabase(t *testing.T) {
 	}
 	if err := repo.CreateChannel(ctx, &teacher.Channel{RecipientID: 1, Kind: "email", Destination: "x", Status: teacher.Active, CreatedAt: time.Now()}); err == nil {
 		t.Fatal("closed channel create unexpectedly succeeded")
+	}
+	if _, err := repo.Get(ctx, 1); err == nil {
+		t.Fatal("closed teacher get unexpectedly succeeded")
+	}
+	if err := pairings.CreateTelegramPairing(ctx, &teacher.TelegramPairing{RecipientID: 1, TokenHash: "hash", ExpiresAt: time.Now()}); err == nil {
+		t.Fatal("closed pairing create unexpectedly succeeded")
+	}
+	if _, err := pairings.GetTelegramPairing(ctx, "hash"); err == nil {
+		t.Fatal("closed pairing get unexpectedly succeeded")
+	}
+	if err := pairings.ConsumeTelegramPairing(ctx, 1, time.Now()); err == nil {
+		t.Fatal("closed pairing consume unexpectedly succeeded")
 	}
 }

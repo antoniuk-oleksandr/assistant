@@ -168,6 +168,17 @@ func TestTeacherServiceListsOnlyRequestedCourse(t *testing.T) {
 	}
 }
 
+func TestTeacherServiceDeduplicatesParticipantsWithinCourse(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4, Name: "Teacher", ClassroomID: "user-1"}}
+	people := &participantSourceStub{participants: map[string][]task.Participant{
+		"123": {{ExternalID: "user-1", Name: "Teacher"}, {ExternalID: "user-1", Name: "Teacher"}},
+	}}
+	items, err := application.NewTeacherServiceWithDirectory(repo, people).ListForCourse(context.Background(), "123")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+}
+
 func TestTeacherServiceListForCoursePropagatesDirectoryErrors(t *testing.T) {
 	ctx := context.Background()
 	if _, err := application.NewTeacherService(&teacherRepo{}).ListForCourse(ctx, "123"); err == nil {

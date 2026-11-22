@@ -73,6 +73,18 @@ type collectionProcessor struct {
 	input  scenario.Collection
 }
 
+type collectionCourseDataRepository struct{ err error }
+
+func (r collectionCourseDataRepository) Set(context.Context, string, string, map[string]string) error {
+	return r.err
+}
+func (r collectionCourseDataRepository) List(context.Context, string, string) ([]scenario.CourseDataField, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return []scenario.CourseDataField{{Name: "department_name", Value: "Science"}}, nil
+}
+
 func (p *collectionProcessor) Process(input scenario.Collection) (scenario.ProcessResult, error) {
 	p.input = input
 	return p.result, p.err
@@ -163,6 +175,26 @@ func TestScenarioCollectionServiceReportsExistingRunLookupFailure(t *testing.T) 
 	_, err := service.Process(context.Background(), 3, 7, &collectionProcessor{})
 	if err == nil || !contains(err.Error(), "find report run: lookup failed") {
 		t.Fatalf("Process() error = %v", err)
+	}
+}
+
+func TestScenarioCollectionServiceReportsForcedExistingRunLookupFailure(t *testing.T) {
+	runs := &collectionRunRepository{getErr: errors.New("forced lookup failed")}
+	service := application.NewScenarioCollectionService(collectionSubmissionRepository{}, runs)
+	_, err := service.ProcessForTaskUpdate(context.Background(), 3, 7, "science-report", "course-1", &collectionProcessor{})
+	if err == nil || !contains(err.Error(), "find report run: forced lookup failed") {
+		t.Fatalf("forced Process() error = %v", err)
+	}
+}
+
+func TestScenarioCollectionServiceReportsCourseDataFailure(t *testing.T) {
+	service := application.NewScenarioCollectionServiceWithRendererResultAndCourseData(
+		collectionSubmissionRepository{}, &collectionRunRepository{}, nil, nil, nil, collectionCourseDataRepository{err: errors.New("course data failed")},
+	)
+	processor := &collectionProcessor{result: scenario.ProcessResult{Outcome: scenario.Completed, ReportData: &scenario.ReportData{}}}
+	_, err := service.ProcessForTask(context.Background(), 3, 7, "science-report", "course-1", processor)
+	if err == nil || !contains(err.Error(), "load course report data: course data failed") {
+		t.Fatalf("course data error = %v", err)
 	}
 }
 

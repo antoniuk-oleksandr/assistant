@@ -119,6 +119,9 @@ func TestReportServicePropagatesAndReportsUnavailableDependencies(t *testing.T) 
 	if err := service.BindTask(ctx, "task"); err == nil || err.Error() != "report task bindings are unavailable" {
 		t.Fatalf("BindTask() error = %v", err)
 	}
+	if err := service.UnbindTask(ctx, "task"); err == nil || err.Error() != "report task bindings are unavailable" {
+		t.Fatalf("UnbindTask() error = %v", err)
+	}
 	if _, err := service.ListTasks(ctx); err == nil || err.Error() != "report task bindings are unavailable" {
 		t.Fatalf("ListTasks() error = %v", err)
 	}
@@ -150,5 +153,22 @@ func TestReportServicePropagatesAndReportsUnavailableDependencies(t *testing.T) 
 	}
 	if _, err := failing.ListData(ctx, "course"); err == nil || err.Error() != "data failed" {
 		t.Fatalf("ListData() error = %v", err)
+	}
+}
+
+func TestReportServiceConfigureStopsAtEachFailedStep(t *testing.T) {
+	ctx := context.Background()
+	registry := scenario.NewRegistry(scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"})
+	createFailed := &reportScenarioRepo{createErr: errors.New("create")}
+	if err := application.NewReportService(createFailed, registry, &reportBindings{}, &reportCourses{}, &reportData{}).Configure(ctx, "course"); err == nil || err.Error() != "create" {
+		t.Fatalf("Configure create error = %v", err)
+	}
+	statusFailed := &reportScenarioRepo{statusErr: errors.New("status")}
+	if err := application.NewReportService(statusFailed, registry, &reportBindings{}, &reportCourses{}, &reportData{}).Configure(ctx, "course"); err == nil || err.Error() != "status" {
+		t.Fatalf("Configure status error = %v", err)
+	}
+	courseFailed := &reportCourses{err: errors.New("course")}
+	if err := application.NewReportService(&reportScenarioRepo{}, registry, &reportBindings{}, courseFailed, &reportData{}).Configure(ctx, "course"); err == nil || err.Error() != "course" {
+		t.Fatalf("Configure course error = %v", err)
 	}
 }

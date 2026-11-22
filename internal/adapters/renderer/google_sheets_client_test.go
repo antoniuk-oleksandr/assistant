@@ -66,6 +66,17 @@ func TestGoogleSheetsClientReportsAPIAndDecodeErrors(t *testing.T) {
 	}
 }
 
+func TestGoogleSheetsClientRejectsMissingSpreadsheetID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"kind":"sheets"}`))
+	}))
+	defer server.Close()
+	client := &googleSheetsClient{baseURL: server.URL, client: server.Client()}
+	if _, err := client.CreateSpreadsheet(context.Background(), "Report"); err == nil || !strings.Contains(err.Error(), "spreadsheetId") {
+		t.Fatalf("missing ID error = %v", err)
+	}
+}
+
 func TestNewGoogleSheetsClientValidatesConfiguration(t *testing.T) {
 	if _, err := newGoogleSheetsClient(config.SheetsConfig{BaseURL: "://bad"}); err == nil {
 		t.Fatal("invalid URL accepted")
@@ -75,6 +86,11 @@ func TestNewGoogleSheetsClientValidatesConfiguration(t *testing.T) {
 	}
 	if _, err := newGoogleSheetsClient(config.SheetsConfig{ClientID: "id", ClientSecret: "secret"}); err == nil {
 		t.Fatal("partial credentials accepted")
+	}
+	for _, baseURL := range []string{"https://user:pass@example.com/v4", "https://example.com/v4?x=1", "ftp://example.com/v4"} {
+		if _, err := newGoogleSheetsClient(config.SheetsConfig{BaseURL: baseURL, ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh"}); err == nil {
+			t.Fatalf("invalid base URL accepted: %s", baseURL)
+		}
 	}
 	client, err := newGoogleSheetsClient(config.SheetsConfig{BaseURL: "http://localhost:1234/v4", ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh"})
 	if err != nil || client == nil {
