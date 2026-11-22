@@ -14,11 +14,11 @@ type TeacherContactService interface {
 }
 
 type TeacherPhoneService interface {
-	SetPhone(context.Context, int64, string) (teacher.Channel, error)
+	SetPhoneByIdentifier(context.Context, string, string) (teacher.Channel, error)
 }
 
 type TeacherListService interface {
-	List(context.Context) ([]teacher.Recipient, error)
+	ListForCourse(context.Context, string) ([]application.TeacherDirectoryEntry, error)
 }
 
 type TeacherCommand struct{ *cobra.Command }
@@ -31,19 +31,23 @@ func NewTeacherCommandWithPhone(service TeacherPhoneService, directory TeacherLi
 	var phone string
 	command := &cobra.Command{Use: "teacher", Short: "Manage teacher contacts"}
 	list := &cobra.Command{
-		Use:   "list",
+		Use:   "list <course-id-or-url>",
 		Short: "List teachers discovered from Google Classroom",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			teachers, err := directory.List(cmd.Context())
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			teachers, err := directory.ListForCourse(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "TEACHER ID  NAME  EMAIL  CLASSROOM ID"); err != nil {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), "TEACHER ID  NAME  EMAIL  PHONE  CLASSROOM ID"); err != nil {
 				return err
 			}
 			for _, item := range teachers {
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%d  %s  %s  %s\n", item.ID, item.Name, item.Email, item.ClassroomID); err != nil {
+				phone := item.Phone
+				if phone == "" {
+					phone = "empty"
+				}
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%d  %s  %s  %s  %s\n", item.Recipient.ID, item.Recipient.Name, item.Recipient.Email, phone, item.Recipient.ClassroomID); err != nil {
 					return err
 				}
 			}
@@ -52,15 +56,11 @@ func NewTeacherCommandWithPhone(service TeacherPhoneService, directory TeacherLi
 	}
 	command.AddCommand(list)
 	phoneSet := &cobra.Command{
-		Use:   "phone-set <teacher-id>",
+		Use:   "phone-set <teacher-id-or-classroom-user-id>",
 		Short: "Set the phone number for a discovered teacher",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var id int64
-			if _, err := fmt.Sscan(args[0], &id); err != nil || id <= 0 {
-				return fmt.Errorf("teacher-id must be a positive integer")
-			}
-			channel, err := service.SetPhone(cmd.Context(), id, phone)
+			channel, err := service.SetPhoneByIdentifier(cmd.Context(), args[0], phone)
 			if err != nil {
 				return err
 			}

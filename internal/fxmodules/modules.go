@@ -34,7 +34,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 	application.NewReminderService,
 	application.NewHeadNotificationService,
 	application.NewDeliveryService,
-	fx.Annotate(application.NewTeacherService, fx.As(new(cli.TeacherPhoneService)), fx.As(new(cli.TeacherListService))),
+	fx.Annotate(application.NewTeacherServiceWithDirectory, fx.As(new(cli.TeacherPhoneService)), fx.As(new(cli.TeacherListService))),
 	fx.Annotate(application.NewScenarioCollectionServiceWithReportNotifier),
 	fx.Annotate(application.NewReportService, fx.As(new(cli.ReportService))),
 	fx.Annotate(application.NewClassroomService, fx.As(new(cli.ClassroomService))),
@@ -43,7 +43,7 @@ var ApplicationModule = fx.Module("application", fx.Provide(
 ))
 
 var PollingModule = fx.Module("polling",
-	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, notification.NewReportReadyNotifier, configuredReminderProviders, configuredDeliveryProviders),
+	fx.Provide(fx.Annotate(classroom.NewSubmissionSource, fx.As(new(ports.SubmissionSource)), fx.As(new(ports.ClassroomProfileSource)), fx.As(new(ports.ParticipantSource))), drive.NewMaterialRetriever, newMaterialParsing, renderer.NewConfiguredReportRenderer, fx.Annotate(notification.NewTelegramProvider, fx.As(new(ports.ReportReadyTelegramSender))), fx.Annotate(notification.NewReportReadyNotifierWithTelegram, fx.As(new(ports.ReportReadyNotifier))), configuredReminderProviders, configuredDeliveryProviders),
 	fx.Invoke(configurePollingDeadlines),
 )
 

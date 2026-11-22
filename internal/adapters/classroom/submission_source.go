@@ -38,6 +38,10 @@ type ClassroomParticipantClient interface {
 	ListCourseParticipants(context.Context, string) ([]CourseParticipant, error)
 }
 
+type ClassroomTeacherClient interface {
+	ListCourseTeachers(context.Context, string) ([]CourseParticipant, error)
+}
+
 type ClassroomProfileClient interface {
 	GetUserProfile(context.Context, string) (UserProfile, error)
 }
@@ -210,6 +214,13 @@ func (s *SubmissionSource) ListParticipants(ctx context.Context, courseID string
 	items, err := client.ListCourseParticipants(ctx, courseID)
 	if err != nil {
 		return nil, fmt.Errorf("list Classroom course participants: %w", err)
+	}
+	if teachers, ok := s.client.(ClassroomTeacherClient); ok {
+		teacherItems, teacherErr := teachers.ListCourseTeachers(ctx, courseID)
+		if teacherErr != nil {
+			return nil, fmt.Errorf("list Classroom course teachers: %w", teacherErr)
+		}
+		items = append(items, teacherItems...)
 	}
 	result := make([]task.Participant, 0, len(items))
 	for _, item := range items {
@@ -391,17 +402,30 @@ func (c *HTTPClassroomClient) ListStudentSubmissions(ctx context.Context, course
 }
 
 func (c *HTTPClassroomClient) ListCourseParticipants(ctx context.Context, courseID string) ([]CourseParticipant, error) {
+	return c.listCoursePeople(ctx, courseID, "students")
+}
+
+func (c *HTTPClassroomClient) ListCourseTeachers(ctx context.Context, courseID string) ([]CourseParticipant, error) {
+	return c.listCoursePeople(ctx, courseID, "teachers")
+}
+
+func (c *HTTPClassroomClient) listCoursePeople(ctx context.Context, courseID, role string) ([]CourseParticipant, error) {
 	var result []CourseParticipant
 	var pageToken string
 	for {
 		var page struct {
-			Items []CourseParticipant `json:"students"`
-			Next  string              `json:"nextPageToken"`
+			Items    []CourseParticipant `json:"students"`
+			Teachers []CourseParticipant `json:"teachers"`
+			Next     string              `json:"nextPageToken"`
 		}
-		if err := c.get(ctx, "/courses/"+url.PathEscape(courseID)+"/students", pageToken, &page); err != nil {
+		if err := c.get(ctx, "/courses/"+url.PathEscape(courseID)+"/"+role, pageToken, &page); err != nil {
 			return nil, err
 		}
-		result = append(result, page.Items...)
+		if role == "teachers" {
+			result = append(result, page.Teachers...)
+		} else {
+			result = append(result, page.Items...)
+		}
 		if page.Next == "" {
 			return result, nil
 		}

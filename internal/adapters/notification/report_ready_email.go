@@ -21,9 +21,18 @@ type ReportReadyNotifier struct {
 	from       string
 	template   string
 	recipients ports.TeacherRepository
+	telegram   ports.ReportReadyTelegramSender
 }
 
 func NewReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepository) ports.ReportReadyNotifier {
+	return newReportReadyNotifier(cfg, recipients, nil)
+}
+
+func NewReportReadyNotifierWithTelegram(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender) ports.ReportReadyNotifier {
+	return newReportReadyNotifier(cfg, recipients, telegram)
+}
+
+func newReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepository, telegram ports.ReportReadyTelegramSender) ports.ReportReadyNotifier {
 	if cfg.SMTPUsername == "" || cfg.SMTPPassword == "" {
 		return noopReportReadyNotifier{}
 	}
@@ -31,7 +40,7 @@ func NewReportReadyNotifier(cfg config.EmailConfig, recipients ports.TeacherRepo
 	if from == "" {
 		from = cfg.SMTPUsername
 	}
-	return &ReportReadyNotifier{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from, template: resolveTemplatePath(cfg.TemplatePath), recipients: recipients}
+	return &ReportReadyNotifier{client: newGoogleSMTPClient(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUsername, cfg.SMTPPassword), from: from, template: resolveTemplatePath(cfg.TemplatePath), recipients: recipients, telegram: telegram}
 }
 
 func resolveTemplatePath(path string) string {
@@ -78,6 +87,26 @@ func (n *ReportReadyNotifier) Notify(ctx context.Context, _ report.Result, link 
 		}
 		if err := n.client.Send(ctx, n.from, person.Email, "Scientific activity report is ready", body); err != nil {
 			return fmt.Errorf("send report email to %s with Google SMTP: %w", person.Email, err)
+		}
+	}
+	if n.telegram != nil {
+		for _, person := range people {
+			if person.Status != teacher.Active {
+				continue
+			}
+			channels, err := n.recipients.ListActiveChannels(ctx, person.ID)
+			if err != nil {
+				return fmt.Errorf("list report channels for %d: %w", person.ID, err)
+			}
+			for _, channel := range channels {
+				if channel.Kind != "phone" || channel.Destination == "" {
+					continue
+				}
+				if err := n.telegram.SendReportReady(ctx, "", body); err != nil {
+					return fmt.Errorf("send report Telegram message: %w", err)
+				}
+				return nil
+			}
 		}
 	}
 	return nil

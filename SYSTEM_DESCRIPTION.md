@@ -553,13 +553,13 @@ The input consists of all Google Docs and other materials actually submitted by 
 Teachers are identified primarily by the email address of their Google account. A profile may have multiple active notification channels.
 
 ```text
-teacher list
+teacher list <course-id-or-url>
 teacher show <teacher-id>
 teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher phone-set <teacher-id> --phone <phone-number>
+teacher phone-set <teacher-id-or-classroom-user-id> --phone <phone-number>
 teacher channel enable <channel-id>
 teacher channel disable <channel-id>
 ```
@@ -633,6 +633,7 @@ REPORT_READY_EMAIL_TEMPLATE
 REMINDER_TEMPLATE_PATH
 TELEGRAM_BOT_TOKEN
 TELEGRAM_BASE_URL
+TELEGRAM_CHAT_ID
 SQLITE_DATABASE_PATH
 LOG_DIRECTORY
 ```
@@ -645,14 +646,18 @@ with the generated Sheet URL. Configure a Google app password in
 `SMTP_PASSWORD`, use `smtp.gmail.com` on port `587`, and set `SMTP_FROM` to
 the authenticated Gmail address (or leave it empty to use `SMTP_USERNAME`).
 Report recipients come from active Classroom participants stored in SQLite;
-their email addresses are populated by the Classroom API. Phone channels are
-stored separately for phone-based contact workflows.
+their email addresses are populated by the Classroom API. After the report
+email is sent, the same rendered message is sent to `TELEGRAM_CHAT_ID` when an
+active recipient has a phone channel configured. The phone channel acts as the
+admin's Telegram notification enablement; the phone number itself is not sent
+to Telegram.
 
 Telegram delivery uses `TELEGRAM_BOT_TOKEN` and defaults to
 `https://api.telegram.org`; `TELEGRAM_BASE_URL` can point to a test server.
-Teacher channel destinations contain the Telegram chat ID. Providers are
-disabled by configuration in local tests and no external calls are made unless
-credentials are present.
+`TELEGRAM_CHAT_ID` supplies the default Telegram destination when a delivery
+target does not provide one. An explicit teacher channel destination still
+takes precedence. Providers are disabled by configuration in local tests and
+no external calls are made unless credentials are present.
 
 At the three-day-before-deadline phase, missing roster participants receive one
 Google SMTP email reminder when their profile has an email address. The reminder

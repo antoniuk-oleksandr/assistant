@@ -44,3 +44,51 @@ func TestMigrateTaskColumnsAddsLifecycleMetadataToExistingDatabase(t *testing.T)
 		}
 	}
 }
+
+func TestMigrationsAddMissingColumnsAndRemainIdempotent(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, statement := range []string{
+		`CREATE TABLE report_runs (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE reminders (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE tasks (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE materials (id INTEGER PRIMARY KEY)`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	for _, migrate := range []func(context.Context, *sql.DB) error{
+		migrateReportRunColumns,
+		migrateReminderColumns,
+		migrateTaskColumns,
+		migrateMaterialColumns,
+	} {
+		if err := migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+		if err := migrate(ctx, db); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for table, columns := range map[string][]string{
+		"report_runs": {"input_fingerprint"},
+		"reminders":   {"subject", "message", "due_at", "classroom_link"},
+		"tasks":       {"updated_at_external", "due_date", "due_time", "time_zone", "phase", "phase_at"},
+		"materials":   {"size_bytes", "parse_result"},
+	} {
+		for _, column := range columns {
+			var exists bool
+			if err := db.QueryRow(`SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)`, table, column).Scan(&exists); err != nil {
+				t.Fatal(err)
+			}
+			if !exists {
+				t.Errorf("column %s.%s was not added", table, column)
+			}
+		}
+	}
+}

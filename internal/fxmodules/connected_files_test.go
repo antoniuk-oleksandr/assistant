@@ -39,6 +39,8 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 			fmt.Fprint(w, `{"courseWork":[{"id":"task-1","title":"Report"}]}`)
 		case "/v1/courses/123/students":
 			fmt.Fprint(w, `{"students":[{"userId":"teacher-1","profile":{"name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}}]}`)
+		case "/v1/courses/123/teachers":
+			fmt.Fprint(w, `{"teachers":[]}`)
 		case "/v1/courses/123/courseWork/task-1/studentSubmissions":
 			state := "TURNED_IN"
 			if returned.Load() {
@@ -246,6 +248,8 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 			fmt.Fprint(w, `{"courseWork":[{"id":"unknown-task","title":"Report"}]}`)
 		case "/v1/courses/123/students":
 			fmt.Fprint(w, `{"students":[{"userId":"teacher-1","profile":{"name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}}]}`)
+		case "/v1/courses/123/teachers":
+			fmt.Fprint(w, `{"teachers":[]}`)
 		case "/v1/courses/123/courseWork/unknown-task/studentSubmissions":
 			fmt.Fprint(w, `{"studentSubmissions":[{"id":"unknown-submission","state":"TURNED_IN","assignmentSubmission":{"attachments":[{"driveFile":{"id":"unknown-material","title":"mystery.bin","alternateLink":"https://drive.google.com/file/d/unknown-material/view"}}]}}]}`)
 		case "/drive/v3/files/unknown-material":

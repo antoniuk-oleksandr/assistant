@@ -2,6 +2,7 @@ package notification
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,8 +35,45 @@ func TestTelegramProviderSendsReminderAndDelivery(t *testing.T) {
 	if err := provider.Deliver(context.Background(), reportResult(), "chat"); err != nil {
 		t.Fatal(err)
 	}
-	if requests != 2 {
-		t.Fatalf("requests = %d, want 2", requests)
+	if err := provider.SendReportReady(context.Background(), "chat", "same report message"); err != nil {
+		t.Fatal(err)
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestTelegramProviderSendsReportReadyThroughConfiguredChatID(t *testing.T) {
+	var requestBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "admin-chat"})
+	if err := provider.SendReportReady(context.Background(), "", "Sheet: https://sheet.example"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(requestBody, `"chat_id":"admin-chat"`) || !strings.Contains(requestBody, `Sheet: https://sheet.example`) {
+		t.Fatalf("request body = %s", requestBody)
+	}
+}
+
+func TestTelegramProviderUsesConfiguredChatIDWhenDestinationIsEmpty(t *testing.T) {
+	var requestBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		requestBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "-1001234567890"})
+	if err := provider.SendReminder(context.Background(), notification.Reminder{Subject: "subject", Message: "message"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(requestBody, `"chat_id":"-1001234567890"`) {
+		t.Fatalf("request body = %s", requestBody)
 	}
 }
 

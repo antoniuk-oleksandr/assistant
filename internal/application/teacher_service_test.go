@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/ports"
+	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
 	"strings"
 	"testing"
@@ -72,6 +73,9 @@ func (r *teacherRepo) UpdateChannel(_ context.Context, v *teacher.Channel) error
 	return nil
 }
 func (r *teacherRepo) ListActiveChannels(context.Context, int64) ([]teacher.Channel, error) {
+	if r.channelErr != nil {
+		return nil, r.channelErr
+	}
 	out := []teacher.Channel{}
 	for _, v := range r.channels {
 		if v.Status == teacher.Active {
@@ -103,6 +107,14 @@ func TestTeacherServiceManagesRecipientsAndChannels(t *testing.T) {
 	}
 }
 
+func TestTeacherServiceListsPersistedRecipients(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 1, Name: "Teacher"}}
+	items, err := application.NewTeacherService(repo).List(context.Background())
+	if err != nil || len(items) != 1 || items[0].Name != "Teacher" {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+}
+
 func TestTeacherServicePropagatesRepositoryErrors(t *testing.T) {
 	service := application.NewTeacherService(&teacherRepo{err: errors.New("write failed")})
 	if _, err := service.Add(context.Background(), "x", "x@example.com", ""); err == nil {
@@ -127,6 +139,28 @@ func TestTeacherServiceSetsPhoneForExistingTeacher(t *testing.T) {
 	}
 }
 
+func TestTeacherServiceSetsPhoneByClassroomUserID(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4, ClassroomID: "112268369295214899572"}}
+	channel, err := application.NewTeacherService(repo).SetPhoneByIdentifier(context.Background(), "112268369295214899572", "+380507465019")
+	if err != nil || channel.RecipientID != 4 || channel.Destination != "+380507465019" {
+		t.Fatalf("channel=%#v err=%v", channel, err)
+	}
+}
+
+func TestTeacherServiceSetPhoneByIdentifierFallsBackToClassroomID(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4, ClassroomID: "classroom-user"}}
+	channel, err := application.NewTeacherService(repo).SetPhoneByIdentifier(context.Background(), "classroom-user", "+380501234567")
+	if err != nil || channel.RecipientID != 4 {
+		t.Fatalf("channel=%#v err=%v", channel, err)
+	}
+	if _, err := application.NewTeacherService(&teacherRepo{listErr: errors.New("database unavailable")}).SetPhoneByIdentifier(context.Background(), "missing-user", "+380"); err == nil || !strings.Contains(err.Error(), "find teacher") {
+		t.Fatalf("list error = %v", err)
+	}
+	if _, err := application.NewTeacherService(&teacherRepo{}).SetPhoneByIdentifier(context.Background(), "missing-user", "+380"); err == nil || !strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("not found error = %v", err)
+	}
+}
+
 func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T) {
 	service := application.NewTeacherService(&teacherRepo{})
 	if _, err := service.SetPhone(context.Background(), 0, "+380501234567"); err == nil {
@@ -146,6 +180,85 @@ func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T
 type profileSourceStub struct {
 	profile teacher.Profile
 	err     error
+}
+
+type participantSourceStub struct {
+	participants map[string][]task.Participant
+	courses      []string
+	err          error
+}
+
+func (s *participantSourceStub) ListParticipants(_ context.Context, courseID string) ([]task.Participant, error) {
+	s.courses = append(s.courses, courseID)
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.participants[courseID], nil
+}
+
+func TestTeacherServiceListsOnlyRequestedCourseAndReusesGlobalPhone(t *testing.T) {
+	repo := &teacherRepo{
+		value:    teacher.Recipient{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "user-1"},
+		channels: []teacher.Channel{{RecipientID: 4, Kind: "phone", Destination: "+380501234567", Status: teacher.Active}},
+	}
+	people := &participantSourceStub{participants: map[string][]task.Participant{
+		"123": {{ExternalID: "user-1", Name: "Teacher", Email: "teacher@example.com"}},
+		"456": {{ExternalID: "user-1", Name: "Teacher", Email: "teacher@example.com"}},
+	}}
+	service := application.NewTeacherServiceWithDirectory(repo, people)
+
+	first, err := service.ListForCourse(context.Background(), "123")
+	if err != nil || len(first) != 1 || first[0].Phone != "+380501234567" {
+		t.Fatalf("first course entries=%#v err=%v", first, err)
+	}
+	second, err := service.ListForCourse(context.Background(), "456")
+	if err != nil || len(second) != 1 || second[0].Recipient.ID != 4 || second[0].Phone != "+380501234567" {
+		t.Fatalf("second course entries=%#v err=%v", second, err)
+	}
+	if len(people.courses) != 2 || people.courses[0] != "123" || people.courses[1] != "456" {
+		t.Fatalf("requested courses=%v", people.courses)
+	}
+}
+
+func TestTeacherServiceListForCoursePropagatesDirectoryErrors(t *testing.T) {
+	ctx := context.Background()
+	if _, err := application.NewTeacherService(&teacherRepo{}).ListForCourse(ctx, "123"); err == nil {
+		t.Fatal("missing participant source was accepted")
+	}
+	if _, err := application.NewTeacherServiceWithDirectory(&teacherRepo{}, &participantSourceStub{err: errors.New("Classroom unavailable")}).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "list teachers for course") {
+		t.Fatalf("participant error = %v", err)
+	}
+	if _, err := application.NewTeacherServiceWithDirectory(&teacherRepo{}, &participantSourceStub{}).ListForCourse(ctx, "not-a-course"); err == nil {
+		t.Fatal("invalid course reference was accepted")
+	}
+	if _, err := application.NewTeacherServiceWithDirectory(&teacherRepo{listErr: errors.New("database unavailable")}, &participantSourceStub{participants: map[string][]task.Participant{"123": {{ExternalID: "user-1"}}}}).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "list persisted teachers") {
+		t.Fatalf("repository list error = %v", err)
+	}
+}
+
+func TestTeacherServiceListForCoursePropagatesSynchronizationErrors(t *testing.T) {
+	ctx := context.Background()
+	participants := &participantSourceStub{participants: map[string][]task.Participant{"123": {{ExternalID: "user-1", Name: "New", Email: "new@example.com"}}}}
+	if _, err := application.NewTeacherServiceWithDirectory(&teacherRepo{createErr: errors.New("create failed")}, participants).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "store Classroom teacher") {
+		t.Fatalf("create error = %v", err)
+	}
+	repo := &teacherRepo{value: teacher.Recipient{ID: 1, ClassroomID: "user-1", Name: "Old", Email: "old@example.com"}, updateErr: errors.New("update failed")}
+	if _, err := application.NewTeacherServiceWithDirectory(repo, participants).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "update Classroom teacher") {
+		t.Fatalf("update error = %v", err)
+	}
+	repo = &teacherRepo{value: teacher.Recipient{ID: 1, ClassroomID: "user-1", Name: "New", Email: "new@example.com"}, channelErr: errors.New("channel lookup failed")}
+	if _, err := application.NewTeacherServiceWithDirectory(repo, participants).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "list channels") {
+		t.Fatalf("channel error = %v", err)
+	}
+}
+
+func TestTeacherServiceListForCourseUpdatesChangedRecipient(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 1, ClassroomID: "user-1", Name: "Old", Email: "old@example.com"}}
+	people := &participantSourceStub{participants: map[string][]task.Participant{"123": {{ExternalID: "user-1", Name: "New", Email: "new@example.com"}}}}
+	entries, err := application.NewTeacherServiceWithDirectory(repo, people).ListForCourse(context.Background(), "123")
+	if err != nil || len(entries) != 1 || entries[0].Recipient.Name != "New" || repo.value.Email != "new@example.com" {
+		t.Fatalf("entries=%#v repository=%#v err=%v", entries, repo.value, err)
+	}
 }
 
 func (s profileSourceStub) GetProfile(context.Context, string) (teacher.Profile, error) {

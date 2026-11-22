@@ -89,9 +89,10 @@ GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=fixture-refresh
 	It("loads Telegram notification settings", func() {
 		GinkgoT().Setenv("TELEGRAM_BOT_TOKEN", "bot-token")
 		GinkgoT().Setenv("TELEGRAM_BASE_URL", "https://telegram.example.invalid")
+		GinkgoT().Setenv("TELEGRAM_CHAT_ID", "-1001234567890")
 		loaded, err := config.Load()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid"}))
+		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid", ChatID: "-1001234567890"}))
 	})
 
 	It("loads Google SMTP notification settings", func() {

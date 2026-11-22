@@ -587,7 +587,7 @@ teacher add
 #### Перегляд профілів
 
 ```text
-teacher list
+teacher list <course-id-or-url>
 teacher show <teacher-id>
 ```
 
@@ -595,7 +595,7 @@ teacher show <teacher-id>
 
 ```text
 teacher edit <teacher-id> --name "Нове Ім'я"
-teacher phone-set <teacher-id> --phone "+380..."
+teacher phone-set <teacher-id-or-classroom-user-id> --phone "+380..."
 ```
 
 #### Увімкнення та вимкнення
@@ -1033,6 +1033,7 @@ SMTP_PORT
 SMTP_USERNAME
 SMTP_PASSWORD
 TELEGRAM_BOT_TOKEN
+TELEGRAM_CHAT_ID
 SQLITE_DATABASE_PATH
 LOG_DIRECTORY
 ```
@@ -1117,13 +1118,13 @@ classroom remove <course-id>
 Керування отримувачами:
 
 ```text
-teacher list
+teacher list <course-id-or-url>
 teacher show <teacher-id>
 teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher phone-set <teacher-id> --phone <phone-number>
+teacher phone-set <teacher-id-or-classroom-user-id> --phone <phone-number>
 ```
 
 Керування невдалими повідомленнями:

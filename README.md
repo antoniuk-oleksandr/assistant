@@ -102,6 +102,9 @@ active Classroom participant with an email address after creating a Google Sheet
 `templates/report-ready-email.txt` by default, and the
 `<google_sheet_link>` tag is replaced with the generated Sheet URL.
 
+After the email is sent, the same rendered message is sent to the configured
+Telegram chat when an active recipient has a phone channel configured.
+
 Enable 2-Step Verification for the Google account and create a Google app
 password. Google SMTP uses STARTTLS on port 587.
 
@@ -125,9 +128,9 @@ Google Classroom participants are synchronized into the local teacher directory
 during polling. Add a phone channel to an automatically discovered participant:
 
 ```bash
-go run ./cmd/assistent teacher list
+go run ./cmd/assistent teacher list <course-id-or-url>
 
-go run ./cmd/assistent teacher phone-set <teacher-id> \\
+go run ./cmd/assistent teacher phone-set <teacher-id-or-classroom-user-id> \\
   --phone "+380..."
 ```
 
@@ -211,14 +214,14 @@ go run ./cmd/assistent course remove <course-id>
 
 The current Cobra CLI exposes `report`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
 
-To register a teacher's phone without manually entering their email, first list the synchronized Classroom teachers and use the local teacher ID:
+To register a teacher's phone without manually entering their email, list the users of the specific Classroom course and use the local teacher ID:
 
 ```bash
-go run ./cmd/assistent teacher list
-go run ./cmd/assistent teacher phone-set <teacher-id> --phone "+380..."
+go run ./cmd/assistent teacher list <course-id-or-url>
+go run ./cmd/assistent teacher phone-set <teacher-id-or-classroom-user-id> --phone "+380..."
 ```
 
-Teacher names and emails are synchronized from the Classroom API. The command only stores or updates the phone notification channel for the selected teacher.
+Teacher names and emails are read from the selected course through the Classroom API. The command only stores or updates the phone notification channel for the selected teacher. Phone channels are stored once per Classroom user, so the same phone is shown whenever that user appears in another course.
 
 ## First-time setup
 
