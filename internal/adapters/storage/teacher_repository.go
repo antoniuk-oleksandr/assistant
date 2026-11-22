@@ -15,29 +15,10 @@ func NewTeacherRepository(db *sql.DB) ports.TeacherRepository {
 	return &SQLiteTeacherRepository{db: db}
 }
 
-func NewTeacherContactRepository(db *sql.DB) ports.TeacherContactRepository {
+func NewTelegramPairingRepository(db *sql.DB) ports.TelegramPairingRepository {
 	return &SQLiteTeacherRepository{db: db}
 }
 
-func (r *SQLiteTeacherRepository) RegisterContact(ctx context.Context, recipient *teacher.Recipient, channel *teacher.Channel) error {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin teacher contact: %w", err)
-	}
-	defer tx.Rollback()
-	now := recipient.CreatedAt.UTC().Format(time.RFC3339Nano)
-	if err := tx.QueryRowContext(ctx, `INSERT INTO teachers (name,email,classroom_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, recipient.Name, recipient.Email, recipient.ClassroomID, recipient.Status, now, now).Scan(&recipient.ID); err != nil {
-		return fmt.Errorf("insert teacher: %w", err)
-	}
-	channel.RecipientID = recipient.ID
-	if err := tx.QueryRowContext(ctx, `INSERT INTO notification_channels (teacher_id,kind,destination,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, channel.RecipientID, channel.Kind, channel.Destination, channel.Status, channel.CreatedAt.UTC().Format(time.RFC3339Nano), channel.UpdatedAt.UTC().Format(time.RFC3339Nano)).Scan(&channel.ID); err != nil {
-		return fmt.Errorf("insert notification channel: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit teacher contact: %w", err)
-	}
-	return nil
-}
 func (r *SQLiteTeacherRepository) Create(ctx context.Context, item *teacher.Recipient) error {
 	now := item.CreatedAt.UTC().Format(time.RFC3339Nano)
 	err := r.db.QueryRowContext(ctx, `INSERT INTO teachers (name,email,classroom_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?) RETURNING id`, item.Name, item.Email, item.ClassroomID, item.Status, now, now).Scan(&item.ID)
@@ -126,4 +107,39 @@ func (r *SQLiteTeacherRepository) ListActiveChannels(ctx context.Context, id int
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (r *SQLiteTeacherRepository) CreateTelegramPairing(ctx context.Context, item *teacher.TelegramPairing) error {
+	err := r.db.QueryRowContext(ctx, `INSERT INTO telegram_pairings (teacher_id, token_hash, expires_at) VALUES (?, ?, ?) RETURNING id`, item.RecipientID, item.TokenHash, item.ExpiresAt.UTC().Format(time.RFC3339Nano)).Scan(&item.ID)
+	if err != nil {
+		return fmt.Errorf("insert Telegram pairing: %w", err)
+	}
+	return nil
+}
+
+func (r *SQLiteTeacherRepository) GetTelegramPairing(ctx context.Context, tokenHash string) (teacher.TelegramPairing, error) {
+	var item teacher.TelegramPairing
+	var expires, used string
+	err := r.db.QueryRowContext(ctx, `SELECT id,teacher_id,token_hash,expires_at,COALESCE(used_at,'') FROM telegram_pairings WHERE token_hash=?`, tokenHash).Scan(&item.ID, &item.RecipientID, &item.TokenHash, &expires, &used)
+	if err != nil {
+		return item, err
+	}
+	item.ExpiresAt, _ = time.Parse(time.RFC3339Nano, expires)
+	if used != "" {
+		value, _ := time.Parse(time.RFC3339Nano, used)
+		item.UsedAt = &value
+	}
+	return item, nil
+}
+
+func (r *SQLiteTeacherRepository) ConsumeTelegramPairing(ctx context.Context, id int64, usedAt time.Time) error {
+	result, err := r.db.ExecContext(ctx, `UPDATE telegram_pairings SET used_at=? WHERE id=? AND used_at IS NULL`, usedAt.UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("consume Telegram pairing: %w", err)
+	}
+	count, _ := result.RowsAffected()
+	if count == 0 {
+		return ports.ErrTeacherNotFound
+	}
+	return nil
 }

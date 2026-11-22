@@ -36,6 +36,7 @@ type pollingSource struct {
 	taskErr          error
 	subErr           error
 	participants     map[string][]task.Participant
+	participantsErr  error
 	cancelOnTaskCall int
 	cancel           context.CancelFunc
 }
@@ -83,12 +84,18 @@ func (s *pollingSource) ListSubmissions(_ context.Context, taskID string) ([]sub
 }
 
 func (s *pollingSource) ListParticipants(_ context.Context, courseID string) ([]task.Participant, error) {
+	if s.participantsErr != nil {
+		return nil, s.participantsErr
+	}
 	return s.participants[courseID], nil
 }
 
 type pollingTaskRepository struct {
-	registered []task.Task
-	err        error
+	registered   []task.Task
+	err          error
+	listErr      error
+	listCalls    int
+	listErrAfter int
 }
 
 func (r *pollingTaskRepository) Register(_ context.Context, item task.Task) error {
@@ -104,7 +111,16 @@ func (r *pollingTaskRepository) Register(_ context.Context, item task.Task) erro
 	r.registered = append(r.registered, item)
 	return nil
 }
-func (r *pollingTaskRepository) List(context.Context) ([]task.Task, error) { return r.registered, nil }
+func (r *pollingTaskRepository) List(context.Context) ([]task.Task, error) {
+	r.listCalls++
+	if r.listErrAfter > 0 && r.listCalls > r.listErrAfter {
+		return nil, r.listErr
+	}
+	if r.listErrAfter > 0 {
+		return r.registered, nil
+	}
+	return r.registered, r.listErr
+}
 
 type pollingBindingRepository struct {
 	bindings       []task.Binding
@@ -138,11 +154,15 @@ type pollingParticipantRepository struct {
 }
 
 type pollingMissingRepository struct {
-	items map[int64][]ports.MissingSubmitter
-	err   error
+	items                 map[int64][]ports.MissingSubmitter
+	err                   error
+	listErr, reconcileErr error
 }
 
 func (r *pollingMissingRepository) Reconcile(_ context.Context, taskID int64, items []ports.MissingSubmitter) error {
+	if r.reconcileErr != nil {
+		return r.reconcileErr
+	}
 	if r.err != nil {
 		return r.err
 	}
@@ -150,6 +170,9 @@ func (r *pollingMissingRepository) Reconcile(_ context.Context, taskID int64, it
 	return nil
 }
 func (r *pollingMissingRepository) List(_ context.Context, taskID int64) ([]ports.MissingSubmitter, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -214,6 +237,22 @@ var _ ports.SubmissionSource = (*pollingSource)(nil)
 var _ ports.SubmissionRepository = (*pollingSubmissionRepository)(nil)
 
 var _ = Describe("polling service", func() {
+	It("rejects invalid polling intervals", func(ctx SpecContext) {
+		service := application.NewPollingService(nil, nil, nil, nil, nil)
+		Expect(service.Run(ctx, 0)).To(MatchError(ContainSubstring("greater than zero")))
+	})
+
+	It("propagates polling course and task repository errors", func(ctx SpecContext) {
+		service := application.NewPollingService(pollingCourseRepository{err: errors.New("courses failed")}, &nonIncrementalPollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list courses for polling")))
+		service = application.NewPollingService(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, &pollingSource{taskErr: errors.New("tasks failed")}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list tasks for course")))
+		service = application.NewPollingService(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, &pollingSource{}, &pollingTaskRepository{listErr: errors.New("stored tasks failed")}, pollingBindingRepository{}, &pollingSubmissionRepository{})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list persisted tasks")))
+		service = application.NewPollingServiceWithScenarioCollectionAndRoster(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, &pollingSource{participantsErr: errors.New("roster failed")}, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list Classroom participants")))
+	})
+
 	It("supports sources without incremental polling", func(ctx SpecContext) {
 		item := task.Task{ID: 31, ExternalID: "task-1", CourseID: "course-1"}
 		source := &nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}}
@@ -226,6 +265,64 @@ var _ = Describe("polling service", func() {
 		Expect(tasks.registered).To(HaveLen(1))
 		Expect(tasks.registered[0].ExternalID).To(Equal(item.ExternalID))
 		Expect(tasks.registered[0].Phase).To(Equal(task.PhaseDiscovery))
+	})
+
+	It("skips inactive courses during refresh", func(ctx SpecContext) {
+		source := &pollingSource{}
+		service := application.NewPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "inactive", Status: classroom.Disabled}}},
+			source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{},
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(source.taskCalls).To(BeEmpty())
+	})
+
+	It("allows polling without a task repository", func(ctx SpecContext) {
+		item := task.Task{ExternalID: "task-without-repository", CourseID: "course-1"}
+		service := application.NewPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			&nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}}, nil, pollingBindingRepository{}, &pollingSubmissionRepository{},
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+	})
+
+	It("preserves discovery phase and reports deadline phase persistence failures", func(ctx SpecContext) {
+		future := "2026-11-30T12:00:00Z"
+		item := task.Task{ID: 62, ExternalID: "discovery", CourseID: "course-1", DueAt: future}
+		service := application.NewPollingServiceWithClock(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			&nonIncrementalPollingSource{}, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil,
+			func() time.Time { return time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC) },
+		)
+		Expect(service.Refresh(ctx)).To(Succeed())
+
+		item.Phase = task.PhaseThreeDaysBefore
+		service = application.NewPollingServiceWithClock(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}},
+			&nonIncrementalPollingSource{}, &pollingTaskRepository{err: errors.New("phase persistence failed")}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil,
+			func() time.Time { return time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC) },
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("store deadline phase")))
+	})
+
+	It("skips inactive courses during scheduled refresh and reports roster task lookup failures", func(ctx SpecContext) {
+		pollingCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		source := &pollingSource{}
+		service := application.NewPersistentPollingService(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "inactive", Status: classroom.Disabled}}}, source, &pollingTaskRepository{}, pollingBindingRepository{}, &pollingSubmissionRepository{}, &pollingStateRepository{},
+		)
+		go func() { time.Sleep(2 * time.Millisecond); cancel() }()
+		Expect(service.Run(pollingCtx, time.Millisecond)).To(Succeed())
+		Expect(source.taskCalls).To(BeEmpty())
+
+		item := task.Task{ExternalID: "roster-task", CourseID: "course-1"}
+		rosterSource := &pollingSource{tasks: map[string][]task.Task{"course-1": {item}}, participants: map[string][]task.Participant{"course-1": {{ExternalID: "user-1"}}}}
+		tasks := &pollingTaskRepository{listErr: errors.New("roster task lookup failed"), listErrAfter: 1}
+		service = application.NewPollingServiceWithScenarioCollectionAndRoster(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, rosterSource, tasks, pollingBindingRepository{}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}},
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list tasks for participant roster")))
 	})
 
 	It("persists each deadline phase and keeps repeated phases idempotent", func(ctx SpecContext) {
@@ -392,6 +489,30 @@ var _ = Describe("polling service", func() {
 		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("store participants for task \"participant-error\": roster failed")))
 	})
 
+	It("reports scheduled reminder and missing roster persistence failures", func(ctx SpecContext) {
+		item := task.Task{ID: 70, ExternalID: "reminder-error", CourseID: "course-1", DueAt: "2026-11-24T12:00:00Z", Phase: task.PhaseThreeDaysBefore}
+		source := &nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}, submissions: map[string][]submission.Submission{"reminder-error": nil}}
+		missing := &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}, listErr: errors.New("reminder missing lookup failed")}
+		reminders := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
+		service := application.NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, nil, missing, reminders,
+		)
+		service.SetClock(func() time.Time { return time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC) })
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list missing submitters for reminders")))
+
+		participants := &pollingParticipantRepository{items: map[int64][]task.Participant{}, err: errors.New("expected participant lookup failed")}
+		service = application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, participants, &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}},
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list expected participants")))
+
+		participants = &pollingParticipantRepository{items: map[int64][]task.Participant{70: {{ExternalID: "user-1"}}}}
+		service = application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, participants, &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}, reconcileErr: errors.New("reconcile persistence failed")},
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("reconcile missing submitters")))
+	})
+
 	It("excludes disabled courses and inactive task bindings from submission polling", func(ctx SpecContext) {
 		activeTask := task.Task{ID: 21, ExternalID: "task-active", CourseID: "course-active"}
 		inactiveTask := task.Task{ID: 22, ExternalID: "task-inactive", CourseID: "course-active"}
@@ -497,6 +618,20 @@ var _ = Describe("polling service", func() {
 		)
 		source.submissions = map[string][][]submission.Submission{"task-1": {{{ExternalID: "submission-1"}}}}
 		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("store submission \"submission-1\": persist failed")))
+	})
+
+	It("reports participant enrichment and missing reconciliation failures", func(ctx SpecContext) {
+		item := task.Task{ID: 61, ExternalID: "enrich-error", CourseID: "course-1"}
+		source := &nonIncrementalPollingSource{tasks: map[string][]task.Task{"course-1": {item}}, submissions: map[string][]submission.Submission{"enrich-error": {{ExternalID: "submission-1", SubmitterID: "user-1"}}}}
+		service := application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}, err: errors.New("participant lookup failed")}, nil,
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list participants for submission")))
+
+		service = application.NewPollingServiceWithScenarioCollectionAndRosterAndMissing(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}}, &pollingMissingRepository{items: map[int64][]ports.MissingSubmitter{}, err: errors.New("reconcile failed")},
+		)
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list missing submitters")))
 	})
 
 	It("wraps failures while selecting courses, tasks, and submissions", func(ctx SpecContext) {

@@ -131,57 +131,6 @@ func TestTeacherServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 }
 
-func TestTeacherServiceSetsPhoneForExistingTeacher(t *testing.T) {
-	repo := &teacherRepo{value: teacher.Recipient{ID: 4}}
-	channel, err := application.NewTeacherService(repo).SetPhone(context.Background(), 4, "+380501234567")
-	if err != nil || channel.RecipientID != 4 || channel.Kind != "phone" || channel.Destination != "+380501234567" {
-		t.Fatalf("channel=%#v err=%v", channel, err)
-	}
-}
-
-func TestTeacherServiceSetsPhoneByClassroomUserID(t *testing.T) {
-	repo := &teacherRepo{value: teacher.Recipient{ID: 4, ClassroomID: "112268369295214899572"}}
-	channel, err := application.NewTeacherService(repo).SetPhoneByIdentifier(context.Background(), "112268369295214899572", "+380507465019")
-	if err != nil || channel.RecipientID != 4 || channel.Destination != "+380507465019" {
-		t.Fatalf("channel=%#v err=%v", channel, err)
-	}
-}
-
-func TestTeacherServiceSetPhoneByIdentifierFallsBackToClassroomID(t *testing.T) {
-	repo := &teacherRepo{value: teacher.Recipient{ID: 4, ClassroomID: "classroom-user"}}
-	channel, err := application.NewTeacherService(repo).SetPhoneByIdentifier(context.Background(), "classroom-user", "+380501234567")
-	if err != nil || channel.RecipientID != 4 {
-		t.Fatalf("channel=%#v err=%v", channel, err)
-	}
-	if _, err := application.NewTeacherService(&teacherRepo{listErr: errors.New("database unavailable")}).SetPhoneByIdentifier(context.Background(), "missing-user", "+380"); err == nil || !strings.Contains(err.Error(), "find teacher") {
-		t.Fatalf("list error = %v", err)
-	}
-	if _, err := application.NewTeacherService(&teacherRepo{}).SetPhoneByIdentifier(context.Background(), "missing-user", "+380"); err == nil || !strings.Contains(err.Error(), "was not found") {
-		t.Fatalf("not found error = %v", err)
-	}
-}
-
-func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T) {
-	service := application.NewTeacherService(&teacherRepo{})
-	if _, err := service.SetPhone(context.Background(), 0, "+380501234567"); err == nil {
-		t.Fatal("invalid teacher ID was accepted")
-	}
-	if _, err := service.SetPhone(context.Background(), 1, ""); err == nil {
-		t.Fatal("empty phone was accepted")
-	}
-	if _, err := application.NewTeacherService(&teacherRepo{err: errors.New("lookup failed")}).SetPhone(context.Background(), 1, "+380501234567"); err == nil || !strings.Contains(err.Error(), "find teacher") {
-		t.Fatalf("lookup error = %v", err)
-	}
-	if _, err := application.NewTeacherService(&teacherRepo{value: teacher.Recipient{ID: 1}, channelErr: errors.New("write failed")}).SetPhone(context.Background(), 1, "+380501234567"); err == nil || !strings.Contains(err.Error(), "set teacher phone") {
-		t.Fatalf("repository error = %v", err)
-	}
-}
-
-type profileSourceStub struct {
-	profile teacher.Profile
-	err     error
-}
-
 type participantSourceStub struct {
 	participants map[string][]task.Participant
 	courses      []string
@@ -196,10 +145,9 @@ func (s *participantSourceStub) ListParticipants(_ context.Context, courseID str
 	return s.participants[courseID], nil
 }
 
-func TestTeacherServiceListsOnlyRequestedCourseAndReusesGlobalPhone(t *testing.T) {
+func TestTeacherServiceListsOnlyRequestedCourse(t *testing.T) {
 	repo := &teacherRepo{
-		value:    teacher.Recipient{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "user-1"},
-		channels: []teacher.Channel{{RecipientID: 4, Kind: "phone", Destination: "+380501234567", Status: teacher.Active}},
+		value: teacher.Recipient{ID: 4, Name: "Teacher", Email: "teacher@example.com", ClassroomID: "user-1"},
 	}
 	people := &participantSourceStub{participants: map[string][]task.Participant{
 		"123": {{ExternalID: "user-1", Name: "Teacher", Email: "teacher@example.com"}},
@@ -208,15 +156,26 @@ func TestTeacherServiceListsOnlyRequestedCourseAndReusesGlobalPhone(t *testing.T
 	service := application.NewTeacherServiceWithDirectory(repo, people)
 
 	first, err := service.ListForCourse(context.Background(), "123")
-	if err != nil || len(first) != 1 || first[0].Phone != "+380501234567" {
+	if err != nil || len(first) != 1 {
 		t.Fatalf("first course entries=%#v err=%v", first, err)
 	}
 	second, err := service.ListForCourse(context.Background(), "456")
-	if err != nil || len(second) != 1 || second[0].Recipient.ID != 4 || second[0].Phone != "+380501234567" {
+	if err != nil || len(second) != 1 || second[0].Recipient.ID != 4 {
 		t.Fatalf("second course entries=%#v err=%v", second, err)
 	}
 	if len(people.courses) != 2 || people.courses[0] != "123" || people.courses[1] != "456" {
 		t.Fatalf("requested courses=%v", people.courses)
+	}
+}
+
+func TestTeacherServiceDeduplicatesParticipantsWithinCourse(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4, Name: "Teacher", ClassroomID: "user-1"}}
+	people := &participantSourceStub{participants: map[string][]task.Participant{
+		"123": {{ExternalID: "user-1", Name: "Teacher"}, {ExternalID: "user-1", Name: "Teacher"}},
+	}}
+	items, err := application.NewTeacherServiceWithDirectory(repo, people).ListForCourse(context.Background(), "123")
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items=%#v err=%v", items, err)
 	}
 }
 
@@ -246,10 +205,6 @@ func TestTeacherServiceListForCoursePropagatesSynchronizationErrors(t *testing.T
 	if _, err := application.NewTeacherServiceWithDirectory(repo, participants).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "update Classroom teacher") {
 		t.Fatalf("update error = %v", err)
 	}
-	repo = &teacherRepo{value: teacher.Recipient{ID: 1, ClassroomID: "user-1", Name: "New", Email: "new@example.com"}, channelErr: errors.New("channel lookup failed")}
-	if _, err := application.NewTeacherServiceWithDirectory(repo, participants).ListForCourse(ctx, "123"); err == nil || !strings.Contains(err.Error(), "list channels") {
-		t.Fatalf("channel error = %v", err)
-	}
 }
 
 func TestTeacherServiceListForCourseUpdatesChangedRecipient(t *testing.T) {
@@ -258,57 +213,6 @@ func TestTeacherServiceListForCourseUpdatesChangedRecipient(t *testing.T) {
 	entries, err := application.NewTeacherServiceWithDirectory(repo, people).ListForCourse(context.Background(), "123")
 	if err != nil || len(entries) != 1 || entries[0].Recipient.Name != "New" || repo.value.Email != "new@example.com" {
 		t.Fatalf("entries=%#v repository=%#v err=%v", entries, repo.value, err)
-	}
-}
-
-func (s profileSourceStub) GetProfile(context.Context, string) (teacher.Profile, error) {
-	return s.profile, s.err
-}
-
-type contactRepositoryStub struct {
-	recipient teacher.Recipient
-	channel   teacher.Channel
-	err       error
-}
-
-func (r *contactRepositoryStub) RegisterContact(_ context.Context, recipient *teacher.Recipient, channel *teacher.Channel) error {
-	if r.err != nil {
-		return r.err
-	}
-	recipient.ID = 7
-	channel.ID = 8
-	channel.RecipientID = recipient.ID
-	r.recipient, r.channel = *recipient, *channel
-	return nil
-}
-
-func TestTeacherContactServiceResolvesProfileBeforeAtomicRegistration(t *testing.T) {
-	repo := &contactRepositoryStub{}
-	service := application.NewTeacherContactService(repo, profileSourceStub{profile: teacher.Profile{ClassroomID: "user-1", Name: "Teacher", Email: "teacher@example.com"}})
-	result, err := service.RegisterPhone(context.Background(), "user-1", "+380000000")
-	if err != nil || result.Recipient.Email != "teacher@example.com" || result.Channel.Kind != "phone" || result.Channel.RecipientID != 7 {
-		t.Fatalf("result=%#v err=%v", result, err)
-	}
-	if repo.recipient.ClassroomID != "user-1" || repo.channel.Destination != "+380000000" {
-		t.Fatalf("stored recipient=%#v channel=%#v", repo.recipient, repo.channel)
-	}
-}
-
-func TestTeacherContactServiceDoesNotWriteWhenProfileLookupFails(t *testing.T) {
-	repo := &contactRepositoryStub{}
-	service := application.NewTeacherContactService(repo, profileSourceStub{err: errors.New("profile unavailable")})
-	if _, err := service.RegisterPhone(context.Background(), "user-1", "+380000000"); err == nil || !strings.Contains(err.Error(), "resolve Classroom profile") {
-		t.Fatalf("error=%v", err)
-	}
-	if repo.recipient.ID != 0 || repo.channel.ID != 0 {
-		t.Fatalf("contact was partially written: %#v %#v", repo.recipient, repo.channel)
-	}
-}
-
-func TestTeacherContactServicePropagatesAtomicWriteFailure(t *testing.T) {
-	service := application.NewTeacherContactService(&contactRepositoryStub{err: errors.New("write failed")}, profileSourceStub{profile: teacher.Profile{Name: "Teacher", Email: "teacher@example.com"}})
-	if _, err := service.RegisterPhone(context.Background(), "user-1", "+380000000"); err == nil || !strings.Contains(err.Error(), "register teacher contact") {
-		t.Fatalf("error=%v", err)
 	}
 }
 

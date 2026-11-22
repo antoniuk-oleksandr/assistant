@@ -57,6 +57,9 @@ func TestGoogleDriveTemplateUploaderReportsUploadFailures(t *testing.T) {
 	if err := os.WriteFile(templatePath, []byte("xlsx"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := uploader.UploadSpreadsheet(context.Background(), "Report", templatePath); err == nil {
+		t.Fatal("transport failure unexpectedly succeeded")
+	}
 	for name, handler := range map[string]http.Handler{
 		"http error": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusBadGateway)

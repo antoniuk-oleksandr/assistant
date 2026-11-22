@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
@@ -39,7 +40,13 @@ func (s *PollingService) RunScheduled(ctx context.Context) error {
 		}
 		if !event.at.After(now) {
 			if err := s.executeDeadlineEvent(ctx, event); err != nil {
-				return err
+				if ctx.Err() != nil {
+					return nil
+				}
+				log.Printf("scheduled report event failed for task %q: %v", event.binding.Task.ExternalID, err)
+				if err := waitForScheduler(ctx, schedulerBindingRefreshInterval); err != nil {
+					return nil
+				}
 			}
 			continue
 		}

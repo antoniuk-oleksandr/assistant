@@ -559,7 +559,7 @@ teacher edit <teacher-id> ...
 teacher enable <teacher-id>
 teacher disable <teacher-id>
 teacher remove <teacher-id>
-teacher phone-set <teacher-id-or-classroom-user-id> --phone <phone-number>
+teacher telegram-bind <teacher-id-or-classroom-user-id>
 teacher channel enable <channel-id>
 teacher channel disable <channel-id>
 ```
@@ -622,6 +622,9 @@ The run model provides recovery after restart, auditability, and idempotent proc
 Secrets and machine-specific values are loaded from environment variables, typically through a local `.env` file:
 
 ```text
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+GOOGLE_REFRESH_TOKEN
 GOOGLE_CREDENTIALS_PATH
 GOOGLE_CLASSROOM_ID
 SMTP_HOST
@@ -632,6 +635,7 @@ SMTP_FROM
 REPORT_READY_EMAIL_TEMPLATE
 REMINDER_TEMPLATE_PATH
 TELEGRAM_BOT_TOKEN
+TELEGRAM_BOT_USERNAME
 TELEGRAM_BASE_URL
 TELEGRAM_CHAT_ID
 SQLITE_DATABASE_PATH
@@ -648,9 +652,9 @@ the authenticated Gmail address (or leave it empty to use `SMTP_USERNAME`).
 Report recipients come from active Classroom participants stored in SQLite;
 their email addresses are populated by the Classroom API. After the report
 email is sent, the same rendered message is sent to `TELEGRAM_CHAT_ID` when an
-active recipient has a phone channel configured. The phone channel acts as the
-admin's Telegram notification enablement; the phone number itself is not sent
-to Telegram.
+active recipient has a paired Telegram channel configured. Telegram pairing is
+based on a one-time token generated for the selected teacher; no phone number
+is stored or requested.
 
 Telegram delivery uses `TELEGRAM_BOT_TOKEN` and defaults to
 `https://api.telegram.org`; `TELEGRAM_BASE_URL` can point to a test server.
@@ -659,13 +663,24 @@ target does not provide one. An explicit teacher channel destination still
 takes precedence. Providers are disabled by configuration in local tests and
 no external calls are made unless credentials are present.
 
-At the three-day-before-deadline phase, missing roster participants receive one
+`teacher telegram-bind` generates a one-time Telegram pairing link when
+`TELEGRAM_BOT_USERNAME` is configured. The recipient opens the link and presses
+Start; the application verifies the one-time token before saving the private
+Telegram chat ID for that recipient.
+
+At the configured preliminary-before-deadline phase, missing roster participants receive one
 Google SMTP email reminder when their profile has an email address. The reminder
 contains the task title, due date, remaining time, and Classroom task link. Its
 default template is `templates/missing-submission-reminder.txt`; the path can be
 overridden with `REMINDER_TEMPLATE_PATH`. Reminder records retain the rendered
 subject/body and delivery status in SQLite, and the unique task/participant/
 channel/kind key prevents duplicate reminders.
+
+At the preliminary deadline, the active recipient with a Telegram binding also
+receives an administrator summary by email and Telegram. The summary lists
+users who have not submitted files, or states that everybody has already sent
+the files when the missing list is empty. Both channels receive the same
+message body; `TELEGRAM_CHAT_ID` supplies the Telegram destination.
 
 `GOOGLE_CLASSROOM_ID` is the normalized numeric course ID. The preferred way to register it is:
 

@@ -25,6 +25,19 @@ type reportServiceStub struct {
 	data  []scenario.CourseDataField
 }
 
+type failingReportWriter struct{}
+
+func (failingReportWriter) Write([]byte) (int, error) { return 0, errors.New("output failed") }
+
+type rejectingReportWriter struct{ value string }
+
+func (w rejectingReportWriter) Write(data []byte) (int, error) {
+	if bytes.Contains(data, []byte(w.value)) {
+		return 0, errors.New("row output failed")
+	}
+	return len(data), nil
+}
+
 func (s *reportServiceStub) Configure(_ context.Context, courseID string) error {
 	s.calls = append(s.calls, "configure:"+courseID)
 	return s.err
@@ -87,6 +100,9 @@ var _ = Describe("report commands", func() {
 		command = cli.NewReportCommand(service)
 		command.SetArgs([]string{"data-set", "course-1"})
 		Expect(command.Execute()).To(MatchError(ContainSubstring("at least one")))
+		command = cli.NewReportCommand(service)
+		command.SetArgs([]string{"data-set", "course-1", "--field", "=value"})
+		Expect(command.Execute()).To(MatchError(ContainSubstring("name=value")))
 	})
 
 	It("propagates service errors", func() {
@@ -94,5 +110,35 @@ var _ = Describe("report commands", func() {
 		command := cli.NewReportCommand(service)
 		command.SetArgs([]string{"configure", "course-1"})
 		Expect(command.Execute()).To(MatchError("report failed"))
+		command = cli.NewReportCommand(service)
+		command.SetArgs([]string{"task-list"})
+		Expect(command.Execute()).To(MatchError("report failed"))
+		command = cli.NewReportCommand(service)
+		command.SetArgs([]string{"data-list", "course-1"})
+		Expect(command.Execute()).To(MatchError("report failed"))
+	})
+
+	It("propagates report output errors", func() {
+		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1"}}, data: []scenario.CourseDataField{{Name: "field", Value: "value"}}}
+		command := cli.NewReportCommand(service)
+		command.SetOut(failingReportWriter{})
+		command.SetArgs([]string{"task-list"})
+		Expect(command.Execute()).To(MatchError("output failed"))
+		command = cli.NewReportCommand(service)
+		command.SetOut(failingReportWriter{})
+		command.SetArgs([]string{"data-list", "course-1"})
+		Expect(command.Execute()).To(MatchError("output failed"))
+	})
+
+	It("propagates report row output errors", func() {
+		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1", CourseID: "course-1", Title: "Report", Status: "active"}}, data: []scenario.CourseDataField{{Name: "field", Value: "value"}}}
+		command := cli.NewReportCommand(service)
+		command.SetOut(rejectingReportWriter{value: "task-1"})
+		command.SetArgs([]string{"task-list"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
+		command = cli.NewReportCommand(service)
+		command.SetOut(rejectingReportWriter{value: "field"})
+		command.SetArgs([]string{"data-list", "course-1"})
+		Expect(command.Execute()).To(MatchError("row output failed"))
 	})
 })

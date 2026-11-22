@@ -2,9 +2,11 @@ package parser
 
 import (
 	"archive/zip"
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/alex/assistent/internal/domain/submission"
@@ -81,6 +83,220 @@ func TestDocumentParsersRejectInvalidInputs(t *testing.T) {
 	cancel()
 	if _, err := (XLSX{}).Parse(ctx, submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil {
 		t.Fatal("canceled XLSX unexpectedly parsed")
+	}
+}
+
+func TestDOCXRejectsInvalidMainDocumentShapes(t *testing.T) {
+	for name, xmlDocument := range map[string]string{
+		"wrong namespace": `<document xmlns="urn:wrong"><body/></document>`,
+		"missing body":    `<document xmlns="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>`,
+		"malformed":       `<document>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "invalid.docx")
+			file, err := os.Create(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			archive := zip.NewWriter(file)
+			part, err := archive.Create("word/document.xml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := part.Write([]byte(xmlDocument)); err != nil {
+				t.Fatal(err)
+			}
+			if err := archive.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := file.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := (DOCX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil {
+				t.Fatal("invalid document unexpectedly parsed")
+			}
+		})
+	}
+}
+
+func TestDOCXRejectsArchiveWithoutMainDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing-main.docx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	if _, err := archive.Create("word/styles.xml"); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (DOCX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil || !strings.Contains(err.Error(), "main document is missing") {
+		t.Fatalf("missing document error = %v", err)
+	}
+}
+
+func TestDOCXRejectsOversizedMainDocument(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "large.docx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	part, err := archive.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(append([]byte(`<document>`), bytes.Repeat([]byte("x"), maxWordXML)...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (DOCX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil || !strings.Contains(err.Error(), "exceeds size limit") {
+		t.Fatalf("oversized document error = %v", err)
+	}
+}
+
+func TestDOCXExtractsTablesAndWordBreaks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "table.docx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	part, err := archive.Create("word/document.xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = part.Write([]byte(`<document xmlns="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><body><p><r><t>A</t><tab/><t>B</t><br/><t>C</t></r></p><tbl><tr><tc><p><r><t>cell</t></r></p></tc></tr></tbl></body></document>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	document, err := (DOCX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{})
+	if err != nil || len(document.Fields) != 1 || document.Fields[0].Value != "A\tB\nC" || len(document.Tables) != 1 || document.Tables[0].Rows[0][0].Value != "cell" {
+		t.Fatalf("DOCX.Parse() = %#v, %v", document, err)
+	}
+}
+
+func TestXLSXRejectsEmptyWorkbookAndHonorsCancellation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "empty.xlsx")
+	book := excelize.NewFile()
+	if _, err := book.NewSheet("Second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SaveAs(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := (XLSX{}).Parse(ctx, submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil {
+		t.Fatal("canceled workbook unexpectedly parsed")
+	}
+}
+
+func TestXLSXRejectsMalformedWorkbookXML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "malformed.xlsx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive := zip.NewWriter(file)
+	part, err := archive.Create("[Content_Types].xml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write([]byte(`<Types><Override>`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (XLSX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil {
+		t.Fatal("malformed workbook unexpectedly parsed")
+	}
+}
+
+func TestXLSXRejectsOversizedFileBeforeOpeningWorkbook(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.xlsx")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxWorkbookBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (XLSX{}).Parse(context.Background(), submission.Material{LocalPath: path}, submission.ParseContext{}); err == nil || !strings.Contains(err.Error(), "file size limit") {
+		t.Fatalf("oversized workbook error = %v", err)
+	}
+}
+
+func TestStrategiesRejectMalformedMIMEAndAppendixNames(t *testing.T) {
+	strategies := Strategies()
+	for _, strategy := range strategies {
+		if strategy.CanHandle(submission.Material{Name: "appendix-01.docx", MIMEType: "bad;mime"}, submission.ParseContext{ScenarioType: "ScienceReportScenario"}) {
+			t.Fatalf("strategy %q accepted malformed MIME", strategy.Type())
+		}
+	}
+	for _, name := range []string{"appendix-00.docx", "appendix-99.docx", "appendix-1.docx", "appendix-010.docx"} {
+		if appendixNumber(submission.Material{Name: name}) != 0 {
+			t.Fatalf("invalid appendix name accepted: %s", name)
+		}
+	}
+}
+
+func TestValidateWorkbookPartRejectsMultipleRootsAndText(t *testing.T) {
+	for _, xmlDocument := range []string{"<a/><b/>", "text<a/>"} {
+		path := filepath.Join(t.TempDir(), "part.zip")
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		archive := zip.NewWriter(file)
+		part, err := archive.Create("part.xml")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write([]byte(xmlDocument)); err != nil {
+			t.Fatal(err)
+		}
+		if err := archive.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatal(err)
+		}
+		reader, err := zip.OpenReader(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = validateWorkbookPart(context.Background(), reader.File[0], nil)
+		_ = reader.Close()
+		if err == nil {
+			t.Fatalf("invalid XML %q was accepted", xmlDocument)
+		}
 	}
 }
 

@@ -14,10 +14,14 @@ import (
 type deliveryRepository struct {
 	items     []report.Delivery
 	err       error
+	createErr error
 	updateErr error
 }
 
 func (r *deliveryRepository) Create(_ context.Context, item *report.Delivery) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
 	item.ID = int64(len(r.items) + 1)
 	r.items = append(r.items, *item)
 	return nil
@@ -112,6 +116,24 @@ func TestDeliveryServiceReportsStatusPersistenceFailure(t *testing.T) {
 	_, err := service.Deliver(context.Background(), report.Result{ID: 10}, []ports.DeliveryTarget{{Channel: "email", Destination: "teacher@example.com"}})
 	if err == nil || err.Error() != "persist delivery status: write failed" {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestDeliveryServiceReportsCreateFailure(t *testing.T) {
+	service := application.NewDeliveryService(&deliveryRepository{createErr: errors.New("create failed")}, []ports.ResultDeliveryProvider{&deliveryProvider{name: "email"}})
+	_, err := service.Deliver(context.Background(), report.Result{ID: 11}, []ports.DeliveryTarget{{Channel: "email", Destination: "teacher@example.com"}})
+	if err == nil || err.Error() != "persist delivery: create failed" {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestDeliveryServicePropagatesRetryAttemptErrors(t *testing.T) {
+	now := time.Now().UTC()
+	repository := &deliveryRepository{items: []report.Delivery{{ID: 1, ResultID: 12, Channel: "email", Destination: "teacher@example.com", Status: report.DeliveryFailed, CreatedAt: now}}, updateErr: errors.New("retry persistence failed")}
+	service := application.NewDeliveryService(repository, []ports.ResultDeliveryProvider{&deliveryProvider{name: "email", err: errors.New("retry failed")}})
+	_, err := service.Deliver(context.Background(), report.Result{ID: 12}, []ports.DeliveryTarget{{Channel: "email", Destination: "teacher@example.com"}})
+	if err == nil || err.Error() != "persist delivery status: retry persistence failed" {
+		t.Fatalf("retry error = %v", err)
 	}
 }
 

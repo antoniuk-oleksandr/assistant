@@ -2,25 +2,31 @@ package application
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/classroom"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/teacher"
+	"github.com/alex/assistent/internal/platform/config"
 )
 
 type TeacherDirectoryEntry struct {
 	Recipient teacher.Recipient
-	Phone     string
 }
 
 type TeacherService struct {
-	repository ports.TeacherRepository
-	clock      func() time.Time
-	people     ports.ParticipantSource
+	repository          ports.TeacherRepository
+	clock               func() time.Time
+	people              ports.ParticipantSource
+	pairings            ports.TelegramPairingRepository
+	telegramBotUsername string
 }
 
 func NewTeacherService(repository ports.TeacherRepository) *TeacherService {
@@ -30,6 +36,12 @@ func NewTeacherService(repository ports.TeacherRepository) *TeacherService {
 func NewTeacherServiceWithDirectory(repository ports.TeacherRepository, people ports.ParticipantSource) *TeacherService {
 	service := NewTeacherService(repository)
 	service.people = people
+	return service
+}
+
+func NewTeacherServiceWithDirectoryAndTelegram(repository ports.TeacherRepository, people ports.ParticipantSource, pairings ports.TelegramPairingRepository, telegram config.TelegramConfig) *TeacherService {
+	service := NewTeacherServiceWithDirectory(repository, people)
+	service.pairings, service.telegramBotUsername = pairings, strings.TrimPrefix(telegram.Username, "@")
 	return service
 }
 
@@ -79,18 +91,7 @@ func (s *TeacherService) ListForCourse(ctx context.Context, reference string) ([
 				return nil, fmt.Errorf("update Classroom teacher %q: %w", person.ExternalID, err)
 			}
 		}
-		channels, err := s.repository.ListActiveChannels(ctx, current.ID)
-		if err != nil {
-			return nil, fmt.Errorf("list channels for Classroom teacher %q: %w", person.ExternalID, err)
-		}
-		entry := TeacherDirectoryEntry{Recipient: current}
-		for _, channel := range channels {
-			if channel.Kind == "phone" {
-				entry.Phone = channel.Destination
-				break
-			}
-		}
-		entries = append(entries, entry)
+		entries = append(entries, TeacherDirectoryEntry{Recipient: current})
 	}
 	return entries, nil
 }
@@ -115,7 +116,7 @@ func (s *TeacherService) SetStatus(ctx context.Context, id int64, status teacher
 	return s.Edit(ctx, v)
 }
 func (s *TeacherService) AddChannel(ctx context.Context, recipientID int64, kind, destination string) (teacher.Channel, error) {
-	if kind != "phone" && kind != "email" && kind != "telegram" {
+	if kind != "email" && kind != "telegram" {
 		return teacher.Channel{}, fmt.Errorf("unsupported notification channel %q", kind)
 	}
 	now := s.clock()
@@ -126,39 +127,43 @@ func (s *TeacherService) AddChannel(ctx context.Context, recipientID int64, kind
 	return v, nil
 }
 
-func (s *TeacherService) SetPhone(ctx context.Context, recipientID int64, phone string) (teacher.Channel, error) {
-	if recipientID <= 0 || phone == "" {
-		return teacher.Channel{}, fmt.Errorf("teacher ID and phone number are required")
+func (s *TeacherService) CreateTelegramPairing(ctx context.Context, identifier string) (string, error) {
+	if s.pairings == nil || s.telegramBotUsername == "" {
+		return "", errors.New("Telegram bot username is not configured")
 	}
-	if _, err := s.repository.Get(ctx, recipientID); err != nil {
-		return teacher.Channel{}, fmt.Errorf("find teacher %d: %w", recipientID, err)
+	item, err := s.resolveRecipient(ctx, identifier)
+	if err != nil {
+		return "", err
 	}
-	now := s.clock()
-	channel := teacher.Channel{RecipientID: recipientID, Kind: "phone", Destination: phone, Status: teacher.Active, CreatedAt: now, UpdatedAt: now}
-	if err := s.repository.CreateChannel(ctx, &channel); err != nil {
-		return teacher.Channel{}, fmt.Errorf("set teacher phone: %w", err)
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate Telegram pairing token: %w", err)
 	}
-	return channel, nil
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	hash := sha256.Sum256([]byte(token))
+	pairing := teacher.TelegramPairing{RecipientID: item.ID, TokenHash: fmt.Sprintf("%x", hash), ExpiresAt: s.clock().Add(15 * time.Minute)}
+	if err := s.pairings.CreateTelegramPairing(ctx, &pairing); err != nil {
+		return "", fmt.Errorf("store Telegram pairing: %w", err)
+	}
+	return fmt.Sprintf("https://t.me/%s?start=pair_%s", s.telegramBotUsername, token), nil
 }
 
-// SetPhoneByIdentifier accepts either the local teacher ID or the stable
-// Google Classroom user ID shown by `teacher list`.
-func (s *TeacherService) SetPhoneByIdentifier(ctx context.Context, identifier, phone string) (teacher.Channel, error) {
+func (s *TeacherService) resolveRecipient(ctx context.Context, identifier string) (teacher.Recipient, error) {
 	if id, err := strconv.ParseInt(identifier, 10, 64); err == nil && id > 0 {
-		if channel, lookupErr := s.SetPhone(ctx, id, phone); lookupErr == nil {
-			return channel, nil
+		if item, lookupErr := s.repository.Get(ctx, id); lookupErr == nil {
+			return item, nil
 		}
 	}
 	items, err := s.repository.List(ctx)
 	if err != nil {
-		return teacher.Channel{}, fmt.Errorf("find teacher %q: %w", identifier, err)
+		return teacher.Recipient{}, fmt.Errorf("find teacher %q: %w", identifier, err)
 	}
 	for _, item := range items {
 		if item.ClassroomID == identifier {
-			return s.SetPhone(ctx, item.ID, phone)
+			return item, nil
 		}
 	}
-	return teacher.Channel{}, fmt.Errorf("teacher %q was not found", identifier)
+	return teacher.Recipient{}, fmt.Errorf("teacher %q was not found", identifier)
 }
 func (s *TeacherService) SetChannelStatus(ctx context.Context, v teacher.Channel, status teacher.Status) error {
 	v.Status = status

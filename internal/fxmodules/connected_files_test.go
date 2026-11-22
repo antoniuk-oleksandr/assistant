@@ -41,6 +41,8 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 			fmt.Fprint(w, `{"students":[{"userId":"teacher-1","profile":{"name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}}]}`)
 		case "/v1/courses/123/teachers":
 			fmt.Fprint(w, `{"teachers":[]}`)
+		case "/v1/userProfiles/me":
+			fmt.Fprint(w, `{"id":"admin"}`)
 		case "/v1/courses/123/courseWork/task-1/studentSubmissions":
 			state := "TURNED_IN"
 			if returned.Load() {
@@ -101,9 +103,9 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", server.URL+"/v1")
 	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "fixture-classroom-token")
 	t.Setenv("GOOGLE_DRIVE_BASE_URL", server.URL+"/drive/v3")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET", "")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	t.Setenv("GOOGLE_REFRESH_TOKEN", "")
 	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
 	var (
 		poller         *application.PollingService
@@ -250,6 +252,8 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 			fmt.Fprint(w, `{"students":[{"userId":"teacher-1","profile":{"name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}}]}`)
 		case "/v1/courses/123/teachers":
 			fmt.Fprint(w, `{"teachers":[]}`)
+		case "/v1/userProfiles/me":
+			fmt.Fprint(w, `{"id":"admin"}`)
 		case "/v1/courses/123/courseWork/unknown-task/studentSubmissions":
 			fmt.Fprint(w, `{"studentSubmissions":[{"id":"unknown-submission","state":"TURNED_IN","assignmentSubmission":{"attachments":[{"driveFile":{"id":"unknown-material","title":"mystery.bin","alternateLink":"https://drive.google.com/file/d/unknown-material/view"}}]}}]}`)
 		case "/drive/v3/files/unknown-material":
@@ -270,9 +274,9 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", server.URL+"/v1")
 	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "fixture-classroom-token")
 	t.Setenv("GOOGLE_DRIVE_BASE_URL", server.URL+"/drive/v3")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_ID", "")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_CLIENT_SECRET", "")
-	t.Setenv("GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN", "")
+	t.Setenv("GOOGLE_CLIENT_ID", "")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "")
+	t.Setenv("GOOGLE_REFRESH_TOKEN", "")
 	t.Setenv("GOOGLE_DRIVE_MATERIAL_DIR", filepath.Join(dir, "attachments"))
 
 	newApp := func() (*fx.App, *application.PollingService, cli.ClassroomService, cli.ReportService, ports.TaskBindingRepository, ports.SubmissionRepository, ports.ScenarioCourseBindingRepository) {

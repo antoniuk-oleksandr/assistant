@@ -49,11 +49,31 @@ The command normally stays attached to the terminal and produces little output. 
 - Go 1.20 or newer.
 - SQLite support through `github.com/mattn/go-sqlite3`.
 - Google Cloud OAuth credentials for live Classroom, Drive, and Sheets access.
+- A Google OAuth **Web application** client with
+  `https://developers.google.com/oauthplayground` as an authorized redirect URI
+  when generating the refresh token through OAuth Playground.
+- The Google account used for authorization must be added under the OAuth
+  consent screen's **Test users** while the app is in Testing mode.
 - `just` is optional.
 
-The default Sheets renderer requires a refresh token authorized for:
+The application uses one shared OAuth client and refresh token for Google
+Classroom, Drive, and Sheets. The authorized account must be able to access the
+registered Classroom course and its submissions.
+
+Required Google Cloud APIs:
+
+- Google Classroom API
+- Google Drive API
+- Google Sheets API
+
+Required OAuth scopes:
 
 ```text
+https://www.googleapis.com/auth/classroom.coursework.students.readonly
+https://www.googleapis.com/auth/classroom.rosters.readonly
+https://www.googleapis.com/auth/classroom.profile.emails
+https://www.googleapis.com/auth/drive.readonly
+https://www.googleapis.com/auth/drive.file
 https://www.googleapis.com/auth/spreadsheets
 ```
 
@@ -85,15 +105,27 @@ REPORT_REFRESH_BEFORE=1d
 For fast local testing, set `REPORT_PRELIMINARY_BEFORE=2m` and
 `REPORT_REFRESH_BEFORE=1m`. The scheduler waits for those exact deadline offsets.
 
-### Google Sheets OAuth
+### Google OAuth
 
 ```env
-GOOGLE_SHEETS_OAUTH_CLIENT_ID=...
-GOOGLE_SHEETS_OAUTH_CLIENT_SECRET=...
-GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN=...
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REFRESH_TOKEN=...
 ```
 
-The three values must belong to the same OAuth client and authorized Google account. The refresh token is a secret used to obtain short-lived access tokens without interactive authorization.
+The three values identify one OAuth client and one authorized Google account. The
+refresh token is a secret used to obtain short-lived access tokens without
+interactive authorization. The Google Cloud project must enable the Google
+Classroom, Google Drive, and Google Sheets APIs and configure the OAuth consent
+screen for the scopes above. When OAuth Playground is used, the OAuth client
+must be a Web application and must authorize this exact redirect URI:
+
+```text
+https://developers.google.com/oauthplayground
+```
+
+If the OAuth consent screen is in Testing mode, the account that authorizes the
+application must also be listed as an approved test user.
 
 ### Report-ready email
 
@@ -103,7 +135,7 @@ active Classroom participant with an email address after creating a Google Sheet
 `<google_sheet_link>` tag is replaced with the generated Sheet URL.
 
 After the email is sent, the same rendered message is sent to the configured
-Telegram chat when an active recipient has a phone channel configured.
+Telegram chat when an active recipient has a paired Telegram channel configured.
 
 Enable 2-Step Verification for the Google account and create a Google app
 password. Google SMTP uses STARTTLS on port 587.
@@ -125,16 +157,20 @@ are synchronized automatically, including their email addresses. Active
 participants with an email address receive the generated report.
 
 Google Classroom participants are synchronized into the local teacher directory
-during polling. Add a phone channel to an automatically discovered participant:
+during polling. Generate a private Telegram binding link for an automatically
+discovered participant:
 
 ```bash
 go run ./cmd/assistent teacher list <course-id-or-url>
 
-go run ./cmd/assistent teacher phone-set <teacher-id-or-classroom-user-id> \\
-  --phone "+380..."
+go run ./cmd/assistent teacher telegram-bind <teacher-id-or-classroom-user-id>
 ```
 
-During the three-day-before-deadline polling phase, the application creates one
+The command prints a one-time Telegram pairing link. The teacher opens that
+link and presses Start; the app then verifies the token and stores the user's
+private Telegram chat ID for future notifications. No phone number is required.
+
+During the configured preliminary-before-deadline phase, the application creates one
 email reminder per missing roster participant. The reminder includes the task
 title, due date, remaining time, and Classroom link. Reminder attempts and
 failures are persisted in SQLite and deduplicated by task, participant, channel,
@@ -142,28 +178,27 @@ and phase. The default body is `templates/missing-submission-reminder.txt`;
 override it with `REMINDER_TEMPLATE_PATH` and use `<task_title>`, `<due_at>`,
 `<remaining_time>`, and `<classroom_link>` placeholders.
 
-### Google Drive OAuth
+At the same configured preliminary deadline, the administrator receives one
+summary by email and Telegram. It lists users who have not sent their files;
+when none are missing, it says that everybody has already sent the files. The
+active Telegram binding identifies the administrator's private chat.
+`TELEGRAM_CHAT_ID` remains a legacy fallback when no paired chat exists.
+
+### Google Drive settings
 
 ```env
-GOOGLE_DRIVE_OAUTH_CLIENT_ID=...
-GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=...
-GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN=...
-
 # Default: data/materials
 GOOGLE_DRIVE_MATERIAL_DIR=data/materials
 GOOGLE_DRIVE_BASE_URL=https://www.googleapis.com/drive/v3
 ```
 
-See [docs/drive.md](docs/drive.md) for Drive authorization details.
+See [docs/drive.md](docs/drive.md) for Drive authorization details and
+[docs/sheets.md](docs/sheets.md) for Google Sheets API requirements.
 
-### OAuth setup summary
-
-1. Select or create a Google Cloud project.
-2. Enable Sheets, Drive, and Classroom APIs as required.
-3. Configure the OAuth consent screen and add the operating account as a test user when needed.
-4. Create an OAuth client.
-5. Authorize the required scopes and obtain a refresh token with offline access.
-6. Put the values in `.env`.
+The OAuth client, consent configuration, enabled APIs, and refresh token belong
+to the same Google Cloud project and authorized account. The account's
+Classroom course and user identifiers are discovered through the Classroom API;
+report Sheet identifiers are generated by the application.
 
 ## CLI commands
 
@@ -212,16 +247,16 @@ go run ./cmd/assistent course remove <course-id>
 
 ### CLI scope
 
-The current Cobra CLI exposes `report`, `course`, and teacher phone registration. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
+The current Cobra CLI exposes `report`, `course`, and teacher Telegram binding. Other teacher management, notification retry, dead-letter, and history functionality exists in application/storage layers but does not currently have CLI commands.
 
-To register a teacher's phone without manually entering their email, list the users of the specific Classroom course and use the local teacher ID:
+To bind a teacher's private Telegram chat, list the users of the specific Classroom course and use the local teacher ID:
 
 ```bash
 go run ./cmd/assistent teacher list <course-id-or-url>
-go run ./cmd/assistent teacher phone-set <teacher-id-or-classroom-user-id> --phone "+380..."
+go run ./cmd/assistent teacher telegram-bind <teacher-id-or-classroom-user-id>
 ```
 
-Teacher names and emails are read from the selected course through the Classroom API. The command only stores or updates the phone notification channel for the selected teacher. Phone channels are stored once per Classroom user, so the same phone is shown whenever that user appears in another course.
+Teacher names and emails are read from the selected course through the Classroom API. The one-time link stores a Telegram channel for the selected teacher after they open it.
 
 ## First-time setup
 

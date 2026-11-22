@@ -100,12 +100,12 @@ var _ = Describe("Classroom service", func() {
 			{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: task.Discovered},
 			{ExternalID: "task-2", CourseID: "456", Title: "Other", Status: task.Bound},
 		}}
-		source := &taskSourceStub{tasks: []task.Task{repository.tasks[0]}}
+		source := &taskSourceStub{tasks: []task.Task{repository.tasks[0], {ExternalID: "task-3", Title: "No course"}}}
 		service := application.NewCourseTaskService(repository, source)
 
 		result, err := service.List(ctx, "123")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal([]application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}}))
+		Expect(result).To(Equal([]application.CourseTaskResult{{ExternalID: "task-1", CourseID: "123", Title: "Report", Status: "discovered"}, {ExternalID: "task-3", CourseID: "123", Title: "No course", Status: ""}}))
 		Expect(service.List(ctx, "invalid")).Error().To(MatchError(ContainSubstring("InvalidClassroomCourseReference")))
 
 		repository.registerErr = errors.New("task repository failed")

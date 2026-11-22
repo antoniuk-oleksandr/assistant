@@ -16,29 +16,37 @@ type LocalReportRenderer struct {
 	directory string
 }
 
+var (
+	localMarshalIndent = json.MarshalIndent
+	localMkdirAll      = os.MkdirAll
+	localCreateTemp    = os.CreateTemp
+	localWriteFile     = func(file *os.File, data []byte) (int, error) { return file.Write(data) }
+	localCloseFile     = func(file *os.File) error { return file.Close() }
+)
+
 func NewLocalReportRenderer() *LocalReportRenderer {
 	return &LocalReportRenderer{directory: os.TempDir()}
 }
 
 func (r *LocalReportRenderer) RenderAndSave(_ context.Context, data scenario.ReportData) (report.Output, error) {
-	content, err := json.MarshalIndent(data, "", "  ")
+	content, err := localMarshalIndent(data, "", "  ")
 	if err != nil {
 		return report.Output{}, fmt.Errorf("marshal report package: %w", err)
 	}
-	if err := os.MkdirAll(r.directory, 0700); err != nil {
+	if err := localMkdirAll(r.directory, 0700); err != nil {
 		return report.Output{}, fmt.Errorf("create report output directory: %w", err)
 	}
-	file, err := os.CreateTemp(r.directory, "science-report-*.json")
+	file, err := localCreateTemp(r.directory, "science-report-*.json")
 	if err != nil {
 		return report.Output{}, fmt.Errorf("create report package: %w", err)
 	}
 	path := file.Name()
-	if _, err := file.Write(content); err != nil {
-		_ = file.Close()
+	if _, err := localWriteFile(file, content); err != nil {
+		_ = localCloseFile(file)
 		_ = os.Remove(path)
 		return report.Output{}, fmt.Errorf("write report package: %w", err)
 	}
-	if err := file.Close(); err != nil {
+	if err := localCloseFile(file); err != nil {
 		_ = os.Remove(path)
 		return report.Output{}, fmt.Errorf("close report package: %w", err)
 	}

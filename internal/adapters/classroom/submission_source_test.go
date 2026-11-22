@@ -101,10 +101,25 @@ func TestHTTPClassroomClientListsCourseParticipantsAcrossPages(t *testing.T) {
 	}
 }
 
+func TestHTTPClassroomClientReportsParticipantListErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "unavailable", http.StatusBadGateway) }))
+	defer server.Close()
+	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client())
+	if _, err := client.ListCourseParticipants(context.Background(), "course-1"); err == nil {
+		t.Fatal("participant list error was ignored")
+	}
+	if _, err := client.ListCourseTeachers(context.Background(), "course-1"); err == nil {
+		t.Fatal("teacher list error was ignored")
+	}
+}
+
 func TestHTTPClassroomClientGetsUserProfile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/userProfiles/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if r.URL.Query().Get("pageSize") != "" {
+			t.Fatalf("unexpected pageSize query: %s", r.URL.RawQuery)
 		}
 		_, _ = w.Write([]byte(`{"id":"user-1","name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}`))
 	}))
@@ -210,6 +225,69 @@ func TestSubmissionSourceMapsCourseParticipants(t *testing.T) {
 	items, err := source.ListParticipants(context.Background(), "course-1")
 	if err != nil || !reflect.DeepEqual(items, []task.Participant{{ExternalID: "user-1", Name: "First", Email: "first@example.test"}}) {
 		t.Fatalf("participants = %#v, error = %v", items, err)
+	}
+}
+
+type participantAndTeacherClient struct {
+	students []CourseParticipant
+	teachers []CourseParticipant
+	err      error
+}
+
+type participantTeacherErrorClient struct{}
+
+func (participantTeacherErrorClient) ListCourseWork(context.Context, string) ([]CourseWork, error) {
+	return nil, nil
+}
+func (participantTeacherErrorClient) ListStudentSubmissions(context.Context, string, string) ([]StudentSubmission, error) {
+	return nil, nil
+}
+func (participantTeacherErrorClient) ListCourseParticipants(context.Context, string) ([]CourseParticipant, error) {
+	return nil, nil
+}
+func (participantTeacherErrorClient) ListCourseTeachers(context.Context, string) ([]CourseParticipant, error) {
+	return nil, errors.New("teacher API failed")
+}
+
+func (participantAndTeacherClient) ListCourseWork(context.Context, string) ([]CourseWork, error) {
+	return nil, nil
+}
+func (participantAndTeacherClient) ListStudentSubmissions(context.Context, string, string) ([]StudentSubmission, error) {
+	return nil, nil
+}
+
+func (c participantAndTeacherClient) ListCourseParticipants(context.Context, string) ([]CourseParticipant, error) {
+	return c.students, c.err
+}
+func (c participantAndTeacherClient) ListCourseTeachers(context.Context, string) ([]CourseParticipant, error) {
+	return c.teachers, c.err
+}
+
+func TestSubmissionSourceMergesTeachersAndSkipsAnonymousParticipants(t *testing.T) {
+	var students, teachers []CourseParticipant
+	if err := json.Unmarshal([]byte(`[{"userId":"student","profile":{"name":{"fullName":"Student"}}},{"profile":{"name":{"fullName":"Anonymous"}}}]`), &students); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`[{"userId":"teacher","profile":{"name":{"fullName":"Teacher"}}}]`), &teachers); err != nil {
+		t.Fatal(err)
+	}
+	source := NewSubmissionSourceWithClient(participantAndTeacherClient{
+		students: students,
+		teachers: teachers,
+	})
+	items, err := source.ListParticipants(context.Background(), "course-1")
+	if err != nil || len(items) != 2 || items[1].ExternalID != "teacher" {
+		t.Fatalf("participants = %#v, error = %v", items, err)
+	}
+	if _, err := NewSubmissionSourceWithClient(participantAndTeacherClient{err: errors.New("teachers failed")}).ListParticipants(context.Background(), "course-1"); err == nil || !strings.Contains(err.Error(), "participants") {
+		t.Fatalf("participant error = %v", err)
+	}
+}
+
+func TestSubmissionSourceReportsTeacherRosterErrors(t *testing.T) {
+	_, err := NewSubmissionSourceWithClient(participantTeacherErrorClient{}).ListParticipants(context.Background(), "course-1")
+	if err == nil || !strings.Contains(err.Error(), "course teachers") {
+		t.Fatalf("teacher roster error = %v", err)
 	}
 }
 
@@ -350,9 +428,9 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	if got := HTTPConfigFromEnvironment(); got.BaseURL != defaultBaseURL || got.AccessToken != "" {
 		t.Fatalf("default HTTP config = %#v", got)
 	}
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_ID", "client")
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_CLIENT_SECRET", "secret")
-	t.Setenv("GOOGLE_CLASSROOM_OAUTH_REFRESH_TOKEN", "refresh")
+	t.Setenv("GOOGLE_CLIENT_ID", "client")
+	t.Setenv("GOOGLE_CLIENT_SECRET", "secret")
+	t.Setenv("GOOGLE_REFRESH_TOKEN", "refresh")
 	t.Setenv("GOOGLE_CLASSROOM_TIMEZONE", "Europe/Kyiv")
 	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" || got.TimeZone != "Europe/Kyiv" {
 		t.Fatalf("OAuth config = %#v", got)
@@ -365,6 +443,9 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 func TestNewSubmissionSourceUsesDefaultHTTPClient(t *testing.T) {
 	if source := NewSubmissionSource(); source == nil {
 		t.Fatal("NewSubmissionSource() returned nil")
+	}
+	if client := NewHTTPClassroomClient(HTTPConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh"}, nil); client == nil {
+		t.Fatal("OAuth Classroom client was not created")
 	}
 }
 

@@ -2,6 +2,8 @@ package application
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +66,19 @@ func (schedulerParticipantSource) ListSubmissions(context.Context, string) ([]su
 func (s schedulerParticipantSource) ListParticipants(context.Context, string) ([]task.Participant, error) {
 	return s.items, nil
 }
+
+type schedulerRegistrarSource struct{ registered bool }
+
+func (s *schedulerRegistrarSource) ListTasks(context.Context, string) ([]task.Task, error) {
+	return nil, nil
+}
+func (s *schedulerRegistrarSource) ListSubmissions(context.Context, string) ([]submission.Submission, error) {
+	return nil, nil
+}
+func (s *schedulerRegistrarSource) ListParticipants(context.Context, string) ([]task.Participant, error) {
+	return nil, nil
+}
+func (s *schedulerRegistrarSource) RegisterTaskCourse(string, string) { s.registered = true }
 
 type failingParticipantSource struct{}
 
@@ -195,6 +210,13 @@ func TestNextDeadlineEventSkipsExpiredAndChoosesEarliest(t *testing.T) {
 	}
 }
 
+func TestNextDeadlineEventSkipsTerminalPhases(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	if _, ok := nextDeadlineEvent([]task.Binding{{Task: task.Task{DueAt: now.Add(time.Hour).Format(time.RFC3339), Phase: task.PhaseCompleted}}}, now, task.DefaultDeadlineWindows); ok {
+		t.Fatal("terminal phase unexpectedly scheduled")
+	}
+}
+
 func TestDeadlineEventDisablesTaskWithoutFetching(t *testing.T) {
 	bindings := &schedulerBindings{}
 	service := &PollingService{bindings: bindings}
@@ -222,6 +244,18 @@ func TestSchedulerLoadsParticipantRosterBeforeFetchingSubmissions(t *testing.T) 
 	}
 }
 
+func TestSchedulerReportsParticipantRefreshFailureAndRegistersCourse(t *testing.T) {
+	source := &schedulerRegistrarSource{}
+	service := &PollingService{source: source, participants: failingParticipantRepository{}, bindings: &schedulerBindings{}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}}
+	event := deadlineEvent{binding: task.Binding{Task: task.Task{ID: 1, ExternalID: "task", CourseID: "course"}}, phase: task.PhaseThreeDaysBefore}
+	if err := service.executeDeadlineEvent(context.Background(), event); err == nil || !strings.Contains(err.Error(), "persist participants for task") {
+		t.Fatalf("executeDeadlineEvent() error = %v", err)
+	}
+	if !source.registered {
+		t.Fatal("task course was not registered")
+	}
+}
+
 func TestSchedulerUsesClockAndReturnsWhenContextIsCanceled(t *testing.T) {
 	service := &PollingService{bindings: &schedulerBindings{}, clock: nil}
 	if got := service.currentTime(); got.IsZero() {
@@ -234,6 +268,85 @@ func TestSchedulerUsesClockAndReturnsWhenContextIsCanceled(t *testing.T) {
 	}
 	if err := waitForScheduler(ctx, time.Hour); err != context.Canceled {
 		t.Fatalf("waitForScheduler() error = %v, want context canceled", err)
+	}
+	if err := waitForScheduler(context.Background(), time.Millisecond); err != nil {
+		t.Fatalf("waitForScheduler() timer error = %v", err)
+	}
+}
+
+func TestSchedulerReturnsActiveBindingErrors(t *testing.T) {
+	service := &PollingService{bindings: &schedulerBindings{activeErr: context.Canceled}}
+	if err := service.RunScheduled(context.Background()); err == nil {
+		t.Fatal("RunScheduled() ignored active binding error")
+	}
+}
+
+func TestSchedulerReturnsExpiredBindingErrors(t *testing.T) {
+	service := &PollingService{bindings: &schedulerBindings{
+		activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "expired", DueAt: "2026-11-21T11:00:00Z"}}}},
+		unbindErr:      errors.New("unbind failed"),
+	}, clock: func() time.Time { return time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC) }}
+	if err := service.RunScheduled(context.Background()); err == nil || !strings.Contains(err.Error(), "disable expired report task") {
+		t.Fatalf("RunScheduled() error = %v", err)
+	}
+}
+
+func TestSchedulerLogsEventFailureAndStopsWhenCanceled(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	bindings := &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "failed-event", CourseID: "course", DueAt: now.Format(time.RFC3339), Phase: task.PhaseDiscovery}}}, {}}}
+	service := &PollingService{bindings: bindings, source: failingSubmissionSource{err: errors.New("submission provider failed")}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}, clock: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+	if err := service.RunScheduled(ctx); err != nil {
+		t.Fatalf("RunScheduled() error = %v", err)
+	}
+}
+
+func TestSchedulerReturnsImmediatelyForCanceledEventContext(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	service := &PollingService{bindings: &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "canceled-event", CourseID: "course", DueAt: now.Format(time.RFC3339), Phase: task.PhaseDiscovery}}}}}, source: failingSubmissionSource{err: errors.New("submission provider failed")}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}, clock: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := service.RunScheduled(ctx); err != nil {
+		t.Fatalf("RunScheduled() error = %v", err)
+	}
+}
+
+func TestSchedulerHandlesDeadlineReachedAndRegistrationFailures(t *testing.T) {
+	bindings := &schedulerBindings{}
+	service := &PollingService{bindings: bindings}
+	if err := service.executeDeadlineEvent(context.Background(), deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "deadline"}}, phase: task.PhaseDeadlineReached}); err != nil {
+		t.Fatal(err)
+	}
+	if bindings.unbound != "deadline" {
+		t.Fatalf("unbound task = %q", bindings.unbound)
+	}
+
+	registering := &schedulerTaskRepository{err: context.Canceled}
+	service = &PollingService{
+		bindings:     &schedulerBindings{},
+		source:       schedulerParticipantSource{},
+		participants: &schedulerParticipants{},
+		tasks:        registering,
+		clock:        func() time.Time { return time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC) },
+	}
+	event := deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "task", CourseID: "course"}}, phase: task.PhaseThreeDaysBefore}
+	if err := service.executeDeadlineEvent(context.Background(), event); err == nil {
+		t.Fatal("executeDeadlineEvent() ignored task registration failure")
+	}
+}
+
+func TestRefreshParticipantRosterAllowsMissingOptionalDependencies(t *testing.T) {
+	service := &PollingService{}
+	if err := service.refreshParticipantRoster(context.Background(), task.Task{ExternalID: "task"}); err != nil {
+		t.Fatal(err)
+	}
+	service = &PollingService{participants: &schedulerParticipants{}, source: schedulerSubmissionOnlySource{}}
+	if err := service.refreshParticipantRoster(context.Background(), task.Task{ExternalID: "task"}); err == nil {
+		t.Fatal("missing participant source was ignored")
 	}
 }
 
@@ -268,6 +381,20 @@ func TestSchedulerWaitsForFutureEventUntilCanceled(t *testing.T) {
 	}
 }
 
+func TestSchedulerProcessesDueDeadlineEvent(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	bindings := &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "due", DueAt: now.Format(time.RFC3339), Phase: task.PhaseOneDayBefore}}}, {}}}
+	service := &PollingService{bindings: bindings, clock: func() time.Time { return now }}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := service.RunScheduled(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if bindings.unbound != "due" {
+		t.Fatalf("due task was not unbound: %q", bindings.unbound)
+	}
+}
+
 func TestSchedulerPropagatesUnbindAndParticipantFailures(t *testing.T) {
 	service := &PollingService{bindings: &schedulerBindings{unbindErr: context.Canceled}}
 	event := deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "task"}}, phase: task.PhaseDeadlineReached}
@@ -281,6 +408,19 @@ func TestSchedulerPropagatesUnbindAndParticipantFailures(t *testing.T) {
 	service = &PollingService{source: schedulerParticipantSource{}, participants: failingParticipantRepository{}}
 	if err := service.refreshParticipantRoster(context.Background(), task.Task{ExternalID: "task"}); err == nil {
 		t.Fatal("participant repository failure was ignored")
+	}
+}
+
+func TestSchedulerReportsExpiredUnbindAndScheduledProcessingErrors(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	service := &PollingService{bindings: &schedulerBindings{unbindErr: errors.New("unbind failed")}}
+	if err := service.disableExpiredBindings(context.Background(), []task.Binding{{Task: task.Task{ExternalID: "expired", DueAt: now.Add(-time.Hour).Format(time.RFC3339)}}}, now); err == nil {
+		t.Fatal("expired unbind error was ignored")
+	}
+	service = &PollingService{bindings: &schedulerBindings{}, source: failingSubmissionSource{err: errors.New("submission failed")}, clock: func() time.Time { return now }}
+	event := deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "task", CourseID: "course"}}, phase: task.PhaseThreeDaysBefore}
+	if err := service.executeDeadlineEvent(context.Background(), event); err == nil {
+		t.Fatal("scheduled processing error was ignored")
 	}
 }
 

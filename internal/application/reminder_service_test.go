@@ -17,10 +17,14 @@ import (
 type reminderRepository struct {
 	items                  []notification.Reminder
 	lookupErr, updateErr   error
+	createErr              error
 	getIDErr, listRetryErr error
 }
 
 func (r *reminderRepository) Create(_ context.Context, item *notification.Reminder) error {
+	if r.createErr != nil {
+		return r.createErr
+	}
 	item.ID = int64(len(r.items) + 1)
 	r.items = append(r.items, *item)
 	return nil
@@ -74,6 +78,17 @@ type reminderProvider struct {
 	calls int
 }
 
+func TestReminderServiceUsesProductionConstructor(t *testing.T) {
+	service := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
+	if service == nil {
+		t.Fatal("NewReminderService() returned nil")
+	}
+	_, err := service.Schedule(context.Background(), task.Task{DueAt: "2026-11-20T00:00:00Z"}, nil, nil, 72*time.Hour)
+	if err != nil {
+		t.Fatalf("Schedule() with production clock: %v", err)
+	}
+}
+
 func (p *reminderProvider) Name() string { return p.name }
 func (p *reminderProvider) SendReminder(context.Context, notification.Reminder) error {
 	p.calls++
@@ -97,13 +112,6 @@ func TestReminderServiceExcludesSubmittedAndPreventsDuplicates(t *testing.T) {
 	}
 }
 
-func TestReminderServiceUsesProductionConstructor(t *testing.T) {
-	service := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
-	if service == nil {
-		t.Fatal("NewReminderService() returned nil")
-	}
-}
-
 func TestReminderServiceRendersReminderDetails(t *testing.T) {
 	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
 	repository := &reminderRepository{}
@@ -124,6 +132,14 @@ func TestReminderServiceRendersReminderDetails(t *testing.T) {
 	}
 }
 
+func TestReminderServicePropagatesUnexpectedReminderLookupErrors(t *testing.T) {
+	service := application.NewReminderServiceWithClock(&reminderRepository{lookupErr: errors.New("lookup failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) })
+	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "person", Channel: "email", Destination: "person@example.com"}}, 72*time.Hour)
+	if err == nil || err.Error() != "lookup failed" {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+}
+
 func TestReminderServiceReportsMissingTemplate(t *testing.T) {
 	t.Setenv("REMINDER_TEMPLATE_PATH", "/tmp/does-not-exist-reminder-template")
 	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
@@ -131,6 +147,21 @@ func TestReminderServiceReportsMissingTemplate(t *testing.T) {
 	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "", Destination: "x"}}, 72*time.Hour)
 	if err == nil || !strings.Contains(err.Error(), "read reminder template") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestReminderServiceReportsPersistenceErrors(t *testing.T) {
+	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+	service := application.NewReminderServiceWithClock(&reminderRepository{createErr: errors.New("create failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
+	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
+	if err == nil || err.Error() != "persist reminder: create failed" {
+		t.Fatalf("create error = %v", err)
+	}
+	repository := &reminderRepository{updateErr: errors.New("update failed")}
+	service = application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
+	_, err = service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
+	if err == nil || err.Error() != "persist reminder status: update failed" {
+		t.Fatalf("update error = %v", err)
 	}
 }
 

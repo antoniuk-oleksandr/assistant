@@ -16,10 +16,12 @@ type smtpSender interface {
 }
 
 type googleSMTPClient struct {
-	host     string
-	port     int
-	username string
-	password string
+	host      string
+	port      int
+	username  string
+	password  string
+	dial      func(context.Context, string) (net.Conn, error)
+	tlsConfig func() *tls.Config
 }
 
 func newGoogleSMTPClient(cfgHost string, cfgPort int, username, password string) *googleSMTPClient {
@@ -30,7 +32,12 @@ func newGoogleSMTPClient(cfgHost string, cfgPort int, username, password string)
 	if cfgPort == 0 {
 		cfgPort = 587
 	}
-	return &googleSMTPClient{host: host, port: cfgPort, username: username, password: password}
+	return &googleSMTPClient{host: host, port: cfgPort, username: username, password: password,
+		dial: func(ctx context.Context, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", address)
+		},
+		tlsConfig: func() *tls.Config { return &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12} },
+	}
 }
 
 func (c *googleSMTPClient) Send(ctx context.Context, from, to, subject, body string) error {
@@ -43,8 +50,13 @@ func (c *googleSMTPClient) Send(ctx context.Context, from, to, subject, body str
 		}
 	}
 	address := net.JoinHostPort(c.host, strconv.Itoa(c.port))
-	dialer := &net.Dialer{}
-	connection, err := dialer.DialContext(ctx, "tcp", address)
+	dial := c.dial
+	if dial == nil {
+		dial = func(ctx context.Context, address string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "tcp", address)
+		}
+	}
+	connection, err := dial(ctx, address)
 	if err != nil {
 		return err
 	}
@@ -54,7 +66,11 @@ func (c *googleSMTPClient) Send(ctx context.Context, from, to, subject, body str
 		return err
 	}
 	defer client.Close()
-	if err := client.StartTLS(&tls.Config{ServerName: c.host, MinVersion: tls.VersionTLS12}); err != nil {
+	tlsConfig := c.tlsConfig
+	if tlsConfig == nil {
+		tlsConfig = func() *tls.Config { return &tls.Config{ServerName: c.host, MinVersion: tls.VersionTLS12} }
+	}
+	if err := client.StartTLS(tlsConfig()); err != nil {
 		return fmt.Errorf("start SMTP TLS: %w", err)
 	}
 	if err := client.Auth(smtp.PlainAuth("", c.username, c.password, c.host)); err != nil {

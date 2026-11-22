@@ -69,4 +69,13 @@ var _ = Describe("SQLite initialization", func() {
 		Expect(db.PingContext(ctx)).To(Succeed())
 	})
 
+	It("reports schema initialization errors from a canceled startup", func(ctx SpecContext) {
+		var db *sql.DB
+		app := fx.New(fx.NopLogger, fx.Supply(config.DatabaseConfig{SQLitePath: ":memory:"}), fx.Provide(database.NewSQLite), fx.Populate(&db))
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		Expect(app.Start(canceled)).NotTo(Succeed())
+		_ = app.Stop(context.Background())
+	})
+
 })

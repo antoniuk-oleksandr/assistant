@@ -36,7 +36,7 @@ func newGoogleDriveTemplateUploader(cfg config.DriveConfig) (templateUploader, e
 		return nil, nil
 	}
 	if cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.RefreshToken == "" {
-		return nil, fmt.Errorf("Google Drive OAuth requires GOOGLE_DRIVE_OAUTH_CLIENT_ID, GOOGLE_DRIVE_OAUTH_CLIENT_SECRET, and GOOGLE_DRIVE_OAUTH_REFRESH_TOKEN")
+		return nil, fmt.Errorf("Google Drive OAuth requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN")
 	}
 	base := cfg.BaseURL
 	if base == "" {

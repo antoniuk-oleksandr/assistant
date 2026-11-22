@@ -147,6 +147,7 @@ func TestScienceReportCollectionProcessorCountsDOCXTableRecords(t *testing.T) {
 				{{Value: "1"}, {Value: "Анна Коваленко"}},
 				{{Value: "2"}, {Value: "Петро Петренко"}},
 				{{Value: "1"}, {Value: "2"}}, // numeric-only header row
+				{{Value: " "}, {Value: ""}},  // empty rows are not records
 			}}},
 		}}}}}},
 	}}})

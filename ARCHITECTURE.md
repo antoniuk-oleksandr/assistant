@@ -57,7 +57,7 @@ report-system.exe course add <course-url-or-id>
 report-system.exe course remove <course-id>
 
 report-system.exe teacher list <course-id-or-url>
-report-system.exe teacher phone-set <teacher-id-or-classroom-user-id> --phone "+380..."
+report-system.exe teacher telegram-bind <teacher-id-or-classroom-user-id>
 
 report-system.exe notification retry <id>
 report-system.exe notification dlq list
@@ -278,6 +278,7 @@ Config
 │   └── TemplatePath
 ├── Telegram
 │   ├── BotToken
+│   ├── BotUsername
 │   ├── BaseURL
 │   └── ChatID
 ├── Logging

@@ -53,7 +53,7 @@ func newGoogleSheetsClient(cfg config.SheetsConfig) (sheetsClient, error) {
 		return nil, fmt.Errorf("Google Sheets OAuth credentials are required")
 	}
 	if cfg.ClientID == "" || cfg.ClientSecret == "" || cfg.RefreshToken == "" {
-		return nil, fmt.Errorf("Google Sheets OAuth requires GOOGLE_SHEETS_OAUTH_CLIENT_ID, GOOGLE_SHEETS_OAUTH_CLIENT_SECRET, and GOOGLE_SHEETS_OAUTH_REFRESH_TOKEN")
+		return nil, fmt.Errorf("Google Sheets OAuth requires GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REFRESH_TOKEN")
 	}
 	oauth := oauth2.Config{ClientID: cfg.ClientID, ClientSecret: cfg.ClientSecret, Scopes: []string{sheetsScope}, Endpoint: oauth2.Endpoint{TokenURL: "https://oauth2.googleapis.com/token", AuthStyle: oauth2.AuthStyleInParams}}
 	tokens := oauth.TokenSource(context.Background(), &oauth2.Token{RefreshToken: cfg.RefreshToken})

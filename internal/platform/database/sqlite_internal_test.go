@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/alex/assistent/internal/platform/config"
 	_ "github.com/mattn/go-sqlite3"
+	"go.uber.org/fx"
 )
 
 func TestFileDSNRejectsDirectoryCreationBelowAFile(t *testing.T) {
@@ -90,5 +92,101 @@ func TestMigrationsAddMissingColumnsAndRemainIdempotent(t *testing.T) {
 				t.Errorf("column %s.%s was not added", table, column)
 			}
 		}
+	}
+}
+
+func TestMigrationsReturnErrorsFromClosedDatabase(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, migrate := range []func(context.Context, *sql.DB) error{migrateReportRunColumns, migrateReminderColumns, migrateTaskColumns, migrateMaterialColumns} {
+		if err := migrate(context.Background(), db); err == nil {
+			t.Fatal("migration on closed database unexpectedly succeeded")
+		}
+	}
+}
+
+func TestMigrationsReturnSchemaErrorsWhenTargetTablesAreMissing(t *testing.T) {
+	for name, migrate := range map[string]func(context.Context, *sql.DB) error{
+		"report runs": migrateReportRunColumns,
+		"reminders":   migrateReminderColumns,
+		"tasks":       migrateTaskColumns,
+		"materials":   migrateMaterialColumns,
+	} {
+		t.Run(name, func(t *testing.T) {
+			db, err := sql.Open("sqlite3", ":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			if err := migrate(context.Background(), db); err == nil {
+				t.Fatal("migration without target table unexpectedly succeeded")
+			}
+		})
+	}
+}
+
+type captureLifecycle struct{ hook fx.Hook }
+
+func (l *captureLifecycle) Append(hook fx.Hook) { l.hook = hook }
+
+func TestSQLiteReportsSchemaInitializationErrorsAtDifferentStages(t *testing.T) {
+	tests := []struct {
+		name   string
+		prefix []string
+		object string
+	}{
+		{"scenarios", nil, "scenarios"},
+		{"classroom courses", []string{createScenarios}, "classroom_courses"},
+		{"tasks", []string{createScenarios, createClassroomCourses}, "tasks"},
+		{"scenario tasks", []string{createScenarios, createClassroomCourses, createTasks}, "scenario_tasks"},
+		{"task participants", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks}, "task_participants"},
+		{"missing submitters", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants}, "missing_submitters"},
+		{"scenario courses", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters}, "scenario_courses"},
+		{"scenario course data", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses}, "scenario_course_data"},
+		{"poll state", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData}, "poll_state"},
+		{"submissions", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState}, "submissions"},
+		{"materials", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions}, "materials"},
+		{"report runs", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials}, "report_runs"},
+		{"report results", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs}, "report_results"},
+		{"report deliveries", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults}, "report_deliveries"},
+		{"reminders", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults, createReportDeliveries}, "reminders"},
+		{"teachers", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults, createReportDeliveries, createReminders}, "teachers"},
+		{"notification channels", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults, createReportDeliveries, createReminders, createTeachers}, "notification_channels"},
+		{"telegram pairings", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults, createReportDeliveries, createReminders, createTeachers, createNotificationChannels}, "telegram_pairings"},
+		{"material parses", []string{createScenarios, createClassroomCourses, createTasks, createScenarioTasks, createTaskParticipants, createMissingSubmitters, createScenarioCourses, createScenarioCourseData, createPollState, createSubmissions, createMaterials, createReportRuns, createReportRunIndexes, createReportOutputs, createReportResults, createReportDeliveries, createReminders, createTeachers, createNotificationChannels, createTelegramPairings}, "material_parses"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "state.db")
+			seed, err := sql.Open("sqlite3", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, statement := range test.prefix {
+				if _, err := seed.Exec(statement); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := seed.Exec("CREATE TABLE conflict_source (id INTEGER); CREATE INDEX " + test.object + " ON conflict_source(id)"); err != nil {
+				t.Fatal(err)
+			}
+			if err := seed.Close(); err != nil {
+				t.Fatal(err)
+			}
+			lifecycle := &captureLifecycle{}
+			db, err := NewSQLite(lifecycle, config.DatabaseConfig{SQLitePath: path})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lifecycle.hook.OnStart(context.Background()) == nil {
+				t.Fatal("schema conflict was not reported")
+			}
+			_ = db.Close()
+		})
 	}
 }

@@ -141,6 +141,32 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(outputs.Create(ctx, ports.ReportOutput{ReportRunID: run.ID, Format: "local-package", Path: "report.json", CreatedAt: time.Now()})).To(MatchError(ContainSubstring("insert report output")))
 	})
 
+	It("reports all report repository read and write errors after database close", func(ctx SpecContext) {
+		Expect(db.Close()).To(Succeed())
+		result := report.NewResult(1, 1, 1, scenario.ReportData{}, time.Now())
+		delivery := report.Delivery{ResultID: 1, Channel: "email", Destination: "person@example.com", CreatedAt: time.Now()}
+		reminder := notification.Reminder{TaskID: 1, PersonID: "person", Channel: "email", Kind: "missing_submission", CreatedAt: time.Now()}
+		Expect(outputs.Create(ctx, ports.ReportOutput{ReportRunID: 1, Format: "local", Path: "report", CreatedAt: time.Now()})).Error().To(MatchError(ContainSubstring("insert report output")))
+		Expect(results.Create(ctx, &result)).Error().To(MatchError(ContainSubstring("insert report result")))
+		Expect(results.Update(ctx, &result)).Error().To(MatchError(ContainSubstring("update report result")))
+		_, err := results.GetLatestByRun(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("get report result for run")))
+		Expect(deliveries.Create(ctx, &delivery)).Error().To(MatchError(ContainSubstring("insert report delivery")))
+		Expect(deliveries.Update(ctx, &delivery)).Error().To(MatchError(ContainSubstring("update report delivery")))
+		_, err = deliveries.GetByResult(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("list report deliveries")))
+		_, err = deliveries.GetByResultTarget(ctx, 1, "email", delivery.Destination)
+		Expect(err).To(MatchError(ContainSubstring("find report delivery")))
+		Expect(reminders.Create(ctx, &reminder)).Error().To(MatchError(ContainSubstring("insert reminder")))
+		Expect(reminders.Update(ctx, &reminder)).Error().To(MatchError(ContainSubstring("update reminder")))
+		_, err = reminders.Get(ctx, 1, reminder.PersonID, reminder.Channel, reminder.Kind)
+		Expect(err).To(MatchError(ContainSubstring("find reminder")))
+		_, err = reminders.GetByID(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("get reminder")))
+		_, err = reminders.ListRetryable(ctx, time.Now())
+		Expect(err).To(MatchError(ContainSubstring("list retryable reminders")))
+	})
+
 	It("persists versioned structured results and processing status", func(ctx SpecContext) {
 		run := report.NewRun(1, 1, time.Now())
 		Expect(repo.Create(ctx, &run)).To(Succeed())
@@ -169,6 +195,23 @@ var _ = Describe("SQLite report run repository", func() {
 		Expect(results.Create(ctx, &value)).To(MatchError(ContainSubstring("insert report result")))
 	})
 
+	It("reports malformed stored report result data and timestamps", func(ctx SpecContext) {
+		run := report.NewRun(1, 1, time.Now())
+		Expect(repo.Create(ctx, &run)).To(Succeed())
+		_, err := db.ExecContext(ctx, `INSERT INTO report_results(report_run_id,scenario_id,task_id,version,status,is_partial,result_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)`, run.ID, 1, 1, 1, report.ResultProcessing, 0, `{"broken"`, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z")
+		Expect(err).NotTo(HaveOccurred())
+		_, err = results.GetLatestByRun(ctx, run.ID)
+		Expect(err).To(MatchError(ContainSubstring("decode report result")))
+		_, err = db.ExecContext(ctx, `UPDATE report_results SET result_json='{}', created_at='invalid' WHERE report_run_id=?`, run.ID)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = results.GetLatestByRun(ctx, run.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		_, err = db.ExecContext(ctx, `UPDATE report_results SET created_at='2026-01-01T00:00:00Z', updated_at='invalid' WHERE report_run_id=?`, run.ID)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = results.GetLatestByRun(ctx, run.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+	})
+
 	It("reports missing and closed report result updates", func(ctx SpecContext) {
 		value := report.NewResult(1, 1, 1, scenario.ReportData{}, time.Now())
 		value.ID = 999
@@ -195,6 +238,16 @@ var _ = Describe("SQLite report run repository", func() {
 		delivery.Status = report.DeliveryFailed
 		delivery.Error = "unavailable"
 		Expect(deliveries.Update(ctx, &delivery)).To(Succeed())
+		Expect(db.ExecContext(ctx, `UPDATE report_deliveries SET attempted_at='bad-time' WHERE id=?`, delivery.ID)).Error().NotTo(HaveOccurred())
+		_, err = deliveries.GetByResult(ctx, value.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		_, err = deliveries.GetByResultTarget(ctx, value.ID, delivery.Channel, delivery.Destination)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		Expect(db.ExecContext(ctx, `UPDATE report_deliveries SET attempted_at=NULL, created_at='bad-time' WHERE id=?`, delivery.ID)).Error().NotTo(HaveOccurred())
+		_, err = deliveries.GetByResult(ctx, value.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		_, err = deliveries.GetByResultTarget(ctx, value.ID, delivery.Channel, delivery.Destination)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
 	})
 
 	It("reports delivery repository errors after database close", func(ctx SpecContext) {
@@ -242,6 +295,18 @@ var _ = Describe("SQLite report run repository", func() {
 		_, err := db.ExecContext(ctx, `INSERT INTO reminders (task_id, person_id, channel, destination, kind, status, attempted_at, created_at) VALUES (1, 'person-2', 'email', 'bad@example.com', 'missing_submission', 'pending', 'bad-time', '2026-01-01T00:00:00Z')`)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = reminders.ListByTask(ctx, 1)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		item := notification.Reminder{TaskID: 1, PersonID: "person-3", Channel: "email", Destination: "person3@example.com", Kind: "missing_submission", Status: notification.Failed, CreatedAt: time.Now()}
+		Expect(reminders.Create(ctx, &item)).To(Succeed())
+		Expect(db.ExecContext(ctx, `UPDATE reminders SET next_attempt_at='bad-time' WHERE id=?`, item.ID)).Error().NotTo(HaveOccurred())
+		_, err = reminders.Get(ctx, 1, item.PersonID, item.Channel, item.Kind)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		_, err = reminders.GetByID(ctx, item.ID)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		Expect(db.ExecContext(ctx, `UPDATE reminders SET next_attempt_at=NULL, attempted_at='bad-time' WHERE id=?`, item.ID)).Error().NotTo(HaveOccurred())
+		_, err = reminders.Get(ctx, 1, item.PersonID, item.Channel, item.Kind)
+		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
+		_, err = reminders.GetByID(ctx, item.ID)
 		Expect(err).To(MatchError(ContainSubstring("cannot parse")))
 	})
 
