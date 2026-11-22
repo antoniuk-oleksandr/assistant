@@ -11,6 +11,7 @@ import (
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	"github.com/alex/assistent/internal/domain/teacher"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -293,6 +294,65 @@ var _ = Describe("polling service", func() {
 		Expect(submissions.items).To(HaveLen(1))
 		Expect(submissions.items[0].SubmitterName).To(Equal("Teacher One"))
 		Expect(submissions.items[0].SubmitterEmail).To(Equal("teacher@example.test"))
+	})
+
+	It("synchronizes Classroom participants into the teacher directory", func(ctx SpecContext) {
+		item := task.Task{ID: 45, Provider: "google-classroom", ExternalID: "teacher-sync-task", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "teacher-1", Name: "Teacher One", Email: "teacher@example.test"}}},
+			submissions:  map[string][][]submission.Submission{"teacher-sync-task": {{{ExternalID: "submission-1", SubmitterID: "teacher-1", State: submission.Submitted}}}},
+		}
+		repository := &teacherRepo{}
+		service := application.NewPollingServiceWithScenarioCollectionAndRoster(
+			pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{},
+			pollingBindingRepository{bindings: []task.Binding{{Task: item, Status: "active"}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}},
+		)
+		service.SetTeacherRepository(repository)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(repository.value.Name).To(Equal("Teacher One"))
+		Expect(repository.value.Email).To(Equal("teacher@example.test"))
+		Expect(repository.value.ClassroomID).To(Equal("teacher-1"))
+	})
+
+	It("updates changed Classroom teacher details", func(ctx SpecContext) {
+		item := task.Task{ID: 46, Provider: "google-classroom", ExternalID: "teacher-update-task", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "teacher-1", Name: "Updated", Email: "updated@example.test"}}},
+			submissions: map[string][][]submission.Submission{
+				"teacher-update-task": {
+					{{ExternalID: "submission-1", SubmitterID: "teacher-1", State: submission.Submitted}},
+				},
+			},
+		}
+		repository := &teacherRepo{value: teacher.Recipient{ID: 9, ClassroomID: "teacher-1", Name: "Old", Email: "old@example.test"}}
+		service := application.NewPollingServiceWithScenarioCollectionAndRoster(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item, Status: "active"}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}})
+		service.SetTeacherRepository(repository)
+		Expect(service.Refresh(ctx)).To(Succeed())
+		Expect(repository.value.Name).To(Equal("Updated"))
+		Expect(repository.value.Email).To(Equal("updated@example.test"))
+		repository.value.Name = "Old"
+		repository.updateErr = errors.New("teacher update failed")
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("update Classroom contact")))
+	})
+
+	It("reports teacher directory synchronization failures", func(ctx SpecContext) {
+		item := task.Task{ID: 47, Provider: "google-classroom", ExternalID: "teacher-error-task", CourseID: "course-1"}
+		source := &pollingSource{
+			tasks:        map[string][]task.Task{"course-1": {item}},
+			participants: map[string][]task.Participant{"course-1": {{ExternalID: "teacher-1"}}},
+			submissions: map[string][][]submission.Submission{
+				"teacher-error-task": {
+					{{ExternalID: "submission-1", SubmitterID: "teacher-1", State: submission.Submitted}},
+				},
+			},
+		}
+		service := application.NewPollingServiceWithScenarioCollectionAndRoster(pollingCourseRepository{courses: []classroom.Course{{ExternalID: "course-1", Status: classroom.Active}}}, source, &pollingTaskRepository{}, pollingBindingRepository{bindings: []task.Binding{{Task: item, Status: "active"}}}, &pollingSubmissionRepository{}, nil, nil, nil, nil, scenario.Registry{}, &pollingParticipantRepository{items: map[int64][]task.Participant{}})
+		service.SetTeacherRepository(&teacherRepo{listErr: errors.New("teacher list failed")})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("list persisted Classroom contacts")))
+		service.SetTeacherRepository(&teacherRepo{createErr: errors.New("teacher create failed")})
+		Expect(service.Refresh(ctx)).To(MatchError(ContainSubstring("store Classroom contact")))
 	})
 
 	It("reconciles missing submitters and removes users after they submit", func(ctx SpecContext) {

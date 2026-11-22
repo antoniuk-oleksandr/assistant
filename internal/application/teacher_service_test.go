@@ -11,14 +11,21 @@ import (
 )
 
 type teacherRepo struct {
-	value    teacher.Recipient
-	channels []teacher.Channel
-	err      error
+	value      teacher.Recipient
+	channels   []teacher.Channel
+	err        error
+	channelErr error
+	listErr    error
+	createErr  error
+	updateErr  error
 }
 
 func (r *teacherRepo) Create(_ context.Context, v *teacher.Recipient) error {
 	if r.err != nil {
 		return r.err
+	}
+	if r.createErr != nil {
+		return r.createErr
 	}
 	v.ID = 1
 	r.value = *v
@@ -28,16 +35,30 @@ func (r *teacherRepo) Update(_ context.Context, v *teacher.Recipient) error {
 	if r.err != nil {
 		return r.err
 	}
+	if r.updateErr != nil {
+		return r.updateErr
+	}
 	r.value = *v
 	return nil
 }
-func (r *teacherRepo) Get(context.Context, int64) (teacher.Recipient, error) { return r.value, nil }
+func (r *teacherRepo) Get(context.Context, int64) (teacher.Recipient, error) {
+	if r.err != nil {
+		return teacher.Recipient{}, r.err
+	}
+	return r.value, nil
+}
 func (r *teacherRepo) List(context.Context) ([]teacher.Recipient, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	return []teacher.Recipient{r.value}, nil
 }
 func (r *teacherRepo) CreateChannel(_ context.Context, v *teacher.Channel) error {
 	if r.err != nil {
 		return r.err
+	}
+	if r.channelErr != nil {
+		return r.channelErr
 	}
 	v.ID = 1
 	r.channels = append(r.channels, *v)
@@ -89,6 +110,36 @@ func TestTeacherServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 	if _, err := service.AddChannel(context.Background(), 1, "email", "x"); err == nil {
 		t.Fatal("channel error missing")
+	}
+	if err := service.SetStatus(context.Background(), 1, teacher.Disabled); err == nil {
+		t.Fatal("status lookup error missing")
+	}
+	if _, err := application.NewTeacherService(&teacherRepo{}).AddChannel(context.Background(), 1, "unsupported", "x"); err == nil {
+		t.Fatal("unsupported channel accepted")
+	}
+}
+
+func TestTeacherServiceSetsPhoneForExistingTeacher(t *testing.T) {
+	repo := &teacherRepo{value: teacher.Recipient{ID: 4}}
+	channel, err := application.NewTeacherService(repo).SetPhone(context.Background(), 4, "+380501234567")
+	if err != nil || channel.RecipientID != 4 || channel.Kind != "phone" || channel.Destination != "+380501234567" {
+		t.Fatalf("channel=%#v err=%v", channel, err)
+	}
+}
+
+func TestTeacherServiceRejectsInvalidPhoneInputAndRepositoryFailure(t *testing.T) {
+	service := application.NewTeacherService(&teacherRepo{})
+	if _, err := service.SetPhone(context.Background(), 0, "+380501234567"); err == nil {
+		t.Fatal("invalid teacher ID was accepted")
+	}
+	if _, err := service.SetPhone(context.Background(), 1, ""); err == nil {
+		t.Fatal("empty phone was accepted")
+	}
+	if _, err := application.NewTeacherService(&teacherRepo{err: errors.New("lookup failed")}).SetPhone(context.Background(), 1, "+380501234567"); err == nil || !strings.Contains(err.Error(), "find teacher") {
+		t.Fatalf("lookup error = %v", err)
+	}
+	if _, err := application.NewTeacherService(&teacherRepo{value: teacher.Recipient{ID: 1}, channelErr: errors.New("write failed")}).SetPhone(context.Background(), 1, "+380501234567"); err == nil || !strings.Contains(err.Error(), "set teacher phone") {
+		t.Fatalf("repository error = %v", err)
 	}
 }
 
