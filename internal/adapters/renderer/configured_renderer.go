@@ -3,7 +3,6 @@ package renderer
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -16,33 +15,31 @@ import (
 )
 
 // NewConfiguredReportRenderer makes the runtime choice explicit. Production
-// configuration defaults to Google Sheets; REPORT_RENDERER=local-xlsx selects
-// the local fallback.
-func NewConfiguredReportRenderer(cfg config.Config) (ports.ReportRenderer, error) {
-	// Fx unit tests and embedders may supply a partial Config directly. The
-	// production loader always fills this field with "google-sheets".
-	if cfg.Report.Renderer == "" {
+// configuration defaults to Google Sheets; the local renderer is selected by
+// the typed ReportConfig value.
+func NewConfiguredReportRenderer(reportCfg config.ReportConfig, sheetsCfg config.SheetsConfig, driveCfg config.DriveConfig) (ports.ReportRenderer, error) {
+	if reportCfg.Renderer == "" {
 		return NewLocalXLSXRenderer(), nil
 	}
-	if cfg.Report.Renderer != "google-sheets" {
-		if cfg.Report.Renderer != "" && cfg.Report.Renderer != "local-xlsx" {
-			return nil, fmt.Errorf("unsupported REPORT_RENDERER %q", cfg.Report.Renderer)
+	if reportCfg.Renderer != "google-sheets" {
+		if reportCfg.Renderer != "" && reportCfg.Renderer != "local-xlsx" {
+			return nil, fmt.Errorf("unsupported REPORT_RENDERER %q", reportCfg.Renderer)
 		}
 		return NewLocalXLSXRenderer(), nil
 	}
-	if cfg.Sheets.Title == "" {
-		cfg.Sheets.Title = "Scientific activity report"
+	if sheetsCfg.Title == "" {
+		sheetsCfg.Title = "Scientific activity report"
 	}
-	client, err := newGoogleSheetsClient(cfg.Sheets)
+	client, err := newGoogleSheetsClient(sheetsCfg)
 	if err != nil {
 		return nil, err
 	}
-	templateAppendices, templateSlashRows, templateColumnValues := loadTemplateLayout()
-	uploader, err := newGoogleDriveTemplateUploader(cfg.Drive)
+	templateAppendices, templateSlashRows, templateColumnValues := loadTemplateLayout(reportCfg.TemplatePath)
+	uploader, err := newGoogleDriveTemplateUploader(driveCfg)
 	if err != nil {
 		return nil, err
 	}
-	return &GoogleSheetsReportRenderer{client: client, uploader: uploader, title: cfg.Sheets.Title, templateAppendices: templateAppendices, templateSlashRows: templateSlashRows, templateColumnValues: templateColumnValues, templatePath: reportTemplatePath()}, nil
+	return &GoogleSheetsReportRenderer{client: client, uploader: uploader, title: sheetsCfg.Title, templateAppendices: templateAppendices, templateSlashRows: templateSlashRows, templateColumnValues: templateColumnValues, templatePath: reportCfg.TemplatePath}, nil
 }
 
 type GoogleSheetsReportRenderer struct {
@@ -152,8 +149,7 @@ func phoneCellValue(value string) any {
 	return value
 }
 
-func loadTemplateLayout() (map[int]int, []int, [][]any) {
-	path := reportTemplatePath()
+func loadTemplateLayout(path string) (map[int]int, []int, [][]any) {
 	book, err := excelize.OpenFile(path)
 	if err != nil {
 		return nil, nil, nil
@@ -245,14 +241,6 @@ func loadTemplateLayout() (map[int]int, []int, [][]any) {
 		}
 	}
 	return result, slashRows, columnValues
-}
-
-func reportTemplatePath() string {
-	path := os.Getenv("REPORT_TEMPLATE_PATH")
-	if path == "" {
-		path = "templates/scientific-report/output_example.xlsx"
-	}
-	return path
 }
 
 type reportSection struct {

@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/alex/assistent/internal/application"
@@ -135,9 +136,9 @@ var _ = Describe("reminder service", func() {
 	})
 
 	It("reports a missing template", func() {
-		GinkgoT().Setenv("REMINDER_TEMPLATE_PATH", "/tmp/does-not-exist-reminder-template")
 		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
 		service := application.NewReminderServiceWithClock(&reminderRepository{}, []ports.ReminderProvider{&reminderProvider{}}, func() time.Time { return now })
+		service.SetTemplatePath(filepath.Join(GinkgoT().TempDir(), "does-not-exist-reminder-template"))
 		_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "", Destination: "x"}}, 72*time.Hour)
 		Expect(err).To(MatchError(ContainSubstring("read reminder template")))
 	})

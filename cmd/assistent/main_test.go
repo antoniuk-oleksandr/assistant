@@ -82,7 +82,7 @@ func runCLI(dir string, args ...string) (string, string, error) {
 	}
 	cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestAssistent$", "--"}, args...)...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "ASSISTENT_TEST_CLI=1", "REPORT_RENDERER=local-xlsx", "SQLITE_DATABASE_PATH="+filepath.Join(dir, "data", "state.db"))
+	cmd.Env = append(os.Environ(), "ASSISTENT_TEST_CLI=1", "REPORT_RENDERER=local-xlsx", "LOG_DIRECTORY="+filepath.Join(dir, "logs"), "SQLITE_DATABASE_PATH="+filepath.Join(dir, "data", "state.db"))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()

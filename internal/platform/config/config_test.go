@@ -27,7 +27,7 @@ var _ = Describe("configuration loading", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(loaded.Database.SQLitePath).To(Equal(config.DefaultSQLitePath))
 		Expect(config.Database(loaded)).To(Equal(loaded.Database))
-		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
+		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets", TemplatePath: "templates/scientific-report/output_example.xlsx", ReminderPath: "templates/missing-submission-reminder.txt"}))
 	})
 
 	It("loads a path from .env and lets the process environment override it", func() {
@@ -89,16 +89,17 @@ GOOGLE_REFRESH_TOKEN=fixture-refresh
 		loaded, err := config.Load()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.Sheets(loaded)).To(Equal(config.SheetsConfig{BaseURL: "https://sheets.example.invalid/v4", ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh", Title: "Department report"}))
-		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets"}))
+		Expect(config.Report(loaded)).To(Equal(config.ReportConfig{Renderer: "google-sheets", TemplatePath: "templates/scientific-report/output_example.xlsx", ReminderPath: "templates/missing-submission-reminder.txt"}))
 	})
 
 	It("loads Telegram notification settings", func() {
 		GinkgoT().Setenv("TELEGRAM_BOT_TOKEN", "bot-token")
+		GinkgoT().Setenv("TELEGRAM_BOT_USERNAME", "Assistant4747Bot")
 		GinkgoT().Setenv("TELEGRAM_BASE_URL", "https://telegram.example.invalid")
 		GinkgoT().Setenv("TELEGRAM_CHAT_ID", "-1001234567890")
 		loaded, err := config.Load()
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", BaseURL: "https://telegram.example.invalid", ChatID: "-1001234567890"}))
+		Expect(config.Telegram(loaded)).To(Equal(config.TelegramConfig{Token: "bot-token", Username: "Assistant4747Bot", BaseURL: "https://telegram.example.invalid", ChatID: "-1001234567890"}))
 	})
 
 	It("loads Google SMTP notification settings", func() {

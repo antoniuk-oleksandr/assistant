@@ -151,7 +151,7 @@ var _ = Describe("teacher service", func() {
 		second, err := service.ListForCourse(context.Background(), "456")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(second).To(HaveLen(1))
-		Expect(second[0].Recipient.ID).To(Equal(int64(4)))
+		Expect(second[0].ID).To(Equal(int64(4)))
 		Expect(people.courses).To(Equal([]string{"123", "456"}))
 	})
 
@@ -193,7 +193,7 @@ var _ = Describe("teacher service", func() {
 		entries, err := application.NewTeacherServiceWithDirectory(repo, people).ListForCourse(context.Background(), "123")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(entries).To(HaveLen(1))
-		Expect(entries[0].Recipient.Name).To(Equal("New"))
+		Expect(entries[0].Name).To(Equal("New"))
 		Expect(repo.value.Email).To(Equal("new@example.com"))
 	})
 })

@@ -95,9 +95,22 @@ func (s *TelegramPairingService) bind(ctx context.Context, chatID string, pairin
 		return err
 	}
 	now := s.clock()
-	channel := teacher.Channel{RecipientID: recipient.ID, Kind: "telegram", Destination: chatID, Status: teacher.Active, CreatedAt: now, UpdatedAt: now}
-	if err := s.teachers.CreateChannel(ctx, &channel); err != nil {
+	channels, err := s.teachers.ListActiveChannels(ctx, recipient.ID)
+	if err != nil {
 		return err
+	}
+	bound := false
+	for _, channel := range channels {
+		if channel.Kind == "telegram" && channel.Destination == chatID {
+			bound = true
+			break
+		}
+	}
+	if !bound {
+		channel := teacher.Channel{RecipientID: recipient.ID, Kind: "telegram", Destination: chatID, Status: teacher.Active, CreatedAt: now, UpdatedAt: now}
+		if err := s.teachers.CreateChannel(ctx, &channel); err != nil {
+			return err
+		}
 	}
 	if err := s.pairings.ConsumeTelegramPairing(ctx, pairing.ID, now); err != nil {
 		return err

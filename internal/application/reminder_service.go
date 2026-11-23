@@ -16,9 +16,10 @@ import (
 )
 
 type ReminderService struct {
-	repository ports.ReminderRepository
-	providers  map[string]ports.ReminderProvider
-	clock      func() time.Time
+	repository   ports.ReminderRepository
+	providers    map[string]ports.ReminderProvider
+	clock        func() time.Time
+	templatePath string
 }
 
 func NewReminderService(repository ports.ReminderRepository, providers []ports.ReminderProvider) *ReminderService {
@@ -30,7 +31,13 @@ func NewReminderServiceWithClock(repository ports.ReminderRepository, providers 
 	for _, provider := range providers {
 		resolved[provider.Name()] = provider
 	}
-	return &ReminderService{repository: repository, providers: resolved, clock: clock}
+	return &ReminderService{repository: repository, providers: resolved, clock: clock, templatePath: "templates/missing-submission-reminder.txt"}
+}
+
+func (s *ReminderService) SetTemplatePath(path string) {
+	if strings.TrimSpace(path) != "" {
+		s.templatePath = path
+	}
 }
 
 func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissions []submission.Submission, targets []ports.ReminderTarget, lead time.Duration) ([]notification.Reminder, error) {
@@ -81,7 +88,7 @@ func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissi
 			reminder.ClassroomLink = target.ClassroomLink
 			reminder.Message = target.Message
 			if reminder.Message == "" {
-				message, templateErr := renderReminderMessage(target.TaskTitle, item.DueAt, target.ClassroomLink, deadline.Sub(now))
+				message, templateErr := s.renderReminderMessage(target.TaskTitle, item.DueAt, target.ClassroomLink, deadline.Sub(now))
 				if templateErr != nil {
 					return reminders, templateErr
 				}
@@ -109,11 +116,15 @@ func (s *ReminderService) Schedule(ctx context.Context, item task.Task, submissi
 	return reminders, nil
 }
 
+func (s *ReminderService) renderReminderMessage(title, dueAt, link string, remaining time.Duration) (string, error) {
+	return renderReminderMessageFromPath(s.templatePath, title, dueAt, link, remaining)
+}
+
 func renderReminderMessage(title, dueAt, link string, remaining time.Duration) (string, error) {
-	path := os.Getenv("REMINDER_TEMPLATE_PATH")
-	if path == "" {
-		path = "templates/missing-submission-reminder.txt"
-	}
+	return renderReminderMessageFromPath("templates/missing-submission-reminder.txt", title, dueAt, link, remaining)
+}
+
+func renderReminderMessageFromPath(path, title, dueAt, link string, remaining time.Duration) (string, error) {
 	if !filepath.IsAbs(path) {
 		if cwd, err := os.Getwd(); err == nil {
 			for {

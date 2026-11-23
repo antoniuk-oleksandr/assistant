@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,7 +17,7 @@ import (
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
-	"github.com/joho/godotenv"
+	"github.com/alex/assistent/internal/platform/config"
 	"golang.org/x/oauth2"
 )
 
@@ -132,9 +131,12 @@ type SubmissionSource struct {
 // NewSubmissionSource is the Fx constructor. The HTTP transport is still
 // replaceable through NewSubmissionSourceWithClient for unit and integration
 // tests. Credentials are read only at the infrastructure boundary.
-func NewSubmissionSource() *SubmissionSource {
-	config := HTTPConfigFromEnvironment()
-	return NewSubmissionSourceWithClientAndTimeZone(NewHTTPClassroomClient(config, http.DefaultClient), config.TimeZone)
+func NewSubmissionSource(cfg config.ClassroomConfig) *SubmissionSource {
+	httpConfig := HTTPConfig{
+		BaseURL: cfg.BaseURL, AccessToken: cfg.AccessToken, ClientID: cfg.ClientID,
+		ClientSecret: cfg.ClientSecret, RefreshToken: cfg.RefreshToken, TimeZone: cfg.TimeZone,
+	}
+	return NewSubmissionSourceWithClientAndTimeZone(NewHTTPClassroomClient(httpConfig, http.DefaultClient), cfg.TimeZone)
 }
 
 func NewSubmissionSourceWithClient(client ClassroomClient) *SubmissionSource {
@@ -324,21 +326,6 @@ type HTTPConfig struct {
 	ClientSecret string
 	RefreshToken string
 	TimeZone     string
-}
-
-func HTTPConfigFromEnvironment() HTTPConfig {
-	values, _ := godotenv.Read()
-	get := func(key string) string {
-		if value, ok := os.LookupEnv(key); ok {
-			return value
-		}
-		return values[key]
-	}
-	baseURL := get("GOOGLE_CLASSROOM_BASE_URL")
-	if baseURL == "" {
-		baseURL = defaultBaseURL
-	}
-	return HTTPConfig{BaseURL: baseURL, AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"), ClientID: get("GOOGLE_CLIENT_ID"), ClientSecret: get("GOOGLE_CLIENT_SECRET"), RefreshToken: get("GOOGLE_REFRESH_TOKEN"), TimeZone: get("GOOGLE_CLASSROOM_TIMEZONE")}
 }
 
 type HTTPClassroomClient struct {

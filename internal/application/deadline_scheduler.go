@@ -3,11 +3,11 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/task"
+	"go.uber.org/zap"
 )
 
 type deadlineEvent struct {
@@ -43,7 +43,7 @@ func (s *PollingService) RunScheduled(ctx context.Context) error {
 				if ctx.Err() != nil {
 					return nil
 				}
-				log.Printf("scheduled report event failed for task %q: %v", event.binding.Task.ExternalID, err)
+				s.log().Error("scheduled report event failed", zap.String("task_id", event.binding.Task.ExternalID), zap.Error(err))
 				if err := waitForScheduler(ctx, schedulerBindingRefreshInterval); err != nil {
 					return nil
 				}

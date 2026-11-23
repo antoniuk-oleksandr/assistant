@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/notification"
@@ -104,8 +105,7 @@ var _ = Describe("polling internal helpers", func() {
 	})
 
 	It("reports a missing reminder template", func() {
-		GinkgoT().Setenv("REMINDER_TEMPLATE_PATH", "definitely-missing-reminder-template.txt")
-		_, err := renderReminderMessage("Task", "2026-11-30T00:00:00Z", "https://classroom.example/task", time.Minute)
+		_, err := renderReminderMessageFromPath(filepath.Join(GinkgoT().TempDir(), "definitely-missing-reminder-template.txt"), "Task", "2026-11-30T00:00:00Z", "https://classroom.example/task", time.Minute)
 		Expect(err).To(HaveOccurred())
 	})
 

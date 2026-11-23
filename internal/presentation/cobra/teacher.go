@@ -10,6 +10,7 @@ import (
 
 type TelegramPairingService interface {
 	CreateTelegramPairing(context.Context, string) (string, error)
+	WaitForTelegramPairing(context.Context, string) error
 }
 
 type TeacherListService interface {
@@ -33,7 +34,7 @@ func NewTeacherCommand(pairing TelegramPairingService, directory TeacherListServ
 				return err
 			}
 			for _, item := range teachers {
-				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%d  %s  %s  %s\n", item.Recipient.ID, item.Recipient.Name, item.Recipient.Email, item.Recipient.ClassroomID); err != nil {
+				if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%d  %s  %s  %s\n", item.ID, item.Name, item.Email, item.ClassroomID); err != nil {
 					return err
 				}
 			}
@@ -50,8 +51,10 @@ func NewTeacherCommand(pairing TelegramPairingService, directory TeacherListServ
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "TELEGRAM PAIRING LINK\n%s\n", link)
-			return err
+			if _, err = fmt.Fprintf(cmd.OutOrStdout(), "TELEGRAM PAIRING LINK\n%s\n", link); err != nil {
+				return err
+			}
+			return pairing.WaitForTelegramPairing(cmd.Context(), link)
 		},
 	}
 	command.AddCommand(telegramBind)

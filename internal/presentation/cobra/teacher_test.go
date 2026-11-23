@@ -22,15 +22,24 @@ func (s *teacherDirectoryStub) ListForCourse(_ context.Context, course string) (
 	s.course = course
 	entries := make([]application.TeacherDirectoryEntry, 0, len(s.teachers))
 	for _, item := range s.teachers {
-		entries = append(entries, application.TeacherDirectoryEntry{Recipient: item})
+		entries = append(entries, application.TeacherDirectoryEntry{ID: item.ID, Name: item.Name, Email: item.Email, ClassroomID: item.ClassroomID})
 	}
 	return entries, s.err
 }
 
-type teacherPairingStub struct{ link string }
+type teacherPairingStub struct {
+	link       string
+	waitedLink string
+	waitErr    error
+}
 
 func (s *teacherPairingStub) CreateTelegramPairing(context.Context, string) (string, error) {
 	return s.link, nil
+}
+
+func (s *teacherPairingStub) WaitForTelegramPairing(_ context.Context, link string) error {
+	s.waitedLink = link
+	return s.waitErr
 }
 
 type failingTeacherWriter struct{}
@@ -60,13 +69,15 @@ var _ = Describe("Teacher commands", func() {
 	})
 
 	It("prints a Telegram pairing link", func() {
-		command := cli.NewTeacherCommand(&teacherPairingStub{link: "https://t.me/my_bot?start=pair_token"}, &teacherDirectoryStub{})
+		pairing := &teacherPairingStub{link: "https://t.me/my_bot?start=pair_token"}
+		command := cli.NewTeacherCommand(pairing, &teacherDirectoryStub{})
 		var output bytes.Buffer
 		command.SetOut(&output)
 		command.SetArgs([]string{"telegram-bind", "4"})
 		Expect(command.Execute()).To(Succeed())
 		Expect(output.String()).To(ContainSubstring("TELEGRAM PAIRING LINK"))
 		Expect(output.String()).To(ContainSubstring("https://t.me/my_bot?start=pair_token"))
+		Expect(pairing.waitedLink).To(Equal(pairing.link))
 	})
 
 	It("propagates directory errors", func() {

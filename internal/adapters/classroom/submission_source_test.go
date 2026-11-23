@@ -13,6 +13,7 @@ import (
 
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	"github.com/alex/assistent/internal/platform/config"
 	. "github.com/onsi/ginkgo/v2"
 )
 
@@ -432,31 +433,22 @@ func testSubmissionSourceReturnsContextualErrors(t *ginkgoTest) {
 	}
 }
 
-func testHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *ginkgoTest) {
-	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", "https://example.test/")
-	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "secret")
-	if got := HTTPConfigFromEnvironment(); got.BaseURL != "https://example.test/" || got.AccessToken != "secret" {
-		t.Fatalf("configured HTTP config = %#v", got)
-	}
-	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", "")
-	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "")
-	if got := HTTPConfigFromEnvironment(); got.BaseURL != defaultBaseURL || got.AccessToken != "" {
-		t.Fatalf("default HTTP config = %#v", got)
-	}
-	t.Setenv("GOOGLE_CLIENT_ID", "client")
-	t.Setenv("GOOGLE_CLIENT_SECRET", "secret")
-	t.Setenv("GOOGLE_REFRESH_TOKEN", "refresh")
-	t.Setenv("GOOGLE_CLASSROOM_TIMEZONE", "Europe/Kyiv")
-	if got := HTTPConfigFromEnvironment(); got.ClientID != "client" || got.ClientSecret != "secret" || got.RefreshToken != "refresh" || got.TimeZone != "Europe/Kyiv" {
-		t.Fatalf("OAuth config = %#v", got)
+func testHTTPConfigUsesTypedConfiguration(t *ginkgoTest) {
+	classroomConfig := config.ClassroomConfig{BaseURL: "https://example.test/", AccessToken: "secret", ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh", TimeZone: "Europe/Kyiv"}
+	httpConfig := HTTPConfig{BaseURL: classroomConfig.BaseURL, AccessToken: classroomConfig.AccessToken, ClientID: classroomConfig.ClientID, ClientSecret: classroomConfig.ClientSecret, RefreshToken: classroomConfig.RefreshToken, TimeZone: classroomConfig.TimeZone}
+	if httpConfig.BaseURL != "https://example.test/" || httpConfig.AccessToken != "secret" {
+		t.Fatalf("configured HTTP config = %#v", httpConfig)
 	}
 	if got := NewHTTPClassroomClient(HTTPConfig{}, nil); got == nil {
 		t.Fatal("NewHTTPClassroomClient() returned nil")
 	}
+	if got := NewHTTPClassroomClient(httpConfig, nil); got == nil {
+		t.Fatal("OAuth Classroom client was not created")
+	}
 }
 
 func testNewSubmissionSourceUsesDefaultHTTPClient(t *ginkgoTest) {
-	if source := NewSubmissionSource(); source == nil {
+	if source := NewSubmissionSource(config.ClassroomConfig{}); source == nil {
 		t.Fatal("NewSubmissionSource() returned nil")
 	}
 	if client := NewHTTPClassroomClient(HTTPConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh"}, nil); client == nil {
@@ -490,7 +482,7 @@ var _ = Describe("Classroom submission source", func() {
 		testHTTPClassroomClientReportsSubmissionAndTransportErrors(t)
 		testSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t)
 		testSubmissionSourceReturnsContextualErrors(t)
-		testHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t)
+		testHTTPConfigUsesTypedConfiguration(t)
 		testNewSubmissionSourceUsesDefaultHTTPClient(t)
 	})
 })

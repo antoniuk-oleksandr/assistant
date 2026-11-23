@@ -8,7 +8,6 @@ import (
 	"github.com/alex/assistent/internal/application"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/teacher"
-	"github.com/alex/assistent/internal/platform/config"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -74,7 +73,7 @@ func (r *pairingRepository) GetTelegramPairing(context.Context, string) (teacher
 	}
 	return r.item, nil
 }
-func (r *pairingRepository) ConsumeTelegramPairing(_ context.Context, id int64, _ time.Time) error {
+func (r *pairingRepository) ConsumeTelegramPairing(_ context.Context, id int64, usedAt time.Time) error {
 	if r.consumeErr != nil {
 		return r.consumeErr
 	}
@@ -82,6 +81,7 @@ func (r *pairingRepository) ConsumeTelegramPairing(_ context.Context, id int64, 
 		return errors.New("wrong pairing")
 	}
 	r.consumed = true
+	r.item.UsedAt = &usedAt
 	return nil
 }
 
@@ -132,10 +132,20 @@ var _ = Describe("Telegram pairing service", func() {
 		Expect(pairings.consumed).To(BeTrue())
 	})
 
+	It("consumes a pairing when the Telegram chat is already bound", func() {
+		repository := &pairingTeacherRepository{recipient: teacher.Recipient{ID: 3}, channels: []teacher.Channel{{RecipientID: 3, Kind: "telegram", Destination: "483920123", Status: teacher.Active}}}
+		pairings := &pairingRepository{item: teacher.TelegramPairing{ID: 9, RecipientID: 3, ExpiresAt: time.Now().Add(time.Hour)}}
+		ctx, cancel := context.WithCancel(context.Background())
+		service := application.NewTelegramPairingService(repository, pairings, &pairingUpdates{cancel: cancel, items: []ports.TelegramUpdate{{ID: 1, ChatID: "483920123", ChatType: "private", Text: "/start pair_token"}}}, &pairingMessenger{})
+		Expect(errors.Is(service.Run(ctx), context.Canceled)).To(BeTrue())
+		Expect(repository.channels).To(HaveLen(1))
+		Expect(pairings.consumed).To(BeTrue())
+	})
+
 	It("creates a Telegram pairing link", func() {
 		repository := &pairingTeacherRepository{recipient: teacher.Recipient{ID: 3, ClassroomID: "classroom-user-3"}}
 		pairings := &pairingRepository{}
-		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, pairings, config.TelegramConfig{Username: "@my_bot"})
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, pairings, application.TelegramSettings{BotUsername: "@my_bot"})
 		link, err := service.CreateTelegramPairing(context.Background(), "classroom-user-3")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(link).To(HavePrefix("https://t.me/my_bot?start=pair_"))
@@ -143,8 +153,24 @@ var _ = Describe("Telegram pairing service", func() {
 		Expect(pairings.item.TokenHash).NotTo(BeEmpty())
 	})
 
+	It("waits for a Telegram pairing to be consumed", func() {
+		usedAt := time.Now()
+		pairings := &pairingRepository{item: teacher.TelegramPairing{ID: 9, ExpiresAt: time.Now().Add(time.Hour), UsedAt: &usedAt}}
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(&pairingTeacherRepository{}, nil, pairings, application.TelegramSettings{BotUsername: "bot"})
+		Expect(service.WaitForTelegramPairing(context.Background(), "https://t.me/bot?start=pair_token")).To(Succeed())
+	})
+
+	It("rejects malformed and expired Telegram pairing links", func() {
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(&pairingTeacherRepository{}, nil, &pairingRepository{}, application.TelegramSettings{BotUsername: "bot"})
+		Expect(service.WaitForTelegramPairing(context.Background(), "not-a-link")).To(MatchError(ContainSubstring("does not contain")))
+
+		pairings := &pairingRepository{item: teacher.TelegramPairing{ID: 9, ExpiresAt: time.Now().Add(-time.Hour)}}
+		service = application.NewTeacherServiceWithDirectoryAndTelegram(&pairingTeacherRepository{}, nil, pairings, application.TelegramSettings{BotUsername: "bot"})
+		Expect(service.WaitForTelegramPairing(context.Background(), "https://t.me/bot?start=pair_token")).To(MatchError("Telegram pairing link expired"))
+	})
+
 	It("rejects an unconfigured Telegram pairing", func() {
-		service := application.NewTeacherServiceWithDirectoryAndTelegram(&pairingTeacherRepository{}, nil, nil, config.TelegramConfig{})
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(&pairingTeacherRepository{}, nil, nil, application.TelegramSettings{})
 		_, err := service.CreateTelegramPairing(context.Background(), "teacher")
 		Expect(err).To(MatchError(ContainSubstring("not configured")))
 	})
@@ -152,7 +178,7 @@ var _ = Describe("Telegram pairing service", func() {
 	It("resolves numeric and missing pairing recipients", func() {
 		repository := &pairingTeacherRepository{recipient: teacher.Recipient{ID: 3, ClassroomID: "classroom-user-3"}}
 		pairings := &pairingRepository{}
-		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, pairings, config.TelegramConfig{Username: "bot"})
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, pairings, application.TelegramSettings{BotUsername: "bot"})
 		_, err := service.CreateTelegramPairing(context.Background(), "3")
 		Expect(err).NotTo(HaveOccurred())
 		_, err = service.CreateTelegramPairing(context.Background(), "missing")
@@ -164,7 +190,7 @@ var _ = Describe("Telegram pairing service", func() {
 
 	It("reports Telegram pairing persistence failures", func() {
 		repository := &pairingTeacherRepository{recipient: teacher.Recipient{ID: 3, ClassroomID: "classroom-user-3"}}
-		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, &pairingRepository{createErr: errors.New("pairing write failed")}, config.TelegramConfig{Username: "bot"})
+		service := application.NewTeacherServiceWithDirectoryAndTelegram(repository, nil, &pairingRepository{createErr: errors.New("pairing write failed")}, application.TelegramSettings{BotUsername: "bot"})
 		_, err := service.CreateTelegramPairing(context.Background(), "classroom-user-3")
 		Expect(err).To(MatchError(ContainSubstring("pairing write failed")))
 	})
