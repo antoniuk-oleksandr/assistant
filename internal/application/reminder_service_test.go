@@ -3,8 +3,6 @@ package application_test
 import (
 	"context"
 	"errors"
-	"strings"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/application"
@@ -12,6 +10,8 @@ import (
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 type reminderRepository struct {
@@ -78,116 +78,101 @@ type reminderProvider struct {
 	calls int
 }
 
-func TestReminderServiceUsesProductionConstructor(t *testing.T) {
-	service := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
-	if service == nil {
-		t.Fatal("NewReminderService() returned nil")
-	}
-	_, err := service.Schedule(context.Background(), task.Task{DueAt: "2026-11-20T00:00:00Z"}, nil, nil, 72*time.Hour)
-	if err != nil {
-		t.Fatalf("Schedule() with production clock: %v", err)
-	}
-}
-
 func (p *reminderProvider) Name() string { return p.name }
 func (p *reminderProvider) SendReminder(context.Context, notification.Reminder) error {
 	p.calls++
 	return p.err
 }
 
-func TestReminderServiceExcludesSubmittedAndPreventsDuplicates(t *testing.T) {
-	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
-	repository := &reminderRepository{}
-	provider := &reminderProvider{name: "email"}
-	service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
-	taskItem := task.Task{ID: 4, DueAt: "2026-11-20T00:00:00", TimeZone: "UTC"}
-	targets := []ports.ReminderTarget{{PersonID: "submitted", Channel: "email", Destination: "s@example.com"}, {PersonID: "missing", Channel: "email", Destination: "m@example.com"}}
-	items, err := service.Schedule(context.Background(), taskItem, []submission.Submission{{SubmitterID: "submitted", State: submission.Submitted}}, targets, 72*time.Hour)
-	if err != nil || len(items) != 1 || items[0].PersonID != "missing" || items[0].Status != notification.Sent || provider.calls != 1 {
-		t.Fatalf("items=%#v calls=%d err=%v", items, provider.calls, err)
-	}
-	items, err = service.Schedule(context.Background(), taskItem, nil, targets[1:], 72*time.Hour)
-	if err != nil || len(items) != 1 || provider.calls != 1 {
-		t.Fatalf("duplicate items=%#v calls=%d err=%v", items, provider.calls, err)
-	}
-}
+var _ = Describe("reminder service", func() {
+	It("uses the production constructor", func() {
+		service := application.NewReminderService(&reminderRepository{}, []ports.ReminderProvider{})
+		Expect(service).NotTo(BeNil())
+		_, err := service.Schedule(context.Background(), task.Task{DueAt: "2026-11-20T00:00:00Z"}, nil, nil, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+	})
 
-func TestReminderServiceRendersReminderDetails(t *testing.T) {
-	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
-	repository := &reminderRepository{}
-	provider := &reminderProvider{name: "email"}
-	service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
-	item := task.Task{ID: 4, Title: "Weekly report", DueAt: "2026-11-20T00:00:00Z", CourseID: "course-1", ExternalID: "task-1"}
-	items, err := service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "missing", Channel: "email", Destination: "m@example.com", TaskTitle: item.Title, ClassroomLink: "https://classroom/task-1"}}, 72*time.Hour)
-	if err != nil || len(items) != 1 {
-		t.Fatalf("items=%#v err=%v", items, err)
-	}
-	if items[0].Subject != "Reminder: Weekly report" || items[0].DueAt != item.DueAt || items[0].ClassroomLink != "https://classroom/task-1" {
-		t.Fatalf("reminder metadata=%#v", items[0])
-	}
-	for _, value := range []string{"Weekly report", item.DueAt, "48h0m0s", "https://classroom/task-1"} {
-		if !strings.Contains(items[0].Message, value) {
-			t.Fatalf("message %q does not contain %q", items[0].Message, value)
+	It("excludes submitted users and prevents duplicates", func() {
+		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+		repository := &reminderRepository{}
+		provider := &reminderProvider{name: "email"}
+		service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
+		taskItem := task.Task{ID: 4, DueAt: "2026-11-20T00:00:00", TimeZone: "UTC"}
+		targets := []ports.ReminderTarget{{PersonID: "submitted", Channel: "email", Destination: "s@example.com"}, {PersonID: "missing", Channel: "email", Destination: "m@example.com"}}
+		items, err := service.Schedule(context.Background(), taskItem, []submission.Submission{{SubmitterID: "submitted", State: submission.Submitted}}, targets, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0].PersonID).To(Equal("missing"))
+		Expect(items[0].Status).To(Equal(notification.Sent))
+		Expect(provider.calls).To(Equal(1))
+		items, err = service.Schedule(context.Background(), taskItem, nil, targets[1:], 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(provider.calls).To(Equal(1))
+	})
+
+	It("renders reminder details", func() {
+		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+		repository := &reminderRepository{}
+		provider := &reminderProvider{name: "email"}
+		service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return now })
+		item := task.Task{ID: 4, Title: "Weekly report", DueAt: "2026-11-20T00:00:00Z", CourseID: "course-1", ExternalID: "task-1"}
+		items, err := service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "missing", Channel: "email", Destination: "m@example.com", TaskTitle: item.Title, ClassroomLink: "https://classroom/task-1"}}, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0].Subject).To(Equal("Reminder: Weekly report"))
+		Expect(items[0].DueAt).To(Equal(item.DueAt))
+		Expect(items[0].ClassroomLink).To(Equal("https://classroom/task-1"))
+		for _, value := range []string{"Weekly report", item.DueAt, "48h0m0s", "https://classroom/task-1"} {
+			Expect(items[0].Message).To(ContainSubstring(value))
 		}
-	}
-}
+	})
 
-func TestReminderServicePropagatesUnexpectedReminderLookupErrors(t *testing.T) {
-	service := application.NewReminderServiceWithClock(&reminderRepository{lookupErr: errors.New("lookup failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) })
-	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "person", Channel: "email", Destination: "person@example.com"}}, 72*time.Hour)
-	if err == nil || err.Error() != "lookup failed" {
-		t.Fatalf("Schedule() error = %v", err)
-	}
-}
+	It("propagates unexpected lookup errors", func() {
+		service := application.NewReminderServiceWithClock(&reminderRepository{lookupErr: errors.New("lookup failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC) })
+		_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "person", Channel: "email", Destination: "person@example.com"}}, 72*time.Hour)
+		Expect(err).To(MatchError("lookup failed"))
+	})
 
-func TestReminderServiceReportsMissingTemplate(t *testing.T) {
-	t.Setenv("REMINDER_TEMPLATE_PATH", "/tmp/does-not-exist-reminder-template")
-	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
-	service := application.NewReminderServiceWithClock(&reminderRepository{}, []ports.ReminderProvider{&reminderProvider{}}, func() time.Time { return now })
-	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "", Destination: "x"}}, 72*time.Hour)
-	if err == nil || !strings.Contains(err.Error(), "read reminder template") {
-		t.Fatalf("error = %v", err)
-	}
-}
+	It("reports a missing template", func() {
+		GinkgoT().Setenv("REMINDER_TEMPLATE_PATH", "/tmp/does-not-exist-reminder-template")
+		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+		service := application.NewReminderServiceWithClock(&reminderRepository{}, []ports.ReminderProvider{&reminderProvider{}}, func() time.Time { return now })
+		_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "", Destination: "x"}}, 72*time.Hour)
+		Expect(err).To(MatchError(ContainSubstring("read reminder template")))
+	})
 
-func TestReminderServiceReportsPersistenceErrors(t *testing.T) {
-	now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
-	service := application.NewReminderServiceWithClock(&reminderRepository{createErr: errors.New("create failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
-	_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
-	if err == nil || err.Error() != "persist reminder: create failed" {
-		t.Fatalf("create error = %v", err)
-	}
-	repository := &reminderRepository{updateErr: errors.New("update failed")}
-	service = application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
-	_, err = service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
-	if err == nil || err.Error() != "persist reminder status: update failed" {
-		t.Fatalf("update error = %v", err)
-	}
-}
+	It("reports persistence errors", func() {
+		now := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
+		service := application.NewReminderServiceWithClock(&reminderRepository{createErr: errors.New("create failed")}, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
+		_, err := service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
+		Expect(err).To(MatchError("persist reminder: create failed"))
+		repository := &reminderRepository{updateErr: errors.New("update failed")}
+		service = application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{&reminderProvider{name: "email"}}, func() time.Time { return now })
+		_, err = service.Schedule(context.Background(), task.Task{ID: 1, DueAt: "2026-11-20T00:00:00Z"}, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "email", Destination: "p@example.com"}}, 72*time.Hour)
+		Expect(err).To(MatchError("persist reminder status: update failed"))
+	})
 
-func TestReminderServiceHonorsWindowAndRecordsFailure(t *testing.T) {
-	deadline := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
-	provider := &reminderProvider{name: "telegram", err: errors.New("telegram unavailable")}
-	repository := &reminderRepository{}
-	current := deadline.Add(-96 * time.Hour)
-	service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return current })
-	item := task.Task{ID: 5, DueAt: deadline.Format(time.RFC3339)}
-	items, err := service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "telegram", Destination: "chat"}}, 72*time.Hour)
-	if err != nil || len(items) != 0 {
-		t.Fatalf("outside window items=%#v err=%v", items, err)
-	}
-	current = deadline.Add(-time.Hour)
-	items, err = service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "telegram", Destination: "chat"}}, 72*time.Hour)
-	if err != nil || len(items) != 1 || items[0].Status != notification.Failed || items[0].Error != "telegram unavailable" {
-		t.Fatalf("failed items=%#v err=%v", items, err)
-	}
-	_, err = service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "x", Channel: "sms", Destination: "x"}}, 72*time.Hour)
-	if err == nil {
-		t.Fatal("unknown provider unexpectedly succeeded")
-	}
-	bad := task.Task{ID: 6, DueAt: "bad"}
-	_, err = service.Schedule(context.Background(), bad, nil, nil, 72*time.Hour)
-	if err == nil {
-		t.Fatal("invalid deadline unexpectedly succeeded")
-	}
-}
+	It("honors the window and records failures", func() {
+		deadline := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
+		provider := &reminderProvider{name: "telegram", err: errors.New("telegram unavailable")}
+		repository := &reminderRepository{}
+		current := deadline.Add(-96 * time.Hour)
+		service := application.NewReminderServiceWithClock(repository, []ports.ReminderProvider{provider}, func() time.Time { return current })
+		item := task.Task{ID: 5, DueAt: deadline.Format(time.RFC3339)}
+		items, err := service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "telegram", Destination: "chat"}}, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(BeEmpty())
+		current = deadline.Add(-time.Hour)
+		items, err = service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "p", Channel: "telegram", Destination: "chat"}}, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(items).To(HaveLen(1))
+		Expect(items[0].Status).To(Equal(notification.Failed))
+		Expect(items[0].Error).To(Equal("telegram unavailable"))
+		_, err = service.Schedule(context.Background(), item, nil, []ports.ReminderTarget{{PersonID: "x", Channel: "sms", Destination: "x"}}, 72*time.Hour)
+		Expect(err).To(HaveOccurred())
+		bad := task.Task{ID: 6, DueAt: "bad"}
+		_, err = service.Schedule(context.Background(), bad, nil, nil, 72*time.Hour)
+		Expect(err).To(HaveOccurred())
+	})
+})

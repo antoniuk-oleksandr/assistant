@@ -3,12 +3,12 @@ package fxmodules
 import (
 	"context"
 	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/adapters/drive"
@@ -22,7 +22,26 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
+type connectedfilesGinkgoTest struct{}
+
+func (*connectedfilesGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*connectedfilesGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*connectedfilesGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*connectedfilesGinkgoTest) Helper()                  {}
+func (*connectedfilesGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*connectedfilesGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*connectedfilesGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*connectedfilesGinkgoTest) Run(name string, fn func(*connectedfilesGinkgoTest)) bool {
+	By(name)
+	fn(&connectedfilesGinkgoTest{})
+	return true
+}
+
+func testPollingPersistsMixedConnectedFileOutcomes(t *connectedfilesGinkgoTest) {
 	t.Setenv("REPORT_RENDERER", "local-xlsx")
 	g := NewWithT(t)
 	const pdfLink = "https://drive.google.com/file/d/pdf/view?resourcekey=fixture-key"
@@ -240,7 +259,7 @@ func TestPollingPersistsMixedConnectedFileOutcomes(t *testing.T) {
 	}
 }
 
-func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) {
+func testFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *connectedfilesGinkgoTest) {
 	t.Setenv("REPORT_RENDERER", "local-xlsx")
 	g := NewWithT(t)
 	const materialBody = "opaque evidence payload"
@@ -342,3 +361,11 @@ func TestFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t *testing.T) 
 	g.Expect(reloadedOutcome.Result.Analysis.LowConfidence).To(BeTrue())
 	g.Expect(reloadedOutcome.EligibleForAggregation()).To(BeFalse())
 }
+
+var _ = Describe("connected_files legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &connectedfilesGinkgoTest{}
+		testPollingPersistsMixedConnectedFileOutcomes(t)
+		testFxPollingAnalyzesUnknownMaterialAndPersistsLowConfidence(t)
+	})
+})

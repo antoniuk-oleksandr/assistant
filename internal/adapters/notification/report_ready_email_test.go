@@ -28,7 +28,29 @@ import (
 	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
 	"github.com/alex/assistent/internal/platform/config"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
+
+type reportGinkgoTest struct{}
+
+func TestNotificationSpecs(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Notification")
+}
+
+func (*reportGinkgoTest) TempDir() string                   { return GinkgoT().TempDir() }
+func (*reportGinkgoTest) Setenv(key, value string)          { GinkgoT().Setenv(key, value) }
+func (*reportGinkgoTest) Cleanup(fn func())                 { DeferCleanup(fn) }
+func (*reportGinkgoTest) Helper()                           {}
+func (*reportGinkgoTest) Fatal(args ...any)                 { Fail(fmt.Sprint(args...)) }
+func (*reportGinkgoTest) Fatalf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*reportGinkgoTest) Errorf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*reportGinkgoTest) Run(name string, fn func(*reportGinkgoTest)) bool {
+	By(name)
+	fn(&reportGinkgoTest{})
+	return true
+}
 
 type fakeSMTPSender struct {
 	from, to, subject, body string
@@ -89,7 +111,7 @@ func (f *fakeSMTPSender) Send(_ context.Context, from, to, subject, body string)
 	return f.err
 }
 
-func TestEmailProvidersAreDisabledWithoutSMTPCredentials(t *testing.T) {
+func testEmailProvidersAreDisabledWithoutSMTPCredentials(t *reportGinkgoTest) {
 	if NewReminderEmailProvider(config.EmailConfig{}).Name() != "email" {
 		t.Fatal("unexpected reminder provider name")
 	}
@@ -114,7 +136,7 @@ func TestEmailProvidersAreDisabledWithoutSMTPCredentials(t *testing.T) {
 	}
 }
 
-func TestEmailProvidersUseGoogleSMTPConfiguration(t *testing.T) {
+func testEmailProvidersUseGoogleSMTPConfiguration(t *reportGinkgoTest) {
 	cfg := config.EmailConfig{SMTPHost: "smtp.gmail.com", SMTPPort: 587, SMTPUsername: "user@gmail.com", SMTPPassword: "app-password", From: "reports@gmail.com"}
 	reminder := NewReminderEmailProvider(cfg).(*reminderEmailProvider)
 	if reminder.from != cfg.From || reminder.client.(*googleSMTPClient).host != cfg.SMTPHost {
@@ -126,7 +148,7 @@ func TestEmailProvidersUseGoogleSMTPConfiguration(t *testing.T) {
 	}
 }
 
-func TestEmailProvidersDefaultSenderToSMTPUsername(t *testing.T) {
+func testEmailProvidersDefaultSenderToSMTPUsername(t *reportGinkgoTest) {
 	cfg := config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"}
 	if provider := NewReminderEmailProvider(cfg).(*reminderEmailProvider); provider.from != cfg.SMTPUsername {
 		t.Fatalf("reminder sender = %q", provider.from)
@@ -136,7 +158,7 @@ func TestEmailProvidersDefaultSenderToSMTPUsername(t *testing.T) {
 	}
 }
 
-func TestEmailProvidersSendUsingTheirSMTPClients(t *testing.T) {
+func testEmailProvidersSendUsingTheirSMTPClients(t *reportGinkgoTest) {
 	client := &fakeSMTPSender{}
 	reminder := &reminderEmailProvider{client: client, from: "reports@example.com"}
 	if reminder.Name() != "email" {
@@ -161,14 +183,14 @@ func TestEmailProvidersSendUsingTheirSMTPClients(t *testing.T) {
 	}
 }
 
-func TestGoogleSMTPClientUsesGoogleDefaults(t *testing.T) {
+func testGoogleSMTPClientUsesGoogleDefaults(t *reportGinkgoTest) {
 	client := newGoogleSMTPClient("", 0, "user@gmail.com", "app-password")
 	if client.host != "smtp.gmail.com" || client.port != 587 {
 		t.Fatalf("default SMTP configuration = %#v", client)
 	}
 }
 
-func TestGoogleSMTPClientRejectsInvalidMessagesBeforeDialing(t *testing.T) {
+func testGoogleSMTPClientRejectsInvalidMessagesBeforeDialing(t *reportGinkgoTest) {
 	client := newGoogleSMTPClient("127.0.0.1", 1, "user@gmail.com", "app-password")
 	if err := client.Send(context.Background(), "from\n@example.com", "to@example.com", "Subject", "body"); err == nil || !strings.Contains(err.Error(), "from contains a newline") {
 		t.Fatalf("newline sender error = %v", err)
@@ -181,21 +203,21 @@ func TestGoogleSMTPClientRejectsInvalidMessagesBeforeDialing(t *testing.T) {
 	}
 }
 
-func TestGoogleSMTPClientRejectsMissingCredentials(t *testing.T) {
+func testGoogleSMTPClientRejectsMissingCredentials(t *reportGinkgoTest) {
 	client := newGoogleSMTPClient("smtp.gmail.com", 587, "", "")
 	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil || !strings.Contains(err.Error(), "credentials are not configured") {
 		t.Fatalf("missing credentials error = %v", err)
 	}
 }
 
-func TestGoogleSMTPClientReportsConnectionFailure(t *testing.T) {
+func testGoogleSMTPClientReportsConnectionFailure(t *reportGinkgoTest) {
 	client := newGoogleSMTPClient("127.0.0.1", 1, "user@gmail.com", "app-password")
 	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil {
 		t.Fatal("connection failure was not returned")
 	}
 }
 
-func TestGoogleSMTPClientReportsInvalidServerGreeting(t *testing.T) {
+func testGoogleSMTPClientReportsInvalidServerGreeting(t *reportGinkgoTest) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +240,7 @@ func TestGoogleSMTPClientReportsInvalidServerGreeting(t *testing.T) {
 	}
 }
 
-func TestGoogleSMTPClientSendsMessageOverSTARTTLS(t *testing.T) {
+func testGoogleSMTPClientSendsMessageOverSTARTTLS(t *reportGinkgoTest) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -251,7 +273,7 @@ func TestGoogleSMTPClientSendsMessageOverSTARTTLS(t *testing.T) {
 	<-done
 }
 
-func TestGoogleSMTPClientCompletesSMTPTransaction(t *testing.T) {
+func testGoogleSMTPClientCompletesSMTPTransaction(t *reportGinkgoTest) {
 	certificate := makeSMTPCertificate(t)
 	clientConn, serverConn := net.Pipe()
 	done := make(chan error, 1)
@@ -329,9 +351,9 @@ func TestGoogleSMTPClientCompletesSMTPTransaction(t *testing.T) {
 	}
 }
 
-func TestGoogleSMTPClientReportsSMTPCommandFailures(t *testing.T) {
+func testGoogleSMTPClientReportsSMTPCommandFailures(t *reportGinkgoTest) {
 	for _, failure := range []string{"AUTH", "MAIL", "RCPT", "DATA", "WRITE"} {
-		t.Run(failure, func(t *testing.T) {
+		t.Run(failure, func(t *reportGinkgoTest) {
 			clientConn, serverConn := net.Pipe()
 			certificate := makeSMTPCertificate(t)
 			done := make(chan struct{})
@@ -390,7 +412,7 @@ func TestGoogleSMTPClientReportsSMTPCommandFailures(t *testing.T) {
 	}
 }
 
-func TestGoogleSMTPClientUsesDefaultNetworkAndTLSFactories(t *testing.T) {
+func testGoogleSMTPClientUsesDefaultNetworkAndTLSFactories(t *reportGinkgoTest) {
 	client := &googleSMTPClient{host: "127.0.0.1", port: 1, username: "user", password: "password"}
 	if err := client.Send(context.Background(), "from@example.com", "to@example.com", "Subject", "body"); err == nil {
 		t.Fatal("default network dial unexpectedly succeeded")
@@ -415,7 +437,7 @@ func TestGoogleSMTPClientUsesDefaultNetworkAndTLSFactories(t *testing.T) {
 	<-done
 }
 
-func makeSMTPCertificate(t *testing.T) tls.Certificate {
+func makeSMTPCertificate(t *reportGinkgoTest) tls.Certificate {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
@@ -429,7 +451,7 @@ func makeSMTPCertificate(t *testing.T) tls.Certificate {
 	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
 }
 
-func mustPort(t *testing.T, value string) int {
+func mustPort(t *reportGinkgoTest, value string) int {
 	t.Helper()
 	port, err := strconv.Atoi(value)
 	if err != nil {
@@ -438,7 +460,7 @@ func mustPort(t *testing.T, value string) int {
 	return port
 }
 
-func TestNewReportReadyNotifierEnablesConfiguredSMTP(t *testing.T) {
+func testNewReportReadyNotifierEnablesConfiguredSMTP(t *reportGinkgoTest) {
 	notifier := NewReportReadyNotifier(config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password", TemplatePath: "templates/report-ready-email.txt"}, nil)
 	if !notifier.Enabled() {
 		t.Fatal("configured notifier should be enabled")
@@ -449,7 +471,7 @@ func TestNewReportReadyNotifierEnablesConfiguredSMTP(t *testing.T) {
 	}
 }
 
-func TestNewReportReadyNotifierDefaultsSenderToSMTPUsername(t *testing.T) {
+func testNewReportReadyNotifierDefaultsSenderToSMTPUsername(t *reportGinkgoTest) {
 	notifier := NewReportReadyNotifier(config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"}, nil)
 	configured, ok := notifier.(*ReportReadyNotifier)
 	if !ok || configured.from != "user@gmail.com" {
@@ -457,21 +479,21 @@ func TestNewReportReadyNotifierDefaultsSenderToSMTPUsername(t *testing.T) {
 	}
 }
 
-func TestResolveTemplatePathFallsBackForMissingPath(t *testing.T) {
+func testResolveTemplatePathFallsBackForMissingPath(t *reportGinkgoTest) {
 	path := "missing/report-ready-email.txt"
 	if got := resolveTemplatePath(path); got != path {
 		t.Fatalf("resolveTemplatePath() = %q, want %q", got, path)
 	}
 }
 
-func TestResolveTemplatePathKeepsAbsolutePath(t *testing.T) {
+func testResolveTemplatePathKeepsAbsolutePath(t *reportGinkgoTest) {
 	path := filepath.Join(t.TempDir(), "report.txt")
 	if got := resolveTemplatePath(path); got != path {
 		t.Fatalf("resolveTemplatePath() = %q, want %q", got, path)
 	}
 }
 
-func TestReportReadyNotifierRendersAndSendsThroughSMTP(t *testing.T) {
+func testReportReadyNotifierRendersAndSendsThroughSMTP(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
@@ -489,7 +511,7 @@ func TestReportReadyNotifierRendersAndSendsThroughSMTP(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierSendsSameBodyToPairedTelegramChat(t *testing.T) {
+func testReportReadyNotifierSendsSameBodyToPairedTelegramChat(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("Sheet: <google_sheet_link>"), 0o600); err != nil {
@@ -512,7 +534,7 @@ func TestReportReadyNotifierSendsSameBodyToPairedTelegramChat(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierSendsOnlyToClassroomAdministrator(t *testing.T) {
+func testReportReadyNotifierSendsOnlyToClassroomAdministrator(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -539,7 +561,7 @@ func TestReportReadyNotifierSendsOnlyToClassroomAdministrator(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReportsAdministratorLookupFailure(t *testing.T) {
+func testReportReadyNotifierReportsAdministratorLookupFailure(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -554,7 +576,7 @@ func TestReportReadyNotifierReportsAdministratorLookupFailure(t *testing.T) {
 	}
 }
 
-func TestNewReportReadyNotifierWithTelegramUsesConfiguredProfile(t *testing.T) {
+func testNewReportReadyNotifierWithTelegramUsesConfiguredProfile(t *reportGinkgoTest) {
 	notifier := NewReportReadyNotifierWithTelegramAndProfile(
 		config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"},
 		fakeReportRecipients{}, &fakeReportReadyTelegram{}, fakeReportReadyProfile{classroomID: "admin"},
@@ -564,7 +586,7 @@ func TestNewReportReadyNotifierWithTelegramUsesConfiguredProfile(t *testing.T) {
 	}
 }
 
-func TestNewReportReadyNotifierWithTelegramUsesLegacyConstructor(t *testing.T) {
+func testNewReportReadyNotifierWithTelegramUsesLegacyConstructor(t *reportGinkgoTest) {
 	notifier := NewReportReadyNotifierWithTelegram(
 		config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"},
 		fakeReportRecipients{}, &fakeReportReadyTelegram{},
@@ -574,7 +596,7 @@ func TestNewReportReadyNotifierWithTelegramUsesLegacyConstructor(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReturnsNoRecipientWhenAdministratorIsNotSynchronized(t *testing.T) {
+func testReportReadyNotifierReturnsNoRecipientWhenAdministratorIsNotSynchronized(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -590,7 +612,7 @@ func TestReportReadyNotifierReturnsNoRecipientWhenAdministratorIsNotSynchronized
 	}
 }
 
-func TestReportReadyNotifierSkipsTelegramWithoutPairing(t *testing.T) {
+func testReportReadyNotifierSkipsTelegramWithoutPairing(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -609,7 +631,7 @@ func TestReportReadyNotifierSkipsTelegramWithoutPairing(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReturnsTelegramError(t *testing.T) {
+func testReportReadyNotifierReturnsTelegramError(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -628,7 +650,7 @@ func TestReportReadyNotifierReturnsTelegramError(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReturnsChannelLookupError(t *testing.T) {
+func testReportReadyNotifierReturnsChannelLookupError(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -644,7 +666,7 @@ func TestReportReadyNotifierReturnsChannelLookupError(t *testing.T) {
 	}
 }
 
-func TestPreliminaryReportNotifierSendsMissingSummaryToEmailAndTelegram(t *testing.T) {
+func testPreliminaryReportNotifierSendsMissingSummaryToEmailAndTelegram(t *reportGinkgoTest) {
 	email := &fakeSMTPSender{}
 	telegram := &fakeReportReadyTelegram{}
 	notifier := &preliminaryReportNotifier{
@@ -664,7 +686,7 @@ func TestPreliminaryReportNotifierSendsMissingSummaryToEmailAndTelegram(t *testi
 	}
 }
 
-func TestPreliminaryReportNotifierDeduplicatesIdenticalSummaries(t *testing.T) {
+func testPreliminaryReportNotifierDeduplicatesIdenticalSummaries(t *reportGinkgoTest) {
 	email := &fakeSMTPSender{}
 	notifier := &preliminaryReportNotifier{
 		client: email, from: "reports@example.com",
@@ -690,7 +712,7 @@ func TestPreliminaryReportNotifierDeduplicatesIdenticalSummaries(t *testing.T) {
 	}
 }
 
-func TestNewPreliminaryReportNotifierWithProfileUsesConfiguredSMTP(t *testing.T) {
+func testNewPreliminaryReportNotifierWithProfileUsesConfiguredSMTP(t *reportGinkgoTest) {
 	notifier := NewPreliminaryReportNotifierWithProfile(
 		config.EmailConfig{SMTPUsername: "user@gmail.com", SMTPPassword: "app-password"},
 		fakeReportRecipients{}, &fakeReportReadyTelegram{}, fakeReportReadyProfile{classroomID: "admin"},
@@ -700,7 +722,7 @@ func TestNewPreliminaryReportNotifierWithProfileUsesConfiguredSMTP(t *testing.T)
 	}
 }
 
-func TestPreliminaryReportNotifierReportsAdministratorLookupFailure(t *testing.T) {
+func testPreliminaryReportNotifierReportsAdministratorLookupFailure(t *reportGinkgoTest) {
 	notifier := &preliminaryReportNotifier{
 		client: &fakeSMTPSender{}, recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Status: teacher.Active}}}, profile: failingReportReadyProfile{},
 	}
@@ -709,7 +731,7 @@ func TestPreliminaryReportNotifierReportsAdministratorLookupFailure(t *testing.T
 	}
 }
 
-func TestPreliminaryReportNotifierSaysEverybodySubmitted(t *testing.T) {
+func testPreliminaryReportNotifierSaysEverybodySubmitted(t *reportGinkgoTest) {
 	email := &fakeSMTPSender{}
 	notifier := &preliminaryReportNotifier{
 		client: email, from: "reports@example.com",
@@ -726,7 +748,7 @@ func TestPreliminaryReportNotifierSaysEverybodySubmitted(t *testing.T) {
 	}
 }
 
-func TestPreliminaryReportNotifierRequiresTelegramBoundAdmin(t *testing.T) {
+func testPreliminaryReportNotifierRequiresTelegramBoundAdmin(t *reportGinkgoTest) {
 	email := &fakeSMTPSender{}
 	notifier := &preliminaryReportNotifier{client: email, recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "admin@example.com", Status: teacher.Active}}}}
 	if err := notifier.Notify(context.Background(), task.Task{Title: "Task 18"}, nil); err != nil {
@@ -737,7 +759,7 @@ func TestPreliminaryReportNotifierRequiresTelegramBoundAdmin(t *testing.T) {
 	}
 }
 
-func TestPreliminaryReportNotifierSkipsMissingAdministratorAndDuplicateMessages(t *testing.T) {
+func testPreliminaryReportNotifierSkipsMissingAdministratorAndDuplicateMessages(t *reportGinkgoTest) {
 	email := &fakeSMTPSender{}
 	notifier := &preliminaryReportNotifier{client: email, recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "inactive@example.com", Status: teacher.Disabled}}}}
 	if err := notifier.Notify(context.Background(), task.Task{Title: "Task 18"}, nil); err != nil {
@@ -763,7 +785,7 @@ func TestPreliminaryReportNotifierSkipsMissingAdministratorAndDuplicateMessages(
 	}
 }
 
-func TestPreliminaryReportNotifierPropagatesRecipientAndChannelErrors(t *testing.T) {
+func testPreliminaryReportNotifierPropagatesRecipientAndChannelErrors(t *reportGinkgoTest) {
 	notifier := &preliminaryReportNotifier{
 		client:     &fakeSMTPSender{},
 		recipients: fakeReportRecipients{err: errors.New("recipient lookup failed")},
@@ -780,7 +802,7 @@ func TestPreliminaryReportNotifierPropagatesRecipientAndChannelErrors(t *testing
 	}
 }
 
-func TestPreliminaryReportNotifierPropagatesEmailError(t *testing.T) {
+func testPreliminaryReportNotifierPropagatesEmailError(t *reportGinkgoTest) {
 	notifier := &preliminaryReportNotifier{
 		client: &fakeSMTPSender{err: errors.New("SMTP unavailable")},
 		recipients: fakeReportRecipients{
@@ -793,7 +815,7 @@ func TestPreliminaryReportNotifierPropagatesEmailError(t *testing.T) {
 	}
 }
 
-func TestPreliminaryReportNotifierUsesClassroomAdministratorAndReportsTelegramFailure(t *testing.T) {
+func testPreliminaryReportNotifierUsesClassroomAdministratorAndReportsTelegramFailure(t *reportGinkgoTest) {
 	notifier := &preliminaryReportNotifier{
 		client: &fakeSMTPSender{}, from: "reports@example.com", telegram: &fakeReportReadyTelegram{err: errors.New("telegram failed")}, profile: fakeReportReadyProfile{classroomID: "admin"},
 		recipients: fakeReportRecipients{people: []teacher.Recipient{{ID: 1, Email: "admin@example.com", ClassroomID: "admin", Status: teacher.Active}}},
@@ -807,21 +829,21 @@ func TestPreliminaryReportNotifierUsesClassroomAdministratorAndReportsTelegramFa
 	}
 }
 
-func TestNewPreliminaryReportNotifierDisablesWithoutSMTP(t *testing.T) {
+func testNewPreliminaryReportNotifierDisablesWithoutSMTP(t *reportGinkgoTest) {
 	notifier := NewPreliminaryReportNotifier(config.EmailConfig{}, nil, nil)
 	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestPreliminaryReportNotifierTreatsMissingRecipientsAsDisabled(t *testing.T) {
+func testPreliminaryReportNotifierTreatsMissingRecipientsAsDisabled(t *reportGinkgoTest) {
 	notifier := &preliminaryReportNotifier{client: &fakeSMTPSender{}}
 	if err := notifier.Notify(context.Background(), task.Task{Title: "Task"}, nil); err != nil {
 		t.Fatalf("Notify() error = %v", err)
 	}
 }
 
-func TestReportReadyNotifierRejectsTemplateWithoutSheetLink(t *testing.T) {
+func testReportReadyNotifierRejectsTemplateWithoutSheetLink(t *reportGinkgoTest) {
 	templatePath := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(templatePath, []byte("missing link"), 0o600); err != nil {
 		t.Fatal(err)
@@ -832,14 +854,14 @@ func TestReportReadyNotifierRejectsTemplateWithoutSheetLink(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReportsMissingTemplate(t *testing.T) {
+func testReportReadyNotifierReportsMissingTemplate(t *reportGinkgoTest) {
 	notifier := &ReportReadyNotifier{template: filepath.Join(t.TempDir(), "missing.txt")}
 	if _, err := notifier.renderMessage("link"); err == nil || !strings.Contains(err.Error(), "read report email template") {
 		t.Fatalf("renderMessage() error = %v", err)
 	}
 }
 
-func TestReportReadyNotifierReturnsSMTPError(t *testing.T) {
+func testReportReadyNotifierReturnsSMTPError(t *reportGinkgoTest) {
 	dir := t.TempDir()
 	templatePath := filepath.Join(dir, "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -853,7 +875,7 @@ func TestReportReadyNotifierReturnsSMTPError(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierSkipsDisabledAndEmaillessRecipients(t *testing.T) {
+func testReportReadyNotifierSkipsDisabledAndEmaillessRecipients(t *reportGinkgoTest) {
 	client := &fakeSMTPSender{}
 	templatePath := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
@@ -870,7 +892,7 @@ func TestReportReadyNotifierSkipsDisabledAndEmaillessRecipients(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierReturnsRecipientLookupError(t *testing.T) {
+func testReportReadyNotifierReturnsRecipientLookupError(t *reportGinkgoTest) {
 	templatePath := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
 		t.Fatal(err)
@@ -881,7 +903,7 @@ func TestReportReadyNotifierReturnsRecipientLookupError(t *testing.T) {
 	}
 }
 
-func TestReportReadyNotifierAllowsMissingRecipientRepository(t *testing.T) {
+func testReportReadyNotifierAllowsMissingRecipientRepository(t *reportGinkgoTest) {
 	templatePath := filepath.Join(t.TempDir(), "report.txt")
 	if err := os.WriteFile(templatePath, []byte("<google_sheet_link>"), 0o600); err != nil {
 		t.Fatal(err)
@@ -892,7 +914,7 @@ func TestReportReadyNotifierAllowsMissingRecipientRepository(t *testing.T) {
 	}
 }
 
-func TestTelegramProviderUsesConfiguredEndpoint(t *testing.T) {
+func testTelegramProviderUsesConfiguredEndpoint(t *reportGinkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessage" {
 			t.Fatalf("path = %q", r.URL.Path)
@@ -908,3 +930,55 @@ func TestTelegramProviderUsesConfiguredEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+var _ = Describe("report notification tests", func() {
+	It("runs all report notification cases", func() {
+		t := &reportGinkgoTest{}
+		testEmailProvidersAreDisabledWithoutSMTPCredentials(t)
+		testEmailProvidersUseGoogleSMTPConfiguration(t)
+		testEmailProvidersDefaultSenderToSMTPUsername(t)
+		testEmailProvidersSendUsingTheirSMTPClients(t)
+		testGoogleSMTPClientUsesGoogleDefaults(t)
+		testGoogleSMTPClientRejectsInvalidMessagesBeforeDialing(t)
+		testGoogleSMTPClientRejectsMissingCredentials(t)
+		testGoogleSMTPClientReportsConnectionFailure(t)
+		testGoogleSMTPClientReportsInvalidServerGreeting(t)
+		testGoogleSMTPClientSendsMessageOverSTARTTLS(t)
+		testGoogleSMTPClientCompletesSMTPTransaction(t)
+		testGoogleSMTPClientReportsSMTPCommandFailures(t)
+		testGoogleSMTPClientUsesDefaultNetworkAndTLSFactories(t)
+		testNewReportReadyNotifierEnablesConfiguredSMTP(t)
+		testNewReportReadyNotifierDefaultsSenderToSMTPUsername(t)
+		testResolveTemplatePathFallsBackForMissingPath(t)
+		testResolveTemplatePathKeepsAbsolutePath(t)
+		testReportReadyNotifierRendersAndSendsThroughSMTP(t)
+		testReportReadyNotifierSendsSameBodyToPairedTelegramChat(t)
+		testReportReadyNotifierSendsOnlyToClassroomAdministrator(t)
+		testReportReadyNotifierReportsAdministratorLookupFailure(t)
+		testNewReportReadyNotifierWithTelegramUsesConfiguredProfile(t)
+		testNewReportReadyNotifierWithTelegramUsesLegacyConstructor(t)
+		testReportReadyNotifierReturnsNoRecipientWhenAdministratorIsNotSynchronized(t)
+		testReportReadyNotifierSkipsTelegramWithoutPairing(t)
+		testReportReadyNotifierReturnsTelegramError(t)
+		testReportReadyNotifierReturnsChannelLookupError(t)
+		testPreliminaryReportNotifierSendsMissingSummaryToEmailAndTelegram(t)
+		testPreliminaryReportNotifierDeduplicatesIdenticalSummaries(t)
+		testNewPreliminaryReportNotifierWithProfileUsesConfiguredSMTP(t)
+		testPreliminaryReportNotifierReportsAdministratorLookupFailure(t)
+		testPreliminaryReportNotifierSaysEverybodySubmitted(t)
+		testPreliminaryReportNotifierRequiresTelegramBoundAdmin(t)
+		testPreliminaryReportNotifierSkipsMissingAdministratorAndDuplicateMessages(t)
+		testPreliminaryReportNotifierPropagatesRecipientAndChannelErrors(t)
+		testPreliminaryReportNotifierPropagatesEmailError(t)
+		testPreliminaryReportNotifierUsesClassroomAdministratorAndReportsTelegramFailure(t)
+		testNewPreliminaryReportNotifierDisablesWithoutSMTP(t)
+		testPreliminaryReportNotifierTreatsMissingRecipientsAsDisabled(t)
+		testReportReadyNotifierRejectsTemplateWithoutSheetLink(t)
+		testReportReadyNotifierReportsMissingTemplate(t)
+		testReportReadyNotifierReturnsSMTPError(t)
+		testReportReadyNotifierSkipsDisabledAndEmaillessRecipients(t)
+		testReportReadyNotifierReturnsRecipientLookupError(t)
+		testReportReadyNotifierAllowsMissingRecipientRepository(t)
+		testTelegramProviderUsesConfiguredEndpoint(t)
+	})
+})

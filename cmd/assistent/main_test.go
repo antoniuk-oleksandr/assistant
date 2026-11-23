@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,7 +14,31 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+type mainGinkgoTest struct{}
+
+func (*mainGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*mainGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*mainGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*mainGinkgoTest) Helper()                  {}
+func (*mainGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*mainGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*mainGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*mainGinkgoTest) Run(name string, fn func(*mainGinkgoTest)) bool {
+	By(name)
+	fn(&mainGinkgoTest{})
+	return true
+}
+
 func TestAssistent(t *testing.T) {
+	if os.Getenv("ASSISTENT_TEST_CLI") == "1" {
+		os.Args = append(os.Args[:1], os.Args[3:]...)
+		main()
+		os.Exit(0)
+	}
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Assistent Suite")
 }
@@ -55,20 +80,11 @@ func runCLI(dir string, args ...string) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestCLIProcess$", "--"}, args...)...)
+	cmd := exec.CommandContext(ctx, executable, append([]string{"-test.run=^TestAssistent$", "--"}, args...)...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "ASSISTENT_TEST_CLI=1", "REPORT_RENDERER=local-xlsx", "SQLITE_DATABASE_PATH="+filepath.Join(dir, "data", "state.db"))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()
 	return stdout.String(), stderr.String(), err
-}
-
-func TestCLIProcess(t *testing.T) {
-	if os.Getenv("ASSISTENT_TEST_CLI") != "1" {
-		return
-	}
-	os.Args = append(os.Args[:1], os.Args[3:]...)
-	main()
-	os.Exit(0)
 }

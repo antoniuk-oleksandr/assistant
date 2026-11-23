@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
-	"testing"
 
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/platform/config"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 type fakeSheetsClient struct {
@@ -97,164 +97,134 @@ func (f *fakeTemplateUploader) UploadSpreadsheet(_ context.Context, title, path 
 	return f.id, nil
 }
 
-func TestGoogleSheetsReportRendererCreatesAggregate(t *testing.T) {
-	client := &fakeSheetsClient{id: "sheet-123"}
-	renderer := &GoogleSheetsReportRenderer{client: client, title: "Report"}
-	data := scenario.ReportData{MissingSubmissions: []string{"missing"}}
-	data.Appendices[0].Number = 1
-	data.Appendices[0].NumericTotal = 3
-	output, err := renderer.RenderAndSave(context.Background(), data)
-	if err != nil {
-		t.Fatalf("RenderAndSave() error = %v", err)
-	}
-	if output.Format != "google-sheets" || !strings.Contains(output.Path, "/sheet-123/edit") {
-		t.Fatalf("output = %#v", output)
-	}
-	if client.title != "Report" || len(client.sheets) != 5 || client.values["Appendices"][1][1] != float64(3) {
-		t.Fatalf("client state = %#v", client)
-	}
-}
-
-func TestGoogleSheetsReportRendererStopsOnProviderErrors(t *testing.T) {
-	providerErr := errors.New("provider unavailable")
-	for name, client := range map[string]*fakeSheetsClient{
-		"create": {createErr: providerErr},
-		"add":    {id: "sheet", addErr: providerErr},
-		"write":  {id: "sheet", writeErr: providerErr},
-	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := (&GoogleSheetsReportRenderer{client: client, title: "Report"}).RenderAndSave(context.Background(), scenario.ReportData{})
-			if !errors.Is(err, providerErr) {
-				t.Fatalf("error = %v", err)
-			}
-		})
-	}
-}
-
-func TestGoogleSheetsReportRendererImportsTemplateAndUpdatesColumnC(t *testing.T) {
-	_, filename, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	templatePath := filepath.Join(filepath.Dir(filename), "..", "..", "..", "templates", "scientific-report", "output_example.xlsx")
-	if _, err := os.Stat(templatePath); err != nil {
-		t.Fatal(err)
-	}
-	appendices, slashRows, columnValues := loadTemplateLayoutFromPath(t, templatePath)
-	client := &fakeSheetsClient{id: "created-but-replaced"}
-	uploader := &fakeTemplateUploader{id: "imported-sheet"}
-	renderer := &GoogleSheetsReportRenderer{
-		client: client, uploader: uploader, title: "Report", templatePath: templatePath,
-		templateAppendices: appendices, templateSlashRows: slashRows, templateColumnValues: columnValues,
-	}
-	data := scenario.ReportData{CourseData: map[string]string{
-		"department_name":            "Department",
-		"department_email":           "dept@example.com",
-		"lab_assistant_name":         "Anna",
-		"lab_assistant_mobile_phone": "+3801",
-		"department_phone":           "+3802",
-	}}
-	data.Appendices[0] = scenario.ReportAppendix{Number: 1, NumericTotal: 4}
-	data.Appendices[1] = scenario.ReportAppendix{Number: 2}
-	output, err := renderer.RenderAndSave(context.Background(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output.Path != "https://docs.google.com/spreadsheets/d/imported-sheet/edit" {
-		t.Fatalf("output path = %q", output.Path)
-	}
-	if uploader.title != "Report" || uploader.path != templatePath || len(client.ranges) != 6 {
-		t.Fatalf("upload/write state = %#v %#v %#v", uploader, client.ranges, client.clear)
-	}
-	if client.ranges[0].rangeName != "Аркуш1!C13" || len(client.ranges[0].values) != 120 {
-		t.Fatalf("range = %#v", client.ranges[0])
-	}
-	if client.ranges[1].rangeName != "Аркуш1!B4" || client.ranges[1].values[0][0] != "кафедри Department" || client.ranges[2].rangeName != "Аркуш1!C7" || client.ranges[2].values[0][0] != "dept@example.com" || client.ranges[3].rangeName != "Аркуш1!C8" || client.ranges[3].values[0][0] != "Anna" || client.ranges[4].values[0][0] != "'+3801" || client.ranges[5].values[0][0] != "'+3802" {
-		t.Fatalf("course data ranges = %#v", client.ranges)
-	}
-	if client.ranges[0].values[appendices[1]-13][0] != float64(4) {
-		t.Fatalf("appendix value = %#v", client.ranges[0].values[appendices[1]-13][0])
-	}
-	if client.ranges[0].values[appendices[2]-13][0] != "/" {
-		t.Fatalf("empty appendix value = %#v", client.ranges[0].values[appendices[2]-13][0])
-	}
-	if len(client.clear) != len(templateAlwaysBlankRows) {
-		t.Fatalf("cleared ranges = %d, want %d", len(client.clear), len(templateAlwaysBlankRows))
-	}
-}
-
-func TestGoogleSheetsReportRendererTemplateErrors(t *testing.T) {
-	providerErr := errors.New("provider unavailable")
-	base := &GoogleSheetsReportRenderer{
-		client:   &fakeSheetsClient{id: "sheet", rangeErr: providerErr},
-		uploader: &fakeTemplateUploader{id: "sheet"}, title: "Report", templatePath: "template.xlsx",
-		templateAppendices: map[int]int{1: 13}, templateColumnValues: make([][]any, 200),
-	}
-	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); !errors.Is(err, providerErr) {
-		t.Fatalf("write error = %v", err)
-	}
-	base.client = &fakeSheetsClient{id: "sheet", clearErr: providerErr}
-	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); !errors.Is(err, providerErr) {
-		t.Fatalf("clear error = %v", err)
-	}
-	base.client = &fakeSheetsClient{id: "sheet"}
-	base.uploader = nil
-	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "Drive write access") {
-		t.Fatalf("missing uploader error = %v", err)
-	}
-	base.client = sheetsOnlyClient{}
-	base.uploader = &fakeTemplateUploader{id: "sheet"}
-	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "cell updates") {
-		t.Fatalf("missing writer error = %v", err)
-	}
-	base.client = sheetsWriterWithoutClearer{}
-	if _, err := base.RenderAndSave(context.Background(), scenario.ReportData{}); err == nil || !strings.Contains(err.Error(), "cell clearing") {
-		t.Fatalf("missing clearer error = %v", err)
-	}
-}
-
-func loadTemplateLayoutFromPath(t *testing.T, path string) (map[int]int, []int, [][]any) {
-	t.Helper()
-	old := os.Getenv("REPORT_TEMPLATE_PATH")
+func loadTemplateLayoutFromPath(path string) (map[int]int, []int, [][]any) {
 	if err := os.Setenv("REPORT_TEMPLATE_PATH", path); err != nil {
-		t.Fatal(err)
+		panic(err)
 	}
-	t.Cleanup(func() { _ = os.Setenv("REPORT_TEMPLATE_PATH", old) })
 	return loadTemplateLayout()
 }
 
-func TestConfiguredReportRendererSelectsExplicitLocalArtifact(t *testing.T) {
-	if renderer, err := NewConfiguredReportRenderer(config.Config{}); err != nil || renderer == nil {
-		t.Fatalf("default renderer = %v %T", err, renderer)
-	}
-	renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "local-xlsx"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := renderer.(*LocalXLSXRenderer); !ok {
-		t.Fatalf("renderer type = %T", renderer)
-	}
-}
+var _ = Describe("Google Sheets report renderer", func() {
+	It("creates an aggregate", func() {
+		client := &fakeSheetsClient{id: "sheet-123"}
+		renderer := &GoogleSheetsReportRenderer{client: client, title: "Report"}
+		data := scenario.ReportData{MissingSubmissions: []string{"missing"}}
+		data.Appendices[0].Number = 1
+		data.Appendices[0].NumericTotal = 3
+		output, err := renderer.RenderAndSave(context.Background(), data)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output.Format).To(Equal("google-sheets"))
+		Expect(output.Path).To(ContainSubstring("/sheet-123/edit"))
+		Expect(client.title).To(Equal("Report"))
+		Expect(client.sheets).To(HaveLen(5))
+		Expect(client.values["Appendices"][1][1]).To(Equal(float64(3)))
+	})
 
-func TestConfiguredReportRendererSelectsGoogleSheets(t *testing.T) {
-	renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := renderer.(*GoogleSheetsReportRenderer); !ok {
-		t.Fatalf("renderer type = %T", renderer)
-	}
-}
+	It("stops on provider errors", func() {
+		providerErr := errors.New("provider unavailable")
+		for name, client := range map[string]*fakeSheetsClient{
+			"create": {createErr: providerErr},
+			"add":    {id: "sheet", addErr: providerErr},
+			"write":  {id: "sheet", writeErr: providerErr},
+		} {
+			By(name)
+			_, err := (&GoogleSheetsReportRenderer{client: client, title: "Report"}).RenderAndSave(context.Background(), scenario.ReportData{})
+			Expect(errors.Is(err, providerErr)).To(BeTrue())
+		}
+	})
 
-func TestConfiguredReportRendererReportsDriveConfigurationErrors(t *testing.T) {
-	_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, Drive: config.DriveConfig{ClientID: "client"}})
-	if err == nil || !strings.Contains(err.Error(), "Google Drive OAuth requires") {
-		t.Fatalf("Drive configuration error = %v", err)
-	}
-}
+	It("imports a template and updates column C", func() {
+		_, filename, _, ok := runtime.Caller(0)
+		if !ok {
+			Fail("runtime.Caller failed")
+		}
+		templatePath := filepath.Join(filepath.Dir(filename), "..", "..", "..", "templates", "scientific-report", "output_example.xlsx")
+		if _, err := os.Stat(templatePath); err != nil {
+			Fail(err.Error())
+		}
+		appendices, slashRows, columnValues := loadTemplateLayoutFromPath(templatePath)
+		client := &fakeSheetsClient{id: "created-but-replaced"}
+		uploader := &fakeTemplateUploader{id: "imported-sheet"}
+		renderer := &GoogleSheetsReportRenderer{
+			client: client, uploader: uploader, title: "Report", templatePath: templatePath,
+			templateAppendices: appendices, templateSlashRows: slashRows, templateColumnValues: columnValues,
+		}
+		data := scenario.ReportData{CourseData: map[string]string{
+			"department_name":            "Department",
+			"department_email":           "dept@example.com",
+			"lab_assistant_name":         "Anna",
+			"lab_assistant_mobile_phone": "+3801",
+			"department_phone":           "+3802",
+		}}
+		data.Appendices[0] = scenario.ReportAppendix{Number: 1, NumericTotal: 4}
+		data.Appendices[1] = scenario.ReportAppendix{Number: 2}
+		output, err := renderer.RenderAndSave(context.Background(), data)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output.Path).To(Equal("https://docs.google.com/spreadsheets/d/imported-sheet/edit"))
+		Expect(uploader.title).To(Equal("Report"))
+		Expect(uploader.path).To(Equal(templatePath))
+		Expect(client.ranges).To(HaveLen(6))
+		Expect(client.ranges[0].rangeName).To(Equal("Аркуш1!C13"))
+		Expect(client.ranges[0].values).To(HaveLen(120))
+		if client.ranges[1].rangeName != "Аркуш1!B4" || client.ranges[1].values[0][0] != "кафедри Department" || client.ranges[2].rangeName != "Аркуш1!C7" || client.ranges[2].values[0][0] != "dept@example.com" || client.ranges[3].rangeName != "Аркуш1!C8" || client.ranges[3].values[0][0] != "Anna" || client.ranges[4].values[0][0] != "'+3801" || client.ranges[5].values[0][0] != "'+3802" {
+			Fail("course data ranges did not match")
+		}
+		if client.ranges[0].values[appendices[1]-13][0] != float64(4) {
+			Fail("appendix value did not match")
+		}
+		if client.ranges[0].values[appendices[2]-13][0] != "/" {
+			Fail("empty appendix value did not match")
+		}
+		Expect(client.clear).To(HaveLen(len(templateAlwaysBlankRows)))
+	})
 
-func TestConfiguredReportRendererRejectsUnknownSelection(t *testing.T) {
-	if _, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "unknown"}}); err == nil {
-		t.Fatal("unknown renderer unexpectedly accepted")
-	}
-}
+	It("reports template errors", func() {
+		providerErr := errors.New("provider unavailable")
+		base := &GoogleSheetsReportRenderer{
+			client:   &fakeSheetsClient{id: "sheet", rangeErr: providerErr},
+			uploader: &fakeTemplateUploader{id: "sheet"}, title: "Report", templatePath: "template.xlsx",
+			templateAppendices: map[int]int{1: 13}, templateColumnValues: make([][]any, 200),
+		}
+		_, err := base.RenderAndSave(context.Background(), scenario.ReportData{})
+		Expect(errors.Is(err, providerErr)).To(BeTrue())
+		base.client = &fakeSheetsClient{id: "sheet", clearErr: providerErr}
+		_, err = base.RenderAndSave(context.Background(), scenario.ReportData{})
+		Expect(errors.Is(err, providerErr)).To(BeTrue())
+		base.client = &fakeSheetsClient{id: "sheet"}
+		base.uploader = nil
+		_, err = base.RenderAndSave(context.Background(), scenario.ReportData{})
+		Expect(err).To(MatchError(ContainSubstring("Drive write access")))
+		base.client = sheetsOnlyClient{}
+		base.uploader = &fakeTemplateUploader{id: "sheet"}
+		_, err = base.RenderAndSave(context.Background(), scenario.ReportData{})
+		Expect(err).To(MatchError(ContainSubstring("cell updates")))
+		base.client = sheetsWriterWithoutClearer{}
+		_, err = base.RenderAndSave(context.Background(), scenario.ReportData{})
+		Expect(err).To(MatchError(ContainSubstring("cell clearing")))
+	})
+
+	It("selects an explicit local artifact", func() {
+		renderer, err := NewConfiguredReportRenderer(config.Config{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(renderer).NotTo(BeNil())
+		renderer, err = NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "local-xlsx"}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(renderer).To(BeAssignableToTypeOf(&LocalXLSXRenderer{}))
+	})
+
+	It("selects Google Sheets", func() {
+		renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(renderer).To(BeAssignableToTypeOf(&GoogleSheetsReportRenderer{}))
+	})
+
+	It("reports Drive configuration errors", func() {
+		_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, Drive: config.DriveConfig{ClientID: "client"}})
+		Expect(err).To(MatchError(ContainSubstring("Google Drive OAuth requires")))
+	})
+
+	It("rejects unknown selections", func() {
+		_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "unknown"}})
+		Expect(err).To(HaveOccurred())
+	})
+})

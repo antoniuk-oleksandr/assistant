@@ -4,11 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"github.com/alex/assistent/internal/adapters/drive"
 	"github.com/alex/assistent/internal/domain/submission"
@@ -17,7 +17,31 @@ import (
 	"golang.org/x/oauth2"
 )
 
-func TestDriveEndpointValidation(t *testing.T) {
+type retrievalboundariesGinkgoTest struct{}
+
+func (*retrievalboundariesGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*retrievalboundariesGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*retrievalboundariesGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*retrievalboundariesGinkgoTest) Helper()                  {}
+func (*retrievalboundariesGinkgoTest) Fatal(args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprint(args...))
+}
+func (*retrievalboundariesGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*retrievalboundariesGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*retrievalboundariesGinkgoTest) Error(args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprint(args...))
+}
+func (*retrievalboundariesGinkgoTest) Run(name string, fn func(*retrievalboundariesGinkgoTest)) bool {
+	By(name)
+	fn(&retrievalboundariesGinkgoTest{})
+	return true
+}
+
+func testDriveEndpointValidation(t *retrievalboundariesGinkgoTest) {
 	for _, raw := range []string{"", "https://fixture.invalid/drive/v3", "http://[::1]:8080", "http://localhost:8080"} {
 		_, err := drive.NewMaterialRetrieverWithTokenSource(config.DriveConfig{BaseURL: raw}, fixtureToken())
 		NewWithT(t).Expect(err).NotTo(HaveOccurred(), raw)
@@ -28,7 +52,7 @@ func TestDriveEndpointValidation(t *testing.T) {
 	}
 }
 
-func TestDriveDoesNotFollowProviderRedirect(t *testing.T) {
+func testDriveDoesNotFollowProviderRedirect(t *retrievalboundariesGinkgoTest) {
 	g := NewWithT(t)
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Drive redirect target was contacted")
@@ -46,7 +70,7 @@ func TestDriveDoesNotFollowProviderRedirect(t *testing.T) {
 	g.Expect(got.LocalPath).To(BeEmpty())
 }
 
-func TestDriveDoesNotRequestContentWithInvalidReferenceContextOrToken(t *testing.T) {
+func testDriveDoesNotRequestContentWithInvalidReferenceContextOrToken(t *retrievalboundariesGinkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("unexpected provider request")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -63,7 +87,7 @@ func TestDriveDoesNotRequestContentWithInvalidReferenceContextOrToken(t *testing
 		{"canceled context", "file-1", canceled, fixtureToken()},
 		{"empty token", "file-1", context.Background(), oauth2.StaticTokenSource(&oauth2.Token{})},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *retrievalboundariesGinkgoTest) {
 			g := NewWithT(t)
 			retriever, err := drive.NewMaterialRetrieverWithTokenSource(config.DriveConfig{BaseURL: server.URL, MaterialDir: t.TempDir()}, tc.tokens)
 			g.Expect(err).NotTo(HaveOccurred())
@@ -74,7 +98,7 @@ func TestDriveDoesNotRequestContentWithInvalidReferenceContextOrToken(t *testing
 	}
 }
 
-func TestDriveDoesNotPublishOversizedOrUnwritableSnapshots(t *testing.T) {
+func testDriveDoesNotPublishOversizedOrUnwritableSnapshots(t *retrievalboundariesGinkgoTest) {
 	const body = "fixture payload"
 	for _, tc := range []struct{ name, filename, extension string }{
 		{"unsafe provider extension falls back to binary", "fixture.longextension", ".bin"},
@@ -82,7 +106,7 @@ func TestDriveDoesNotPublishOversizedOrUnwritableSnapshots(t *testing.T) {
 		{"conflicting digest path is not overwritten", "fixture.TXT", ".txt"},
 		{"oversized content length", "fixture.TXT", ".txt"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *retrievalboundariesGinkgoTest) {
 			g := NewWithT(t)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Query().Has("fields") {
@@ -137,3 +161,13 @@ func TestDriveDoesNotPublishOversizedOrUnwritableSnapshots(t *testing.T) {
 		})
 	}
 }
+
+var _ = Describe("retrieval_boundaries legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &retrievalboundariesGinkgoTest{}
+		testDriveEndpointValidation(t)
+		testDriveDoesNotFollowProviderRedirect(t)
+		testDriveDoesNotRequestContentWithInvalidReferenceContextOrToken(t)
+		testDriveDoesNotPublishOversizedOrUnwritableSnapshots(t)
+	})
+})

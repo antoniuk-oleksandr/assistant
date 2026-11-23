@@ -3,17 +3,37 @@ package drive
 import (
 	"context"
 	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
-	"testing"
 
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/platform/config"
 	. "github.com/onsi/gomega"
 )
 
-func TestDriveRefreshesExpiredAccessTokenAndUsesRotatedRefreshToken(t *testing.T) {
+type oauthGinkgoTest struct{}
+
+func (*oauthGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*oauthGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*oauthGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*oauthGinkgoTest) Helper()                  {}
+func (*oauthGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*oauthGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*oauthGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*oauthGinkgoTest) Error(args ...any) { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*oauthGinkgoTest) Run(name string, fn func(*oauthGinkgoTest)) bool {
+	By(name)
+	fn(&oauthGinkgoTest{})
+	return true
+}
+
+func testDriveRefreshesExpiredAccessTokenAndUsesRotatedRefreshToken(t *oauthGinkgoTest) {
 	g := NewWithT(t)
 	var exchanges atomic.Int32
 	var apiCalls atomic.Int32
@@ -77,7 +97,7 @@ func TestDriveRefreshesExpiredAccessTokenAndUsesRotatedRefreshToken(t *testing.T
 	g.Expect(apiCalls.Load()).To(Equal(int32(2)))
 }
 
-func TestDriveWithoutCredentialsDoesNotContactProvider(t *testing.T) {
+func testDriveWithoutCredentialsDoesNotContactProvider(t *oauthGinkgoTest) {
 	g := NewWithT(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("Drive was contacted without credentials")
@@ -94,3 +114,11 @@ func TestDriveWithoutCredentialsDoesNotContactProvider(t *testing.T) {
 	_, err = NewMaterialRetriever(cfg)
 	g.Expect(err).To(MatchError(ContainSubstring("Drive OAuth requires")))
 }
+
+var _ = Describe("oauth legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &oauthGinkgoTest{}
+		testDriveRefreshesExpiredAccessTokenAndUsesRotatedRefreshToken(t)
+		testDriveWithoutCredentialsDoesNotContactProvider(t)
+	})
+})

@@ -2,36 +2,29 @@ package parser
 
 import (
 	"context"
-	"errors"
 	"strings"
-	"testing"
 
 	"github.com/alex/assistent/internal/domain/submission"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"github.com/xuri/excelize/v2"
 )
 
-func TestParserStrategiesExposeTypesAndAppendixHandling(t *testing.T) {
-	strategies := Strategies()
-	if len(strategies) != 8 {
-		t.Fatalf("strategy count = %d", len(strategies))
-	}
-	for _, strategy := range strategies {
-		if strategy.Type() == "" {
-			t.Fatalf("empty strategy type for %T", strategy)
+var _ = Describe("parser strategies", func() {
+	It("exposes types and handles appendices", func() {
+		strategies := Strategies()
+		Expect(strategies).To(HaveLen(8))
+		for _, strategy := range strategies {
+			Expect(strategy.Type()).NotTo(BeEmpty())
 		}
-	}
-	context := submission.ParseContext{ScenarioType: "ScienceReportScenario"}
-	material := submission.Material{Name: "appendix-03.xlsx", MIMEType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
-	if !strategies[3].CanHandle(material, context) {
-		t.Fatal("appendix strategy did not accept a valid appendix")
-	}
-	if strategies[3].CanHandle(material, submission.ParseContext{}) {
-		t.Fatal("appendix strategy accepted the wrong scenario")
-	}
-	if appendixNumber(submission.Material{Name: "appendix-29.docx"}) != 0 || appendixNumber(submission.Material{Name: "appendix-03.docx"}) != 3 {
-		t.Fatal("appendix number inference mismatch")
-	}
-}
+		context := submission.ParseContext{ScenarioType: "ScienceReportScenario"}
+		material := submission.Material{Name: "appendix-03.xlsx", MIMEType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+		Expect(strategies[3].CanHandle(material, context)).To(BeTrue())
+		Expect(strategies[3].CanHandle(material, submission.ParseContext{})).To(BeFalse())
+		Expect(appendixNumber(submission.Material{Name: "appendix-29.docx"})).To(Equal(0))
+		Expect(appendixNumber(submission.Material{Name: "appendix-03.docx"})).To(Equal(3))
+	})
+})
 
 type fixedParser struct{}
 
@@ -41,38 +34,38 @@ func (fixedParser) Parse(context.Context, submission.Material, submission.ParseC
 	return submission.ParsedDocument{}, nil
 }
 
-func TestScienceAppendixParserAddsAppendixNumber(t *testing.T) {
-	parser := scienceAppendix{DocumentParser: fixedParser{}}
-	document, err := parser.Parse(context.Background(), submission.Material{Name: "appendix-03.docx"}, submission.ParseContext{})
-	if err != nil || document.Source.AppendixNumber == nil || *document.Source.AppendixNumber != 3 {
-		t.Fatalf("parsed appendix = %#v, error = %v", document, err)
-	}
-}
+var _ = Describe("science appendix parser", func() {
+	It("adds the appendix number", func() {
+		parser := scienceAppendix{DocumentParser: fixedParser{}}
+		document, err := parser.Parse(context.Background(), submission.Material{Name: "appendix-03.docx"}, submission.ParseContext{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(document.Source.AppendixNumber).NotTo(BeNil())
+		Expect(*document.Source.AppendixNumber).To(Equal(3))
+	})
+})
 
-func TestContextReaderHonorsCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := (contextReader{ctx: ctx, r: strings.NewReader("value")}).Read(make([]byte, 5))
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("Read() error = %v", err)
-	}
-}
+var _ = Describe("context reader", func() {
+	It("honors cancellation", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := (contextReader{ctx: ctx, r: strings.NewReader("value")}).Read(make([]byte, 5))
+		Expect(err).To(MatchError(context.Canceled))
+	})
+})
 
-func TestParseSheetHonorsWorkbookBudgets(t *testing.T) {
-	book := excelize.NewFile()
-	if err := book.SetCellValue("Sheet1", "A1", "value"); err != nil {
-		t.Fatal(err)
-	}
-	defer book.Close()
-	for name, budget := range map[string]workbookBudget{
-		"rows":  {rows: 0, cells: 10, text: 10},
-		"cells": {rows: 10, cells: 0, text: 10},
-		"text":  {rows: 10, cells: 10, text: 0},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if _, err := parseSheet(context.Background(), book, "Sheet1", 1, &budget); err == nil {
-				t.Fatal("budget overflow was not reported")
-			}
-		})
-	}
-}
+var _ = Describe("sheet parser", func() {
+	It("honors workbook budgets", func() {
+		book := excelize.NewFile()
+		Expect(book.SetCellValue("Sheet1", "A1", "value")).To(Succeed())
+		defer book.Close()
+		for name, budget := range map[string]workbookBudget{
+			"rows":  {rows: 0, cells: 10, text: 10},
+			"cells": {rows: 10, cells: 0, text: 10},
+			"text":  {rows: 10, cells: 10, text: 0},
+		} {
+			By(name)
+			_, err := parseSheet(context.Background(), book, "Sheet1", 1, &budget)
+			Expect(err).To(HaveOccurred())
+		}
+	})
+})

@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"errors"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/notification"
@@ -11,6 +10,8 @@ import (
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 type coverageMissingRepository struct {
@@ -92,75 +93,56 @@ func (a coverageAnalyzer) Analyze(context.Context, submission.Material, submissi
 	return submission.ExtractionProposal{}, nil
 }
 
-func TestPollingInternalHelpersHandleInvalidAndEmptyValues(t *testing.T) {
-	service := &PollingService{deadlines: task.DeadlineWindows{PreliminaryBefore: time.Minute, RefreshBefore: time.Second}}
-	if !service.inPreliminaryWindow(task.Task{}) {
-		t.Fatal("invalid deadline should remain eligible for preliminary processing")
-	}
-	if filtered, err := service.excludeAdministrator(context.Background(), []ports.MissingSubmitter{}); err != nil || filtered == nil {
-		t.Fatalf("excludeAdministrator = %#v, %v", filtered, err)
-	}
-	if submissionsFingerprint(nil) == "" {
-		t.Fatal("empty submissions fingerprint should be deterministic")
-	}
-}
+var _ = Describe("polling internal helpers", func() {
+	It("handle invalid and empty values", func() {
+		service := &PollingService{deadlines: task.DeadlineWindows{PreliminaryBefore: time.Minute, RefreshBefore: time.Second}}
+		Expect(service.inPreliminaryWindow(task.Task{})).To(BeTrue())
+		filtered, err := service.excludeAdministrator(context.Background(), []ports.MissingSubmitter{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(filtered).NotTo(BeNil())
+		Expect(submissionsFingerprint(nil)).NotTo(BeEmpty())
+	})
 
-func TestReminderTemplateSearchReportsMissingRootFile(t *testing.T) {
-	t.Setenv("REMINDER_TEMPLATE_PATH", "definitely-missing-reminder-template.txt")
-	if _, err := renderReminderMessage("Task", "2026-11-30T00:00:00Z", "https://classroom.example/task", time.Minute); err == nil {
-		t.Fatal("missing reminder template unexpectedly succeeded")
-	}
-}
+	It("reports a missing reminder template", func() {
+		GinkgoT().Setenv("REMINDER_TEMPLATE_PATH", "definitely-missing-reminder-template.txt")
+		_, err := renderReminderMessage("Task", "2026-11-30T00:00:00Z", "https://classroom.example/task", time.Minute)
+		Expect(err).To(HaveOccurred())
+	})
 
-func TestPollingMaterialsStopsAfterCanceledRetrieval(t *testing.T) {
-	service := &PollingService{materials: coverageMaterialRetriever{}}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := service.processMaterials(ctx, task.Binding{Task: task.Task{CourseID: "course", ExternalID: "task"}}, submission.Submission{Materials: []submission.Material{{Name: "file"}}})
-	if err != context.Canceled {
-		t.Fatalf("processMaterials() error = %v", err)
-	}
-}
+	It("stops material processing after cancellation", func() {
+		service := &PollingService{materials: coverageMaterialRetriever{}}
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		_, err := service.processMaterials(ctx, task.Binding{Task: task.Task{CourseID: "course", ExternalID: "task"}}, submission.Submission{Materials: []submission.Material{{Name: "file"}}})
+		Expect(err).To(MatchError(context.Canceled))
+	})
 
-func TestMaterialParsingStopsWhenAnalyzerCancelsContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	parsing := NewMaterialParsingWithAnalyzer(coverageAnalyzer{cancel: cancel})
-	_, err := parsing.Parse(ctx, submission.Material{Name: "file.bin"}, submission.ParseContext{})
-	if err != context.Canceled {
-		t.Fatalf("Parse() error = %v", err)
-	}
-}
+	It("stops material parsing when the analyzer cancels", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		parsing := NewMaterialParsingWithAnalyzer(coverageAnalyzer{cancel: cancel})
+		_, err := parsing.Parse(ctx, submission.Material{Name: "file.bin"}, submission.ParseContext{})
+		Expect(err).To(MatchError(context.Canceled))
+	})
 
-func TestPollingNotificationHelpersReturnDependencyErrors(t *testing.T) {
-	service := &PollingService{
-		missing:   coverageMissingRepository{err: errors.New("missing failed")},
-		profile:   coverageProfileSource{err: errors.New("profile failed")},
-		deadlines: task.DefaultDeadlineWindows,
-	}
-	if err := service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, DueAt: "2026-11-30T00:00:00Z"}); err == nil {
-		t.Fatal("scheduleMissingReminders() should report list failures")
-	}
-	service = &PollingService{missing: coverageMissingRepository{}, profile: coverageProfileSource{err: errors.New("profile failed")}, deadlines: task.DefaultDeadlineWindows}
-	if err := service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, DueAt: "2026-11-30T00:00:00Z"}); err == nil {
-		t.Fatal("scheduleMissingReminders() should report administrator lookup failures")
-	}
-	service.missing = coverageMissingRepository{}
-	if err := service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1}); err == nil {
-		t.Fatal("notifyPreliminarySummary() should report administrator lookup failures")
-	}
-	service = &PollingService{missing: coverageMissingRepository{err: errors.New("missing failed")}}
-	if err := service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1}); err == nil {
-		t.Fatal("notifyPreliminarySummary() should report list failures")
-	}
-	service = &PollingService{}
-	if err := service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1}); err != nil {
-		t.Fatalf("nil missing repository: %v", err)
-	}
-	service = &PollingService{
-		missing: coverageMissingRepository{items: []ports.MissingSubmitter{{ExternalUserID: "user-1", Email: "user@example.com"}}}, teachers: coverageTeacherRepository{},
-		reminders: NewReminderService(coverageReminderRepository{updateErr: errors.New("update failed")}, []ports.ReminderProvider{coverageReminderProvider{}}), deadlines: task.DefaultDeadlineWindows,
-	}
-	if err := service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, ExternalID: "task", CourseID: "course", Title: "Task", DueAt: "2026-11-30T00:00:00Z"}); err != nil {
-		t.Fatalf("scheduleMissingReminders() with empty list: %v", err)
-	}
-}
+	It("returns notification dependency errors", func() {
+		service := &PollingService{
+			missing:   coverageMissingRepository{err: errors.New("missing failed")},
+			profile:   coverageProfileSource{err: errors.New("profile failed")},
+			deadlines: task.DefaultDeadlineWindows,
+		}
+		Expect(service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, DueAt: "2026-11-30T00:00:00Z"})).To(HaveOccurred())
+		service = &PollingService{missing: coverageMissingRepository{}, profile: coverageProfileSource{err: errors.New("profile failed")}, deadlines: task.DefaultDeadlineWindows}
+		Expect(service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, DueAt: "2026-11-30T00:00:00Z"})).To(HaveOccurred())
+		service.missing = coverageMissingRepository{}
+		Expect(service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1})).To(HaveOccurred())
+		service = &PollingService{missing: coverageMissingRepository{err: errors.New("missing failed")}}
+		Expect(service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1})).To(HaveOccurred())
+		service = &PollingService{}
+		Expect(service.notifyPreliminarySummary(context.Background(), task.Task{ID: 1})).NotTo(HaveOccurred())
+		service = &PollingService{
+			missing: coverageMissingRepository{items: []ports.MissingSubmitter{{ExternalUserID: "user-1", Email: "user@example.com"}}}, teachers: coverageTeacherRepository{},
+			reminders: NewReminderService(coverageReminderRepository{updateErr: errors.New("update failed")}, []ports.ReminderProvider{coverageReminderProvider{}}), deadlines: task.DefaultDeadlineWindows,
+		}
+		Expect(service.scheduleMissingReminders(context.Background(), task.Task{ID: 1, ExternalID: "task", CourseID: "course", Title: "Task", DueAt: "2026-11-30T00:00:00Z"})).NotTo(HaveOccurred())
+	})
+})

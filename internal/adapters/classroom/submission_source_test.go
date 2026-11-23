@@ -4,18 +4,33 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	. "github.com/onsi/ginkgo/v2"
 )
 
-func TestHTTPClassroomClientListsCourseWorkAcrossPagesWithAuth(t *testing.T) {
+type ginkgoTest struct{}
+
+func (*ginkgoTest) TempDir() string                   { return GinkgoT().TempDir() }
+func (*ginkgoTest) Setenv(k, v string)                { GinkgoT().Setenv(k, v) }
+func (*ginkgoTest) Cleanup(fn func())                 { DeferCleanup(fn) }
+func (*ginkgoTest) Fatal(args ...any)                 { Fail(fmt.Sprint(args...)) }
+func (*ginkgoTest) Fatalf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Errorf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Run(name string, fn func(*ginkgoTest)) bool {
+	By(name)
+	fn(&ginkgoTest{})
+	return true
+}
+
+func testHTTPClassroomClientListsCourseWorkAcrossPagesWithAuth(t *ginkgoTest) {
 	var requests []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests = append(requests, r.URL.RequestURI()+" "+r.Header.Get("Authorization"))
@@ -44,7 +59,7 @@ func TestHTTPClassroomClientListsCourseWorkAcrossPagesWithAuth(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientListsSubmissionsAcrossPages(t *testing.T) {
+func testHTTPClassroomClientListsSubmissionsAcrossPages(t *ginkgoTest) {
 	var tokens []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokens = append(tokens, r.URL.Query().Get("pageToken"))
@@ -73,7 +88,7 @@ func TestHTTPClassroomClientListsSubmissionsAcrossPages(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientListsCourseParticipantsAcrossPages(t *testing.T) {
+func testHTTPClassroomClientListsCourseParticipantsAcrossPages(t *ginkgoTest) {
 	var tokens []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		tokens = append(tokens, r.URL.Query().Get("pageToken"))
@@ -101,7 +116,7 @@ func TestHTTPClassroomClientListsCourseParticipantsAcrossPages(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientReportsParticipantListErrors(t *testing.T) {
+func testHTTPClassroomClientReportsParticipantListErrors(t *ginkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "unavailable", http.StatusBadGateway) }))
 	defer server.Close()
 	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: server.URL}, server.Client())
@@ -113,7 +128,7 @@ func TestHTTPClassroomClientReportsParticipantListErrors(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientGetsUserProfile(t *testing.T) {
+func testHTTPClassroomClientGetsUserProfile(t *ginkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/userProfiles/user-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
@@ -131,7 +146,7 @@ func TestHTTPClassroomClientGetsUserProfile(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceGetsUserProfile(t *testing.T) {
+func testSubmissionSourceGetsUserProfile(t *ginkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"id":"user-1","name":{"fullName":"Teacher One"},"emailAddress":"teacher@example.test"}`))
 	}))
@@ -143,14 +158,14 @@ func TestSubmissionSourceGetsUserProfile(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceReportsUnsupportedProfileClient(t *testing.T) {
+func testSubmissionSourceReportsUnsupportedProfileClient(t *ginkgoTest) {
 	source := NewSubmissionSourceWithClient(courseworkOnlyClient{})
 	if _, err := source.GetProfile(context.Background(), "user-1"); err == nil || !strings.Contains(err.Error(), "profile client unavailable") {
 		t.Fatalf("error=%v", err)
 	}
 }
 
-func TestSubmissionSourceWrapsProfileLookupErrors(t *testing.T) {
+func testSubmissionSourceWrapsProfileLookupErrors(t *ginkgoTest) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_, _ = w.Write([]byte("forbidden"))
@@ -162,7 +177,7 @@ func TestSubmissionSourceWrapsProfileLookupErrors(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
+func testHTTPClassroomClientReportsHTTPAndDecodeErrors(t *ginkgoTest) {
 	tests := []struct {
 		name     string
 		response string
@@ -173,7 +188,7 @@ func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
 		{name: "invalid json", response: "not-json", status: http.StatusOK, want: "decode Classroom response"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *ginkgoTest) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.status)
 				_, _ = w.Write([]byte(tt.response))
@@ -188,7 +203,7 @@ func TestHTTPClassroomClientReportsHTTPAndDecodeErrors(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *testing.T) {
+func testSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *ginkgoTest) {
 	client := &fakeClassroomClient{
 		coursework:  []CourseWork{{ID: "task-1", Title: "Report", Description: "Details", CreationTime: "created", DueDate: &Date{Year: 2026, Month: 11, Day: 20}, DueTime: &Time{Hours: 9, Minutes: 5}}},
 		submissions: []StudentSubmission{{ID: "submission-1", UserID: "user-1", State: "TURNED_IN", CreationTime: "created", UpdateTime: "updated", Late: true, Assignment: Assignment{Attachments: []Attachment{{DriveFile: &DriveFileAttachment{File: DriveFile{ID: "file-1", Title: "report.docx", MIMEType: "application/docx", AlternateURL: "https://drive/file-1"}}}, {}}}}},
@@ -215,7 +230,7 @@ func TestSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t *testing.T)
 	}
 }
 
-func TestSubmissionSourceMapsCourseParticipants(t *testing.T) {
+func testSubmissionSourceMapsCourseParticipants(t *ginkgoTest) {
 	var participant CourseParticipant
 	if err := json.Unmarshal([]byte(`{"userId":"user-1","profile":{"name":{"fullName":"First"},"emailAddress":"first@example.test"}}`), &participant); err != nil {
 		t.Fatal(err)
@@ -263,7 +278,7 @@ func (c participantAndTeacherClient) ListCourseTeachers(context.Context, string)
 	return c.teachers, c.err
 }
 
-func TestSubmissionSourceMergesTeachersAndSkipsAnonymousParticipants(t *testing.T) {
+func testSubmissionSourceMergesTeachersAndSkipsAnonymousParticipants(t *ginkgoTest) {
 	var students, teachers []CourseParticipant
 	if err := json.Unmarshal([]byte(`[{"userId":"student","profile":{"name":{"fullName":"Student"}}},{"profile":{"name":{"fullName":"Anonymous"}}}]`), &students); err != nil {
 		t.Fatal(err)
@@ -284,14 +299,14 @@ func TestSubmissionSourceMergesTeachersAndSkipsAnonymousParticipants(t *testing.
 	}
 }
 
-func TestSubmissionSourceReportsTeacherRosterErrors(t *testing.T) {
+func testSubmissionSourceReportsTeacherRosterErrors(t *ginkgoTest) {
 	_, err := NewSubmissionSourceWithClient(participantTeacherErrorClient{}).ListParticipants(context.Background(), "course-1")
 	if err == nil || !strings.Contains(err.Error(), "course teachers") {
 		t.Fatalf("teacher roster error = %v", err)
 	}
 }
 
-func TestSubmissionSourceTreatsUnsupportedParticipantClientAsEmptyRoster(t *testing.T) {
+func testSubmissionSourceTreatsUnsupportedParticipantClientAsEmptyRoster(t *ginkgoTest) {
 	source := NewSubmissionSourceWithClient(courseworkOnlyClient{})
 	items, err := source.ListParticipants(context.Background(), "course-1")
 	if err != nil || len(items) != 0 {
@@ -299,7 +314,7 @@ func TestSubmissionSourceTreatsUnsupportedParticipantClientAsEmptyRoster(t *test
 	}
 }
 
-func TestSubmissionSourceListsTasksChangedSinceCheckpoint(t *testing.T) {
+func testSubmissionSourceListsTasksChangedSinceCheckpoint(t *ginkgoTest) {
 	client := &fakeClassroomClient{coursework: []CourseWork{
 		{ID: "old", UpdateTime: "2026-01-01T00:00:00Z"},
 		{ID: "new", UpdateTime: "2026-01-03T00:00:00Z"},
@@ -315,7 +330,7 @@ func TestSubmissionSourceListsTasksChangedSinceCheckpoint(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceListsAllTasksWithoutCheckpoint(t *testing.T) {
+func testSubmissionSourceListsAllTasksWithoutCheckpoint(t *ginkgoTest) {
 	client := &fakeClassroomClient{coursework: []CourseWork{{ID: "first"}, {ID: "second"}}}
 	source := NewSubmissionSourceWithClient(client)
 	items, err := source.ListTasksSince(context.Background(), "course-1", time.Time{})
@@ -327,7 +342,7 @@ func TestSubmissionSourceListsAllTasksWithoutCheckpoint(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceMapsDateWithoutTime(t *testing.T) {
+func testSubmissionSourceMapsDateWithoutTime(t *ginkgoTest) {
 	client := &fakeClassroomClient{coursework: []CourseWork{{ID: "task-1", DueDate: &Date{Year: 2026, Month: 11, Day: 20}}}}
 	source := NewSubmissionSourceWithClient(client)
 	items, err := source.ListTasks(context.Background(), "course-1")
@@ -339,7 +354,7 @@ func TestSubmissionSourceMapsDateWithoutTime(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceLeavesDueDateEmptyWhenNoDateIsProvided(t *testing.T) {
+func testSubmissionSourceLeavesDueDateEmptyWhenNoDateIsProvided(t *ginkgoTest) {
 	source := NewSubmissionSourceWithClient(&fakeClassroomClient{coursework: []CourseWork{{ID: "task-1"}}})
 	items, err := source.ListTasks(context.Background(), "course-1")
 	if err != nil {
@@ -350,7 +365,7 @@ func TestSubmissionSourceLeavesDueDateEmptyWhenNoDateIsProvided(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientReportsMalformedBaseURL(t *testing.T) {
+func testHTTPClassroomClientReportsMalformedBaseURL(t *ginkgoTest) {
 	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "://bad-url"}, http.DefaultClient)
 	_, err := client.ListCourseWork(context.Background(), "course-1")
 	if err == nil || !strings.Contains(err.Error(), "build Classroom request") {
@@ -358,7 +373,7 @@ func TestHTTPClassroomClientReportsMalformedBaseURL(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientReportsInvalidContext(t *testing.T) {
+func testHTTPClassroomClientReportsInvalidContext(t *ginkgoTest) {
 	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "https://classroom.example/v1"}, http.DefaultClient)
 	_, err := client.ListCourseWork(nil, "course-1")
 	if err == nil || !strings.Contains(err.Error(), "create Classroom request") {
@@ -366,7 +381,7 @@ func TestHTTPClassroomClientReportsInvalidContext(t *testing.T) {
 	}
 }
 
-func TestHTTPClassroomClientReportsSubmissionAndTransportErrors(t *testing.T) {
+func testHTTPClassroomClientReportsSubmissionAndTransportErrors(t *ginkgoTest) {
 	client := NewHTTPClassroomClient(HTTPConfig{BaseURL: "http://example.test"}, &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("network unavailable")
 	})})
@@ -380,7 +395,7 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t *testing.T) {
+func testSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t *ginkgoTest) {
 	client := &fakeClassroomClient{
 		coursework:  []CourseWork{{ID: "task-1"}},
 		submissions: []StudentSubmission{{ID: "submission-1", CreationTime: "created", UpdateTime: "updated"}, {ID: "submission-2", CreationTime: "created-only"}},
@@ -398,7 +413,7 @@ func TestSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t *testing.T) {
 	}
 }
 
-func TestSubmissionSourceReturnsContextualErrors(t *testing.T) {
+func testSubmissionSourceReturnsContextualErrors(t *ginkgoTest) {
 	clientErr := errors.New("upstream unavailable")
 	source := NewSubmissionSourceWithClient(&fakeClassroomClient{err: clientErr})
 	if _, err := source.ListTasks(context.Background(), "course-1"); !strings.Contains(err.Error(), "list Classroom coursework: upstream unavailable") {
@@ -417,7 +432,7 @@ func TestSubmissionSourceReturnsContextualErrors(t *testing.T) {
 	}
 }
 
-func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
+func testHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *ginkgoTest) {
 	t.Setenv("GOOGLE_CLASSROOM_BASE_URL", "https://example.test/")
 	t.Setenv("GOOGLE_CLASSROOM_ACCESS_TOKEN", "secret")
 	if got := HTTPConfigFromEnvironment(); got.BaseURL != "https://example.test/" || got.AccessToken != "secret" {
@@ -440,7 +455,7 @@ func TestHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t *testing.T) {
 	}
 }
 
-func TestNewSubmissionSourceUsesDefaultHTTPClient(t *testing.T) {
+func testNewSubmissionSourceUsesDefaultHTTPClient(t *ginkgoTest) {
 	if source := NewSubmissionSource(); source == nil {
 		t.Fatal("NewSubmissionSource() returned nil")
 	}
@@ -448,6 +463,37 @@ func TestNewSubmissionSourceUsesDefaultHTTPClient(t *testing.T) {
 		t.Fatal("OAuth Classroom client was not created")
 	}
 }
+
+var _ = Describe("Classroom submission source", func() {
+	It("runs the Classroom client and source cases", func() {
+		t := &ginkgoTest{}
+		testHTTPClassroomClientListsCourseWorkAcrossPagesWithAuth(t)
+		testHTTPClassroomClientListsSubmissionsAcrossPages(t)
+		testHTTPClassroomClientListsCourseParticipantsAcrossPages(t)
+		testHTTPClassroomClientReportsParticipantListErrors(t)
+		testHTTPClassroomClientGetsUserProfile(t)
+		testSubmissionSourceGetsUserProfile(t)
+		testSubmissionSourceReportsUnsupportedProfileClient(t)
+		testSubmissionSourceWrapsProfileLookupErrors(t)
+		testHTTPClassroomClientReportsHTTPAndDecodeErrors(t)
+		testSubmissionSourceMapsTasksSubmissionsAndAttachmentMetadata(t)
+		testSubmissionSourceMapsCourseParticipants(t)
+		testSubmissionSourceMergesTeachersAndSkipsAnonymousParticipants(t)
+		testSubmissionSourceReportsTeacherRosterErrors(t)
+		testSubmissionSourceTreatsUnsupportedParticipantClientAsEmptyRoster(t)
+		testSubmissionSourceListsTasksChangedSinceCheckpoint(t)
+		testSubmissionSourceListsAllTasksWithoutCheckpoint(t)
+		testSubmissionSourceMapsDateWithoutTime(t)
+		testSubmissionSourceLeavesDueDateEmptyWhenNoDateIsProvided(t)
+		testHTTPClassroomClientReportsMalformedBaseURL(t)
+		testHTTPClassroomClientReportsInvalidContext(t)
+		testHTTPClassroomClientReportsSubmissionAndTransportErrors(t)
+		testSubmissionSourceFallsBackToCreationTimeForSubmittedAt(t)
+		testSubmissionSourceReturnsContextualErrors(t)
+		testHTTPConfigFromEnvironmentUsesConfiguredAndDefaultValues(t)
+		testNewSubmissionSourceUsesDefaultHTTPClient(t)
+	})
+})
 
 type fakeClassroomClient struct {
 	coursework   []CourseWork

@@ -5,17 +5,20 @@ import (
 	"testing"
 
 	"github.com/alex/assistent/internal/platform/config"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func TestProcessLockReportsReleaseFailure(t *testing.T) {
-	lock := NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")})
-	if err := lock.Acquire(); err != nil {
-		t.Fatal(err)
-	}
-	if err := lock.file.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := lock.Release(); err == nil {
-		t.Fatal("Release() unexpectedly succeeded for a closed lock file")
-	}
+func TestProcessLockInternal(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Process lock internal behavior")
 }
+
+var _ = Describe("Process lock", func() {
+	It("reports release failure for a closed lock file", func() {
+		lock := NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")})
+		Expect(lock.Acquire()).To(Succeed())
+		Expect(lock.file.Close()).To(Succeed())
+		Expect(lock.Release()).To(HaveOccurred())
+	})
+})

@@ -1,181 +1,161 @@
 package scenario_test
 
 import (
-	"testing"
-
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func TestScienceReportCollectionProcessor(t *testing.T) {
-	badStatuses := []submission.MaterialStatus{submission.Invalid, submission.AccessDenied, submission.NotFound, submission.Failed}
-	for _, status := range badStatuses {
-		t.Run(string(status)+" produces a partial result", func(t *testing.T) {
+var _ = Describe("science report collection processor", func() {
+	It("handles partial, failed, and completed submissions", func() {
+		badStatuses := []submission.MaterialStatus{submission.Invalid, submission.AccessDenied, submission.NotFound, submission.Failed}
+		for _, status := range badStatuses {
+			By(string(status) + " produces a partial result")
 			result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{
 				{State: submission.Submitted, Materials: []submission.Material{{Status: status}}},
 			}})
-			if err != nil || result.Outcome != scenario.Partial || result.Processed != 1 || result.Failed != 1 {
-				t.Fatalf("result = %#v, err = %v", result, err)
-			}
-		})
-	}
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Outcome).To(Equal(scenario.Partial))
+			Expect(result.Processed).To(Equal(1))
+			Expect(result.Failed).To(Equal(1))
+		}
 
-	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{
-		{State: submission.New},
-		{State: submission.Returned},
-	}})
-	if err != nil || result.Outcome != scenario.Failed || result.Failed != 2 || result.ErrorMessage == "" {
-		t.Fatalf("no submitted result = %#v, err = %v", result, err)
-	}
+		result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{
+			{State: submission.New},
+			{State: submission.Returned},
+		}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Outcome).To(Equal(scenario.Failed))
+		Expect(result.Failed).To(Equal(2))
+		Expect(result.ErrorMessage).NotTo(BeEmpty())
 
-	result, err = (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{
-		{State: submission.Submitted, Materials: []submission.Material{{Status: submission.Parsed}}},
-	}})
-	if err != nil || result.Outcome != scenario.Completed || result.Processed != 1 || result.Failed != 0 {
-		t.Fatalf("completed result = %#v, err = %v", result, err)
-	}
-}
-
-func TestScienceReportCollectionProcessorAggregatesAppendicesAndSources(t *testing.T) {
-	appendixOne := 1
-	appendixTwo := 2
-	appendixTwentyEight := 28
-	appendixOutOfRange := 29
-	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{
-		ScenarioID: 11,
-		TaskID:     22,
-		Items: []submission.Submission{
-			{ExternalID: "missing", State: submission.Returned},
-			{ExternalID: "staff-1", SubmitterEmail: "staff@example.com", State: submission.Submitted, Materials: []submission.Material{
-				{
-					ExternalID: "appendix-1", Name: "Appendix 1", SourceURI: "https://example.test/a1", LocalPath: "/tmp/a1", Role: "appendix", Status: submission.Parsed,
-					ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
-						Source: submission.DocumentSource{AppendixNumber: &appendixOne},
-						Fields: []submission.Field{{Value: "2"}, {Value: "2"}, {Value: "alpha"}, {Value: "alpha"}, {Value: " "}},
-					}}}},
-				},
-				{
-					ExternalID: "appendix-2", Name: "Appendix 2", Role: "appendix", Status: submission.Parsed,
-					Parsing: &submission.ParseResult{Document: &submission.ParsedDocument{
-						Source: submission.DocumentSource{AppendixNumber: &appendixTwo},
-						Fields: []submission.Field{{Value: "3.5"}, {Value: "beta"}},
-					}},
-				},
-				{
-					ExternalID: "evidence", Name: "Certificate", SourceURI: "https://example.test/evidence", Role: "supporting_evidence", Status: submission.Parsed,
-					ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Analysis: &submission.AnalysisResult{
-						Proposal: submission.ExtractionProposal{SchemaVersion: submission.AnalysisSchemaVersion, Appendix: &appendixTwentyEight, DocumentType: "certificate", Fields: map[string]any{"count": 4, "title": "award"}, Confidence: 1}, Validated: true,
-					}}}},
-				},
-				{ExternalID: "ignored", Name: "Out of range", Role: "appendix", Status: submission.Parsed,
-					Parsing: &submission.ParseResult{Document: &submission.ParsedDocument{Source: submission.DocumentSource{AppendixNumber: &appendixOutOfRange}, Fields: []submission.Field{{Value: "999"}}}},
-				},
-				{ExternalID: "bad", Name: "Bad material", Role: "appendix", Status: submission.Invalid},
-			}},
-		},
+		result, err = (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{
+			{State: submission.Submitted, Materials: []submission.Material{{Status: submission.Parsed}}},
+		}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Outcome).To(Equal(scenario.Completed))
+		Expect(result.Processed).To(Equal(1))
+		Expect(result.Failed).To(Equal(0))
 	})
-	if err != nil {
-		t.Fatalf("Process() error = %v", err)
-	}
-	if result.Outcome != scenario.Partial || result.Processed != 1 || result.Failed != 2 || result.ReportData == nil {
-		t.Fatalf("result = %#v", result)
-	}
-	report := result.ReportData
-	if report.ScenarioID != 11 || report.TaskID != 22 || len(report.Appendices) != 28 {
-		t.Fatalf("report identity/appendix count = %#v", report)
-	}
-	if report.Appendices[0].NumericTotal != 4 || len(report.Appendices[0].TextValues) != 1 || report.Appendices[0].TextValues[0] != "alpha" {
-		t.Fatalf("appendix 1 = %#v", report.Appendices[0])
-	}
-	if report.Appendices[1].NumericTotal != 3.5 || len(report.Appendices[1].TextValues) != 1 || report.Appendices[1].TextValues[0] != "beta" {
-		t.Fatalf("appendix 2 = %#v", report.Appendices[1])
-	}
-	if report.Appendices[27].NumericTotal != 0 || len(report.Appendices[27].TextValues) != 2 || !sameStrings(report.Appendices[27].TextValues, []string{"count=4", "title=award"}) || len(report.Appendices[27].Sources) != 1 {
-		t.Fatalf("appendix 28 = %#v", report.Appendices[27])
-	}
-	if len(report.SupportingEvidence) != 1 || report.SupportingEvidence[0].MaterialID != "evidence" || report.SupportingEvidence[0].URI != "https://example.test/evidence" {
-		t.Fatalf("supporting evidence = %#v", report.SupportingEvidence)
-	}
-	if len(report.MissingSubmissions) != 1 || report.MissingSubmissions[0] != "missing" || len(report.InvalidMaterials) != 1 || report.InvalidMaterials[0].MaterialID != "bad" || report.InvalidMaterials[0].Reason != string(submission.Invalid) {
-		t.Fatalf("missing/invalid = %#v / %#v", report.MissingSubmissions, report.InvalidMaterials)
-	}
-}
 
-func sameStrings(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-	seen := make(map[string]bool, len(left))
-	for _, value := range left {
-		seen[value] = true
-	}
-	for _, value := range right {
-		if !seen[value] {
-			return false
-		}
-	}
-	return true
-}
+	It("aggregates appendices and sources", func() {
+		appendixOne := 1
+		appendixTwo := 2
+		appendixTwentyEight := 28
+		appendixOutOfRange := 29
+		result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{
+			ScenarioID: 11,
+			TaskID:     22,
+			Items: []submission.Submission{
+				{ExternalID: "missing", State: submission.Returned},
+				{ExternalID: "staff-1", SubmitterEmail: "staff@example.com", State: submission.Submitted, Materials: []submission.Material{
+					{
+						ExternalID: "appendix-1", Name: "Appendix 1", SourceURI: "https://example.test/a1", LocalPath: "/tmp/a1", Role: "appendix", Status: submission.Parsed,
+						ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
+							Source: submission.DocumentSource{AppendixNumber: &appendixOne},
+							Fields: []submission.Field{{Value: "2"}, {Value: "2"}, {Value: "alpha"}, {Value: "alpha"}, {Value: " "}},
+						}}}},
+					},
+					{
+						ExternalID: "appendix-2", Name: "Appendix 2", Role: "appendix", Status: submission.Parsed,
+						Parsing: &submission.ParseResult{Document: &submission.ParsedDocument{
+							Source: submission.DocumentSource{AppendixNumber: &appendixTwo},
+							Fields: []submission.Field{{Value: "3.5"}, {Value: "beta"}},
+						}},
+					},
+					{
+						ExternalID: "evidence", Name: "Certificate", SourceURI: "https://example.test/evidence", Role: "supporting_evidence", Status: submission.Parsed,
+						ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Analysis: &submission.AnalysisResult{
+							Proposal: submission.ExtractionProposal{SchemaVersion: submission.AnalysisSchemaVersion, Appendix: &appendixTwentyEight, DocumentType: "certificate", Fields: map[string]any{"count": 4, "title": "award"}, Confidence: 1}, Validated: true,
+						}}}},
+					},
+					{ExternalID: "ignored", Name: "Out of range", Role: "appendix", Status: submission.Parsed,
+						Parsing: &submission.ParseResult{Document: &submission.ParsedDocument{Source: submission.DocumentSource{AppendixNumber: &appendixOutOfRange}, Fields: []submission.Field{{Value: "999"}}}},
+					},
+					{ExternalID: "bad", Name: "Bad material", Role: "appendix", Status: submission.Invalid},
+				}},
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Outcome).To(Equal(scenario.Partial))
+		Expect(result.Processed).To(Equal(1))
+		Expect(result.Failed).To(Equal(2))
+		Expect(result.ReportData).NotTo(BeNil())
+		report := result.ReportData
+		Expect(report.ScenarioID).To(Equal(int64(11)))
+		Expect(report.TaskID).To(Equal(int64(22)))
+		Expect(report.Appendices).To(HaveLen(28))
+		Expect(report.Appendices[0].NumericTotal).To(Equal(float64(4)))
+		Expect(report.Appendices[0].TextValues).To(Equal([]string{"alpha"}))
+		Expect(report.Appendices[1].NumericTotal).To(Equal(float64(3.5)))
+		Expect(report.Appendices[1].TextValues).To(Equal([]string{"beta"}))
+		Expect(report.Appendices[27].NumericTotal).To(Equal(float64(0)))
+		Expect(report.Appendices[27].TextValues).To(ConsistOf("count=4", "title=award"))
+		Expect(report.Appendices[27].Sources).To(HaveLen(1))
+		Expect(report.SupportingEvidence).To(HaveLen(1))
+		Expect(report.SupportingEvidence[0].MaterialID).To(Equal("evidence"))
+		Expect(report.SupportingEvidence[0].URI).To(Equal("https://example.test/evidence"))
+		Expect(report.MissingSubmissions).To(Equal([]string{"missing"}))
+		Expect(report.InvalidMaterials).To(HaveLen(1))
+		Expect(report.InvalidMaterials[0].MaterialID).To(Equal("bad"))
+		Expect(report.InvalidMaterials[0].Reason).To(Equal(string(submission.Invalid)))
+	})
 
-func TestScienceReportCollectionProcessorRecordsConflictingLocatedValues(t *testing.T) {
-	appendix := 1
-	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
-		ExternalID: "submission-1", State: submission.Submitted, Materials: []submission.Material{{
-			Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
+	It("records conflicting located values", func() {
+		appendix := 1
+		result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
+			ExternalID: "submission-1", State: submission.Submitted, Materials: []submission.Material{{
+				Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
+					Source: submission.DocumentSource{AppendixNumber: &appendix},
+					Fields: []submission.Field{{Value: "first", Location: submission.Location{Paragraph: 1}}, {Value: "second", Location: submission.Location{Paragraph: 1}}},
+				}}}},
+			}},
+		}}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.ReportData).NotTo(BeNil())
+		Expect(result.ReportData.Appendices[0].Conflicts).To(HaveLen(1))
+		conflict := result.ReportData.Appendices[0].Conflicts[0]
+		Expect(conflict.Appendix).To(Equal(1))
+		Expect(conflict.Values).To(Equal([]string{"first", "second"}))
+	})
+
+	It("counts DOCX table records", func() {
+		appendix := 1
+		result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
+			State: submission.Submitted,
+			Materials: []submission.Material{{Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
 				Source: submission.DocumentSource{AppendixNumber: &appendix},
-				Fields: []submission.Field{{Value: "first", Location: submission.Location{Paragraph: 1}}, {Value: "second", Location: submission.Location{Paragraph: 1}}},
-			}}}},
-		}},
-	}}})
-	if err != nil || result.ReportData == nil || len(result.ReportData.Appendices[0].Conflicts) != 1 {
-		t.Fatalf("result = %#v, err = %v", result, err)
-	}
-	conflict := result.ReportData.Appendices[0].Conflicts[0]
-	if conflict.Appendix != 1 || len(conflict.Values) != 2 || conflict.Values[0] != "first" || conflict.Values[1] != "second" {
-		t.Fatalf("conflict = %#v", conflict)
-	}
-}
+				Tables: []submission.Table{{Rows: [][]submission.Field{
+					{{Value: "№"}, {Value: "ПІБ"}},
+					{{Value: "1"}, {Value: "Анна Коваленко"}},
+					{{Value: "2"}, {Value: "Петро Петренко"}},
+					{{Value: "1"}, {Value: "2"}}, // numeric-only header row
+					{{Value: " "}, {Value: ""}},  // empty rows are not records
+				}}},
+			}}}}}},
+		}}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.ReportData).NotTo(BeNil())
+		Expect(result.ReportData.Appendices[0].NumericTotal).To(Equal(float64(2)))
+	})
 
-func TestScienceReportCollectionProcessorCountsDOCXTableRecords(t *testing.T) {
-	appendix := 1
-	result, err := (scenario.ScienceReportCollectionProcessor{}).Process(scenario.Collection{Items: []submission.Submission{{
-		State: submission.Submitted,
-		Materials: []submission.Material{{Status: submission.Parsed, Role: "appendix", ParseOutcomes: []submission.MaterialParse{{Result: submission.ParseResult{Document: &submission.ParsedDocument{
-			Source: submission.DocumentSource{AppendixNumber: &appendix},
-			Tables: []submission.Table{{Rows: [][]submission.Field{
-				{{Value: "№"}, {Value: "ПІБ"}},
-				{{Value: "1"}, {Value: "Анна Коваленко"}},
-				{{Value: "2"}, {Value: "Петро Петренко"}},
-				{{Value: "1"}, {Value: "2"}}, // numeric-only header row
-				{{Value: " "}, {Value: ""}},  // empty rows are not records
-			}}},
-		}}}}}},
-	}}})
-	if err != nil || result.ReportData == nil {
-		t.Fatalf("Process() = %#v, %v", result, err)
-	}
-	if got := result.ReportData.Appendices[0].NumericTotal; got != 2 {
-		t.Fatalf("numeric total = %v, want 2", got)
-	}
-}
-
-func TestRegistryResolvesProcessors(t *testing.T) {
-	processor := scenario.ScienceReportCollectionProcessor{}
-	registry := scenario.NewRegistryWithProcessors(
-		[]scenario.Implementation{{Name: "science-report", Type: "ScienceReportScenario"}},
-		map[string]scenario.CollectionProcessor{"science-report": processor},
-	)
-	resolved, err := registry.ResolveProcessor("science-report")
-	if err != nil || resolved == nil {
-		t.Fatalf("ResolveProcessor() = %v, %v", resolved, err)
-	}
-	if _, err := scenario.NewRegistryWithProcessors([]scenario.Implementation{{Name: "science-report"}}, nil).ResolveProcessor("science-report"); err == nil {
-		t.Fatal("ResolveProcessor() unexpectedly succeeded without a processor")
-	}
-	for _, name := range []string{"unknown", "missing-processor"} {
-		registry := scenario.NewRegistryWithProcessors([]scenario.Implementation{{Name: "other"}}, nil)
-		if _, err := registry.ResolveProcessor(name); err == nil {
-			t.Fatalf("ResolveProcessor(%q) unexpectedly succeeded", name)
+	It("resolves processors from the registry", func() {
+		processor := scenario.ScienceReportCollectionProcessor{}
+		registry := scenario.NewRegistryWithProcessors(
+			[]scenario.Implementation{{Name: "science-report", Type: "ScienceReportScenario"}},
+			map[string]scenario.CollectionProcessor{"science-report": processor},
+		)
+		resolved, err := registry.ResolveProcessor("science-report")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resolved).NotTo(BeNil())
+		_, err = scenario.NewRegistryWithProcessors([]scenario.Implementation{{Name: "science-report"}}, nil).ResolveProcessor("science-report")
+		Expect(err).To(HaveOccurred())
+		for _, name := range []string{"unknown", "missing-processor"} {
+			registry := scenario.NewRegistryWithProcessors([]scenario.Implementation{{Name: "other"}}, nil)
+			_, err := registry.ResolveProcessor(name)
+			Expect(err).To(HaveOccurred())
 		}
-	}
-}
+	})
+
+})
