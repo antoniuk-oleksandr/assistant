@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -14,11 +15,18 @@ import (
 	"github.com/alex/assistent/internal/domain/classroom"
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/teacher"
-	"github.com/alex/assistent/internal/platform/config"
 )
 
 type TeacherDirectoryEntry struct {
-	Recipient teacher.Recipient
+	ID          int64
+	Name        string
+	Email       string
+	ClassroomID string
+	Status      string
+}
+
+type TelegramSettings struct {
+	BotUsername string
 }
 
 type TeacherService struct {
@@ -39,9 +47,9 @@ func NewTeacherServiceWithDirectory(repository ports.TeacherRepository, people p
 	return service
 }
 
-func NewTeacherServiceWithDirectoryAndTelegram(repository ports.TeacherRepository, people ports.ParticipantSource, pairings ports.TelegramPairingRepository, telegram config.TelegramConfig) *TeacherService {
+func NewTeacherServiceWithDirectoryAndTelegram(repository ports.TeacherRepository, people ports.ParticipantSource, pairings ports.TelegramPairingRepository, telegram TelegramSettings) *TeacherService {
 	service := NewTeacherServiceWithDirectory(repository, people)
-	service.pairings, service.telegramBotUsername = pairings, strings.TrimPrefix(telegram.Username, "@")
+	service.pairings, service.telegramBotUsername = pairings, strings.TrimPrefix(telegram.BotUsername, "@")
 	return service
 }
 
@@ -91,7 +99,7 @@ func (s *TeacherService) ListForCourse(ctx context.Context, reference string) ([
 				return nil, fmt.Errorf("update Classroom teacher %q: %w", person.ExternalID, err)
 			}
 		}
-		entries = append(entries, TeacherDirectoryEntry{Recipient: current})
+		entries = append(entries, TeacherDirectoryEntry{ID: current.ID, Name: current.Name, Email: current.Email, ClassroomID: current.ClassroomID, Status: string(current.Status)})
 	}
 	return entries, nil
 }
@@ -146,6 +154,43 @@ func (s *TeacherService) CreateTelegramPairing(ctx context.Context, identifier s
 		return "", fmt.Errorf("store Telegram pairing: %w", err)
 	}
 	return fmt.Sprintf("https://t.me/%s?start=pair_%s", s.telegramBotUsername, token), nil
+}
+
+// WaitForTelegramPairing waits until the pairing represented by link is
+// consumed by the Telegram update listener.
+func (s *TeacherService) WaitForTelegramPairing(ctx context.Context, link string) error {
+	if s.pairings == nil {
+		return errors.New("Telegram pairing repository is not configured")
+	}
+	parsed, err := url.Parse(link)
+	if err != nil {
+		return fmt.Errorf("parse Telegram pairing link: %w", err)
+	}
+	token := strings.TrimPrefix(parsed.Query().Get("start"), "pair_")
+	if token == "" {
+		return errors.New("Telegram pairing link does not contain a pairing token")
+	}
+	hash := sha256.Sum256([]byte(token))
+	tokenHash := fmt.Sprintf("%x", hash)
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		pairing, err := s.pairings.GetTelegramPairing(ctx, tokenHash)
+		if err != nil {
+			return fmt.Errorf("check Telegram pairing: %w", err)
+		}
+		if pairing.UsedAt != nil {
+			return nil
+		}
+		if !s.clock().Before(pairing.ExpiresAt) {
+			return errors.New("Telegram pairing link expired")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *TeacherService) resolveRecipient(ctx context.Context, identifier string) (teacher.Recipient, error) {

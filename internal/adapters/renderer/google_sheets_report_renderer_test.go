@@ -98,10 +98,7 @@ func (f *fakeTemplateUploader) UploadSpreadsheet(_ context.Context, title, path 
 }
 
 func loadTemplateLayoutFromPath(path string) (map[int]int, []int, [][]any) {
-	if err := os.Setenv("REPORT_TEMPLATE_PATH", path); err != nil {
-		panic(err)
-	}
-	return loadTemplateLayout()
+	return loadTemplateLayout(path)
 }
 
 var _ = Describe("Google Sheets report renderer", func() {
@@ -204,27 +201,27 @@ var _ = Describe("Google Sheets report renderer", func() {
 	})
 
 	It("selects an explicit local artifact", func() {
-		renderer, err := NewConfiguredReportRenderer(config.Config{})
+		renderer, err := NewConfiguredReportRenderer(config.ReportConfig{}, config.SheetsConfig{}, config.DriveConfig{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(renderer).NotTo(BeNil())
-		renderer, err = NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "local-xlsx"}})
+		renderer, err = NewConfiguredReportRenderer(config.ReportConfig{Renderer: "local-xlsx"}, config.SheetsConfig{}, config.DriveConfig{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(renderer).To(BeAssignableToTypeOf(&LocalXLSXRenderer{}))
 	})
 
 	It("selects Google Sheets", func() {
-		renderer, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}})
+		renderer, err := NewConfiguredReportRenderer(config.ReportConfig{Renderer: "google-sheets"}, config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, config.DriveConfig{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(renderer).To(BeAssignableToTypeOf(&GoogleSheetsReportRenderer{}))
 	})
 
 	It("reports Drive configuration errors", func() {
-		_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "google-sheets"}, Sheets: config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, Drive: config.DriveConfig{ClientID: "client"}})
+		_, err := NewConfiguredReportRenderer(config.ReportConfig{Renderer: "google-sheets"}, config.SheetsConfig{ClientID: "client", ClientSecret: "secret", RefreshToken: "refresh"}, config.DriveConfig{ClientID: "client"})
 		Expect(err).To(MatchError(ContainSubstring("Google Drive OAuth requires")))
 	})
 
 	It("rejects unknown selections", func() {
-		_, err := NewConfiguredReportRenderer(config.Config{Report: config.ReportConfig{Renderer: "unknown"}})
+		_, err := NewConfiguredReportRenderer(config.ReportConfig{Renderer: "unknown"}, config.SheetsConfig{}, config.DriveConfig{})
 		Expect(err).To(HaveOccurred())
 	})
 })

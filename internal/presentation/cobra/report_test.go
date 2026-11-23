@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/alex/assistent/internal/application"
-	"github.com/alex/assistent/internal/domain/scenario"
 	cli "github.com/alex/assistent/internal/presentation/cobra"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -22,7 +21,7 @@ type reportServiceStub struct {
 	calls []string
 	err   error
 	items []application.TaskBindingResult
-	data  []scenario.CourseDataField
+	data  []application.CourseDataResult
 }
 
 type failingReportWriter struct{}
@@ -58,7 +57,7 @@ func (s *reportServiceStub) SetData(_ context.Context, courseID string, _ map[st
 	s.calls = append(s.calls, "set:"+courseID)
 	return s.err
 }
-func (s *reportServiceStub) ListData(_ context.Context, courseID string) ([]scenario.CourseDataField, error) {
+func (s *reportServiceStub) ListData(_ context.Context, courseID string) ([]application.CourseDataResult, error) {
 	s.calls = append(s.calls, "data-list:"+courseID)
 	return s.data, s.err
 }
@@ -75,7 +74,7 @@ var _ = Describe("report commands", func() {
 	})
 
 	It("prints report tasks and metadata", func() {
-		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1", CourseID: "course-1", Title: "Report", Status: "active"}}, data: []scenario.CourseDataField{{Name: "department_name", Value: "Science"}}}
+		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1", CourseID: "course-1", Title: "Report", Status: "active"}}, data: []application.CourseDataResult{{Name: "department_name", Value: "Science"}}}
 		command := cli.NewReportCommand(service)
 		var output bytes.Buffer
 		command.SetOut(&output)
@@ -119,7 +118,7 @@ var _ = Describe("report commands", func() {
 	})
 
 	It("propagates report output errors", func() {
-		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1"}}, data: []scenario.CourseDataField{{Name: "field", Value: "value"}}}
+		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1"}}, data: []application.CourseDataResult{{Name: "field", Value: "value"}}}
 		command := cli.NewReportCommand(service)
 		command.SetOut(failingReportWriter{})
 		command.SetArgs([]string{"task-list"})
@@ -131,7 +130,7 @@ var _ = Describe("report commands", func() {
 	})
 
 	It("propagates report row output errors", func() {
-		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1", CourseID: "course-1", Title: "Report", Status: "active"}}, data: []scenario.CourseDataField{{Name: "field", Value: "value"}}}
+		service := &reportServiceStub{items: []application.TaskBindingResult{{TaskID: "task-1", CourseID: "course-1", Title: "Report", Status: "active"}}, data: []application.CourseDataResult{{Name: "field", Value: "value"}}}
 		command := cli.NewReportCommand(service)
 		command.SetOut(rejectingReportWriter{value: "task-1"})
 		command.SetArgs([]string{"task-list"})

@@ -48,11 +48,10 @@ var _ = Describe("Configured renderer helpers", func() {
 	It("loads the template layout", func() {
 		path, err := filepath.Abs("../../../templates/scientific-report/output_example.xlsx")
 		Expect(err).NotTo(HaveOccurred())
-		GinkgoT().Setenv("REPORT_TEMPLATE_PATH", path)
-		appendices, slashRows, values := loadTemplateLayout()
+		appendices, slashRows, values := loadTemplateLayout(path)
 		Expect(appendices).NotTo(BeEmpty())
 		Expect(slashRows).NotTo(BeEmpty())
 		Expect(values).To(HaveLen(200))
-		Expect(reportTemplatePath()).NotTo(BeEmpty())
+		Expect(path).NotTo(BeEmpty())
 	})
 })

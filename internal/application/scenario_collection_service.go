@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/domain/submission"
+	"go.uber.org/zap"
 )
 
 var ErrNilCollectionProcessor = errors.New("nil collection processor")
@@ -27,6 +27,7 @@ type ScenarioCollectionService struct {
 	results     ports.ReportResultRepository
 	courseData  ports.ScenarioCourseDataRepository
 	notifier    ports.ReportReadyNotifier
+	logger      *zap.Logger
 	clock       func() time.Time
 }
 
@@ -39,7 +40,20 @@ func NewScenarioCollectionServiceWithRenderer(submissions ports.SubmissionReposi
 }
 
 func NewScenarioCollectionServiceWithRendererAndResult(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository) *ScenarioCollectionService {
-	return &ScenarioCollectionService{submissions: submissions, runs: runs, renderer: renderer, outputs: outputs, results: results, clock: func() time.Time { return time.Now().UTC() }}
+	return &ScenarioCollectionService{submissions: submissions, runs: runs, renderer: renderer, outputs: outputs, results: results, logger: zap.NewNop(), clock: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *ScenarioCollectionService) SetLogger(logger *zap.Logger) {
+	if logger != nil {
+		s.logger = logger
+	}
+}
+
+func (s *ScenarioCollectionService) log() *zap.Logger {
+	if s.logger == nil {
+		return zap.NewNop()
+	}
+	return s.logger
 }
 
 func NewScenarioCollectionServiceWithRendererResultAndCourseData(submissions ports.SubmissionRepository, runs ports.ReportRunRepository, renderer ports.ReportRenderer, outputs ports.ReportOutputRepository, results ports.ReportResultRepository, courseData ports.ScenarioCourseDataRepository) *ScenarioCollectionService {
@@ -155,7 +169,7 @@ func (s *ScenarioCollectionService) process(ctx context.Context, scenarioID, tas
 			result.ResultPath = output.Path
 			if s.notifier != nil && s.notifier.Enabled() {
 				if err := s.notifier.Notify(ctx, report.Result{ID: run.ID, RunID: run.ID, ScenarioID: scenarioID, TaskID: taskID, Data: *result.ReportData}, output.Path); err != nil {
-					log.Printf("notify report recipients for task %d: %v", taskID, err)
+					s.log().Error("notify report recipients", zap.Int64("task_id", taskID), zap.Error(err))
 				}
 			}
 			if s.outputs != nil {

@@ -6,7 +6,6 @@ import (
 	"text/tabwriter"
 
 	"github.com/alex/assistent/internal/application"
-	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/spf13/cobra"
 )
 
@@ -16,7 +15,7 @@ type ReportService interface {
 	UnbindTask(context.Context, string) error
 	ListTasks(context.Context) ([]application.TaskBindingResult, error)
 	SetData(context.Context, string, map[string]string) error
-	ListData(context.Context, string) ([]scenario.CourseDataField, error)
+	ListData(context.Context, string) ([]application.CourseDataResult, error)
 }
 
 func NewReportCommand(service ReportService) *cobra.Command {

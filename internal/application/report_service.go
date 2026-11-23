@@ -93,6 +93,11 @@ type TaskBindingResult struct {
 	Status   string
 }
 
+type CourseDataResult struct {
+	Name  string
+	Value string
+}
+
 func (s *ReportService) SetData(ctx context.Context, courseID string, fields map[string]string) error {
 	if s.data == nil {
 		return errors.New("report course data is unavailable")
@@ -100,9 +105,17 @@ func (s *ReportService) SetData(ctx context.Context, courseID string, fields map
 	return s.data.Set(ctx, ScientificReportName, courseID, fields)
 }
 
-func (s *ReportService) ListData(ctx context.Context, courseID string) ([]scenario.CourseDataField, error) {
+func (s *ReportService) ListData(ctx context.Context, courseID string) ([]CourseDataResult, error) {
 	if s.data == nil {
 		return nil, errors.New("report course data is unavailable")
 	}
-	return s.data.List(ctx, ScientificReportName, courseID)
+	items, err := s.data.List(ctx, ScientificReportName, courseID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CourseDataResult, 0, len(items))
+	for _, item := range items {
+		result = append(result, CourseDataResult{Name: item.Name, Value: item.Value})
+	}
+	return result, nil
 }

@@ -26,6 +26,15 @@ type DriveConfig struct {
 	RefreshToken string
 }
 
+type ClassroomConfig struct {
+	BaseURL      string
+	AccessToken  string
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
+	TimeZone     string
+}
+
 type SheetsConfig struct {
 	BaseURL      string
 	ClientID     string
@@ -35,7 +44,14 @@ type SheetsConfig struct {
 }
 
 type ReportConfig struct {
-	Renderer string
+	Renderer     string
+	TemplatePath string
+	ReminderPath string
+}
+
+type LoggingConfig struct {
+	Directory string
+	Level     string
 }
 
 type EmailConfig struct {
@@ -60,13 +76,15 @@ type DeadlineConfig struct {
 }
 
 type Config struct {
-	Database DatabaseConfig
-	Drive    DriveConfig
-	Sheets   SheetsConfig
-	Report   ReportConfig
-	Email    EmailConfig
-	Telegram TelegramConfig
-	Deadline DeadlineConfig
+	Database  DatabaseConfig
+	Classroom ClassroomConfig
+	Drive     DriveConfig
+	Sheets    SheetsConfig
+	Report    ReportConfig
+	Email     EmailConfig
+	Telegram  TelegramConfig
+	Deadline  DeadlineConfig
+	Logging   LoggingConfig
 }
 
 func Load() (Config, error) {
@@ -111,9 +129,28 @@ func Load() (Config, error) {
 	if reportRenderer == "" {
 		reportRenderer = "google-sheets"
 	}
-	templatePath := get("REPORT_READY_EMAIL_TEMPLATE")
-	if templatePath == "" {
-		templatePath = "templates/report-ready-email.txt"
+	reportTemplatePath := get("REPORT_TEMPLATE_PATH")
+	if reportTemplatePath == "" {
+		reportTemplatePath = "templates/scientific-report/output_example.xlsx"
+	}
+	reminderTemplatePath := get("REMINDER_TEMPLATE_PATH")
+	if reminderTemplatePath == "" {
+		reminderTemplatePath = "templates/missing-submission-reminder.txt"
+	}
+	emailTemplatePath := get("REPORT_READY_EMAIL_TEMPLATE")
+	if emailTemplatePath == "" {
+		emailTemplatePath = "templates/report-ready-email.txt"
+	}
+	logDirectory := get("LOG_DIRECTORY")
+	if logDirectory == "" {
+		logDirectory = "logs"
+	}
+	logLevel := strings.ToLower(strings.TrimSpace(get("LOG_LEVEL")))
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	if logLevel != "debug" && logLevel != "info" && logLevel != "warn" && logLevel != "error" {
+		return Config{}, errors.New("LOG_LEVEL must be one of debug, info, warn, or error")
 	}
 	smtpPort := 587
 	if configuredPort := strings.TrimSpace(get("SMTP_PORT")); configuredPort != "" {
@@ -125,6 +162,11 @@ func Load() (Config, error) {
 	}
 	return Config{
 		Database: DatabaseConfig{SQLitePath: path},
+		Classroom: ClassroomConfig{
+			BaseURL: get("GOOGLE_CLASSROOM_BASE_URL"), AccessToken: get("GOOGLE_CLASSROOM_ACCESS_TOKEN"),
+			ClientID: get("GOOGLE_CLIENT_ID"), ClientSecret: get("GOOGLE_CLIENT_SECRET"),
+			RefreshToken: get("GOOGLE_REFRESH_TOKEN"), TimeZone: get("GOOGLE_CLASSROOM_TIMEZONE"),
+		},
 		Drive: DriveConfig{
 			BaseURL:      get("GOOGLE_DRIVE_BASE_URL"),
 			MaterialDir:  materialDir,
@@ -136,10 +178,11 @@ func Load() (Config, error) {
 			BaseURL: get("GOOGLE_SHEETS_BASE_URL"), ClientID: get("GOOGLE_CLIENT_ID"),
 			ClientSecret: get("GOOGLE_CLIENT_SECRET"), RefreshToken: get("GOOGLE_REFRESH_TOKEN"), Title: sheetTitle,
 		},
-		Report:   ReportConfig{Renderer: reportRenderer},
-		Email:    EmailConfig{SMTPHost: get("SMTP_HOST"), SMTPPort: smtpPort, SMTPUsername: get("SMTP_USERNAME"), SMTPPassword: get("SMTP_PASSWORD"), From: get("SMTP_FROM"), TemplatePath: templatePath},
+		Report:   ReportConfig{Renderer: reportRenderer, TemplatePath: reportTemplatePath, ReminderPath: reminderTemplatePath},
+		Email:    EmailConfig{SMTPHost: get("SMTP_HOST"), SMTPPort: smtpPort, SMTPUsername: get("SMTP_USERNAME"), SMTPPassword: get("SMTP_PASSWORD"), From: get("SMTP_FROM"), TemplatePath: emailTemplatePath},
 		Telegram: TelegramConfig{Token: get("TELEGRAM_BOT_TOKEN"), Username: get("TELEGRAM_BOT_USERNAME"), BaseURL: get("TELEGRAM_BASE_URL"), ChatID: get("TELEGRAM_CHAT_ID")},
 		Deadline: DeadlineConfig{PreliminaryBefore: preliminary, RefreshBefore: refresh},
+		Logging:  LoggingConfig{Directory: logDirectory, Level: logLevel},
 	}, nil
 }
 
@@ -166,6 +209,8 @@ func Database(cfg Config) DatabaseConfig {
 	return cfg.Database
 }
 
+func Classroom(cfg Config) ClassroomConfig { return cfg.Classroom }
+
 func Drive(cfg Config) DriveConfig { return cfg.Drive }
 
 func Sheets(cfg Config) SheetsConfig { return cfg.Sheets }
@@ -174,3 +219,4 @@ func Report(cfg Config) ReportConfig     { return cfg.Report }
 func Email(cfg Config) EmailConfig       { return cfg.Email }
 func Telegram(cfg Config) TelegramConfig { return cfg.Telegram }
 func Deadline(cfg Config) DeadlineConfig { return cfg.Deadline }
+func Logging(cfg Config) LoggingConfig   { return cfg.Logging }

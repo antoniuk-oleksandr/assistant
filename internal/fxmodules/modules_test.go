@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 	"time"
 )
 
@@ -29,8 +30,7 @@ var _ = Describe("module constructors", func() {
 		Expect(configuredDeliveryProviders(config.EmailConfig{}, config.TelegramConfig{})).To(HaveLen(2))
 		_ = compiledScenarios()
 		Expect(newMaterialParsing()).NotTo(BeNil())
-		_, err := NewFxLogger()
-		Expect(err).NotTo(HaveOccurred())
+		Expect(NewFxLogger(zap.NewNop())).NotTo(BeNil())
 		configureTelegramPairing(telegramPairingParams{Telegram: config.TelegramConfig{}})
 		lifecycle := &testLifecycle{}
 		configureTelegramPairing(telegramPairingParams{Service: application.NewTelegramPairingService(nil, nil, nil, nil), Telegram: config.TelegramConfig{Token: "token"}, Lifecycle: lifecycle})

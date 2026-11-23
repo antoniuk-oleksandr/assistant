@@ -3,7 +3,6 @@ package application
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/classroom"
@@ -12,6 +11,7 @@ import (
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
+	"go.uber.org/zap"
 )
 
 const DefaultPollInterval = 24 * time.Hour
@@ -38,6 +38,7 @@ type PollingService struct {
 	profile      ports.ClassroomProfileSource
 	deadlines    task.DeadlineWindows
 	clock        func() time.Time
+	logger       *zap.Logger
 }
 
 // SetTeacherRepository enables automatic synchronization of Classroom roster
@@ -87,7 +88,20 @@ func NewPollingServiceWithScenarioCollectionAndRosterAndMissingAndReminders(cour
 }
 
 func newPollingServiceWithScenarioCollection(courses ports.ClassroomCourseRepository, source ports.SubmissionSource, tasks ports.TaskRepository, bindings ports.TaskBindingRepository, submissions ports.SubmissionRepository, state ports.PollingStateRepository, materials ports.MaterialRetriever, parsing *MaterialParsing, collection *ScenarioCollectionService, registry scenario.Registry, participants ports.ParticipantRosterRepository, missing ports.MissingSubmitterRepository, reminders *ReminderService) *PollingService {
-	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, reminders: reminders, deadlines: task.DefaultDeadlineWindows, clock: func() time.Time { return time.Now().UTC() }}
+	return &PollingService{courses: courses, source: source, tasks: tasks, bindings: bindings, submissions: submissions, state: state, materials: materials, parsing: parsing, collection: collection, registry: registry, participants: participants, missing: missing, reminders: reminders, deadlines: task.DefaultDeadlineWindows, clock: func() time.Time { return time.Now().UTC() }, logger: zap.NewNop()}
+}
+
+func (s *PollingService) SetLogger(logger *zap.Logger) {
+	if logger != nil {
+		s.logger = logger
+	}
+}
+
+func (s *PollingService) log() *zap.Logger {
+	if s.logger == nil {
+		return zap.NewNop()
+	}
+	return s.logger
 }
 
 func (s *PollingService) SetDeadlineWindows(deadlines task.DeadlineWindows) {
@@ -393,7 +407,7 @@ func (s *PollingService) refreshTask(ctx context.Context, binding task.Binding) 
 	}
 	if s.collection != nil && s.preliminary != nil && s.inPreliminaryWindow(item) {
 		if err := s.notifyPreliminarySummary(ctx, item); err != nil {
-			log.Printf("send preliminary submission summary for task %q: %v", item.ExternalID, err)
+			s.log().Error("send preliminary submission summary", zap.String("task_id", item.ExternalID), zap.Error(err))
 		}
 	}
 	return nil
@@ -451,7 +465,7 @@ func (s *PollingService) scheduleMissingReminders(ctx context.Context, item task
 		}
 	}
 	if _, err := s.reminders.Schedule(ctx, item, nil, targets, s.deadlines.PreliminaryBefore); err != nil {
-		log.Printf("schedule missing submission reminders for task %q: %v", item.ExternalID, err)
+		s.log().Error("schedule missing submission reminders", zap.String("task_id", item.ExternalID), zap.Error(err))
 	}
 	return nil
 }
