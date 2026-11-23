@@ -2,13 +2,33 @@ package classroom
 
 import (
 	"context"
-	"testing"
+	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 
 	"github.com/alex/assistent/internal/domain/submission"
 	. "github.com/onsi/gomega"
 )
 
-func TestSubmissionSourceNormalizesClassroomStates(t *testing.T) {
+type connectedfilesGinkgoTest struct{}
+
+func (*connectedfilesGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*connectedfilesGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*connectedfilesGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*connectedfilesGinkgoTest) Helper()                  {}
+func (*connectedfilesGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*connectedfilesGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*connectedfilesGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*connectedfilesGinkgoTest) Run(name string, fn func(*connectedfilesGinkgoTest)) bool {
+	By(name)
+	fn(&connectedfilesGinkgoTest{})
+	return true
+}
+
+func testSubmissionSourceNormalizesClassroomStates(t *connectedfilesGinkgoTest) {
 	for _, tc := range []struct {
 		state string
 		want  submission.State
@@ -21,7 +41,7 @@ func TestSubmissionSourceNormalizesClassroomStates(t *testing.T) {
 		{"RETURNED", submission.Returned},
 		{"UNRECOGNIZED", submission.Unknown},
 	} {
-		t.Run(tc.state, func(t *testing.T) {
+		t.Run(tc.state, func(t *connectedfilesGinkgoTest) {
 			g := NewWithT(t)
 			ctx := context.Background()
 			source := NewSubmissionSourceWithClient(&fakeClassroomClient{
@@ -37,3 +57,10 @@ func TestSubmissionSourceNormalizesClassroomStates(t *testing.T) {
 		})
 	}
 }
+
+var _ = Describe("connected_files legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &connectedfilesGinkgoTest{}
+		testSubmissionSourceNormalizesClassroomStates(t)
+	})
+})

@@ -4,59 +4,42 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"github.com/alex/assistent/internal/platform/config"
 	"github.com/alex/assistent/internal/platform/locking"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func TestProcessLockRejectsDuplicateAndAllowsAcquireAfterRelease(t *testing.T) {
-	cfg := config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")}
-	first := locking.NewProcessLock(cfg)
-	second := locking.NewProcessLock(cfg)
+var _ = Describe("Process lock", func() {
+	It("rejects duplicates and allows acquire after release", func() {
+		cfg := config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")}
+		first := locking.NewProcessLock(cfg)
+		second := locking.NewProcessLock(cfg)
 
-	if err := first.Acquire(); err != nil {
-		t.Fatalf("first acquire: %v", err)
-	}
-	if err := second.Acquire(); !errors.Is(err, locking.ErrApplicationAlreadyRunning) {
-		t.Fatalf("second acquire error = %v, want %v", err, locking.ErrApplicationAlreadyRunning)
-	}
-	if err := first.Release(); err != nil {
-		t.Fatalf("first release: %v", err)
-	}
-	if err := second.Acquire(); err != nil {
-		t.Fatalf("acquire after release: %v", err)
-	}
-	if err := second.Release(); err != nil {
-		t.Fatalf("second release: %v", err)
-	}
-}
+		Expect(first.Acquire()).To(Succeed())
+		Expect(errors.Is(second.Acquire(), locking.ErrApplicationAlreadyRunning)).To(BeTrue())
+		Expect(first.Release()).To(Succeed())
+		Expect(second.Acquire()).To(Succeed())
+		Expect(second.Release()).To(Succeed())
+	})
 
-func TestProcessLockReleaseBeforeAcquireIsNoOp(t *testing.T) {
-	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(t.TempDir(), "state.db")})
-	if err := lock.Release(); err != nil {
-		t.Fatalf("release before acquire: %v", err)
-	}
-}
+	It("treats release before acquire as a no-op", func() {
+		lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(GinkgoT().TempDir(), "state.db")})
+		Expect(lock.Release()).To(Succeed())
+	})
 
-func TestProcessLockReportsLockDirectoryErrors(t *testing.T) {
-	parent := filepath.Join(t.TempDir(), "not-a-directory")
-	if err := os.WriteFile(parent, []byte("file"), 0600); err != nil {
-		t.Fatalf("write parent file: %v", err)
-	}
-	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(parent, "state.db")})
-	if err := lock.Acquire(); err == nil {
-		t.Fatal("Acquire() unexpectedly succeeded")
-	}
-}
+	It("reports lock directory errors", func() {
+		parent := filepath.Join(GinkgoT().TempDir(), "not-a-directory")
+		Expect(os.WriteFile(parent, []byte("file"), 0600)).To(Succeed())
+		lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: filepath.Join(parent, "state.db")})
+		Expect(lock.Acquire()).To(HaveOccurred())
+	})
 
-func TestProcessLockReportsLockFileErrors(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "state.db")
-	if err := os.Mkdir(path+".lock", 0700); err != nil {
-		t.Fatalf("create lock path: %v", err)
-	}
-	lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: path})
-	if err := lock.Acquire(); err == nil {
-		t.Fatal("Acquire() unexpectedly succeeded")
-	}
-}
+	It("reports lock file errors", func() {
+		path := filepath.Join(GinkgoT().TempDir(), "state.db")
+		Expect(os.Mkdir(path+".lock", 0700)).To(Succeed())
+		lock := locking.NewProcessLock(config.DatabaseConfig{SQLitePath: path})
+		Expect(lock.Acquire()).To(HaveOccurred())
+	})
+})

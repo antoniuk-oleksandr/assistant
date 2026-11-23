@@ -4,16 +4,30 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"testing"
 
 	"github.com/alex/assistent/internal/domain/submission"
+	. "github.com/onsi/ginkgo/v2"
 	"github.com/xuri/excelize/v2"
 )
 
-func TestDocumentParsersReadSupportedFiles(t *testing.T) {
+type ginkgoTest struct{}
+
+func (*ginkgoTest) TempDir() string                   { return GinkgoT().TempDir() }
+func (*ginkgoTest) Cleanup(fn func())                 { DeferCleanup(fn) }
+func (*ginkgoTest) Fatal(args ...any)                 { Fail(fmt.Sprint(args...)) }
+func (*ginkgoTest) Fatalf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Errorf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Run(name string, fn func(*ginkgoTest)) bool {
+	By(name)
+	fn(&ginkgoTest{})
+	return true
+}
+
+func testDocumentParsersReadSupportedFiles(t *ginkgoTest) {
 	dir := t.TempDir()
 	xlsxPath := filepath.Join(dir, "report.xlsx")
 	book := excelize.NewFile()
@@ -67,7 +81,7 @@ func TestDocumentParsersReadSupportedFiles(t *testing.T) {
 	}
 }
 
-func TestDocumentParsersRejectInvalidInputs(t *testing.T) {
+func testDocumentParsersRejectInvalidInputs(t *ginkgoTest) {
 	if _, err := (XLSX{}).Parse(context.Background(), submission.Material{LocalPath: filepath.Join(t.TempDir(), "missing.xlsx")}, submission.ParseContext{}); err == nil {
 		t.Fatal("missing XLSX unexpectedly parsed")
 	}
@@ -86,13 +100,13 @@ func TestDocumentParsersRejectInvalidInputs(t *testing.T) {
 	}
 }
 
-func TestDOCXRejectsInvalidMainDocumentShapes(t *testing.T) {
+func testDOCXRejectsInvalidMainDocumentShapes(t *ginkgoTest) {
 	for name, xmlDocument := range map[string]string{
 		"wrong namespace": `<document xmlns="urn:wrong"><body/></document>`,
 		"missing body":    `<document xmlns="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>`,
 		"malformed":       `<document>`,
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(name, func(t *ginkgoTest) {
 			path := filepath.Join(t.TempDir(), "invalid.docx")
 			file, err := os.Create(path)
 			if err != nil {
@@ -119,7 +133,7 @@ func TestDOCXRejectsInvalidMainDocumentShapes(t *testing.T) {
 	}
 }
 
-func TestDOCXRejectsArchiveWithoutMainDocument(t *testing.T) {
+func testDOCXRejectsArchiveWithoutMainDocument(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "missing-main.docx")
 	file, err := os.Create(path)
 	if err != nil {
@@ -140,7 +154,7 @@ func TestDOCXRejectsArchiveWithoutMainDocument(t *testing.T) {
 	}
 }
 
-func TestDOCXRejectsOversizedMainDocument(t *testing.T) {
+func testDOCXRejectsOversizedMainDocument(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "large.docx")
 	file, err := os.Create(path)
 	if err != nil {
@@ -165,7 +179,7 @@ func TestDOCXRejectsOversizedMainDocument(t *testing.T) {
 	}
 }
 
-func TestDOCXExtractsTablesAndWordBreaks(t *testing.T) {
+func testDOCXExtractsTablesAndWordBreaks(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "table.docx")
 	file, err := os.Create(path)
 	if err != nil {
@@ -192,7 +206,7 @@ func TestDOCXExtractsTablesAndWordBreaks(t *testing.T) {
 	}
 }
 
-func TestXLSXRejectsEmptyWorkbookAndHonorsCancellation(t *testing.T) {
+func testXLSXRejectsEmptyWorkbookAndHonorsCancellation(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "empty.xlsx")
 	book := excelize.NewFile()
 	if _, err := book.NewSheet("Second"); err != nil {
@@ -211,7 +225,7 @@ func TestXLSXRejectsEmptyWorkbookAndHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestXLSXRejectsMalformedWorkbookXML(t *testing.T) {
+func testXLSXRejectsMalformedWorkbookXML(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "malformed.xlsx")
 	file, err := os.Create(path)
 	if err != nil {
@@ -236,7 +250,7 @@ func TestXLSXRejectsMalformedWorkbookXML(t *testing.T) {
 	}
 }
 
-func TestXLSXRejectsOversizedFileBeforeOpeningWorkbook(t *testing.T) {
+func testXLSXRejectsOversizedFileBeforeOpeningWorkbook(t *ginkgoTest) {
 	path := filepath.Join(t.TempDir(), "oversized.xlsx")
 	file, err := os.Create(path)
 	if err != nil {
@@ -253,7 +267,7 @@ func TestXLSXRejectsOversizedFileBeforeOpeningWorkbook(t *testing.T) {
 	}
 }
 
-func TestStrategiesRejectMalformedMIMEAndAppendixNames(t *testing.T) {
+func testStrategiesRejectMalformedMIMEAndAppendixNames(t *ginkgoTest) {
 	strategies := Strategies()
 	for _, strategy := range strategies {
 		if strategy.CanHandle(submission.Material{Name: "appendix-01.docx", MIMEType: "bad;mime"}, submission.ParseContext{ScenarioType: "ScienceReportScenario"}) {
@@ -267,7 +281,7 @@ func TestStrategiesRejectMalformedMIMEAndAppendixNames(t *testing.T) {
 	}
 }
 
-func TestValidateWorkbookPartRejectsMultipleRootsAndText(t *testing.T) {
+func testValidateWorkbookPartRejectsMultipleRootsAndText(t *ginkgoTest) {
 	for _, xmlDocument := range []string{"<a/><b/>", "text<a/>"} {
 		path := filepath.Join(t.TempDir(), "part.zip")
 		file, err := os.Create(path)
@@ -300,7 +314,7 @@ func TestValidateWorkbookPartRejectsMultipleRootsAndText(t *testing.T) {
 	}
 }
 
-func TestParserStrategiesUseReportAppendixPrecedence(t *testing.T) {
+func testParserStrategiesUseReportAppendixPrecedence(t *ginkgoTest) {
 	strategies := Strategies()
 	item := submission.Material{Name: "appendix-04.docx", MIMEType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
 	origin := submission.ParseContext{ScenarioType: "ScienceReportScenario"}
@@ -319,7 +333,7 @@ func TestParserStrategiesUseReportAppendixPrecedence(t *testing.T) {
 	}
 }
 
-func TestParserStrategiesHandleWorkspaceExportsAndRejectAmbiguousAppendices(t *testing.T) {
+func testParserStrategiesHandleWorkspaceExportsAndRejectAmbiguousAppendices(t *ginkgoTest) {
 	strategies := Strategies()
 	origin := submission.ParseContext{ScenarioType: "ScienceReportScenario"}
 	for _, item := range []submission.Material{
@@ -355,7 +369,7 @@ func TestParserStrategiesHandleWorkspaceExportsAndRejectAmbiguousAppendices(t *t
 	}
 }
 
-func TestMatchesFormatUsesMIMEAndExportExtensions(t *testing.T) {
+func testMatchesFormatUsesMIMEAndExportExtensions(t *ginkgoTest) {
 	parser := XLSX{}
 	for _, item := range []submission.Material{
 		{Name: "report.xlsx", MIMEType: ""},
@@ -374,3 +388,20 @@ func TestMatchesFormatUsesMIMEAndExportExtensions(t *testing.T) {
 }
 
 type portsParser struct{ kind string }
+
+var _ = Describe("document parsers", func() {
+	It("reads supported files", func() { testDocumentParsersReadSupportedFiles(&ginkgoTest{}) })
+	It("rejects invalid inputs", func() { testDocumentParsersRejectInvalidInputs(&ginkgoTest{}) })
+	It("rejects invalid DOCX main document shapes", func() { testDOCXRejectsInvalidMainDocumentShapes(&ginkgoTest{}) })
+	It("rejects archives without a main document", func() { testDOCXRejectsArchiveWithoutMainDocument(&ginkgoTest{}) })
+	It("rejects oversized DOCX documents", func() { testDOCXRejectsOversizedMainDocument(&ginkgoTest{}) })
+	It("extracts DOCX tables and word breaks", func() { testDOCXExtractsTablesAndWordBreaks(&ginkgoTest{}) })
+	It("rejects empty XLSX workbooks and honors cancellation", func() { testXLSXRejectsEmptyWorkbookAndHonorsCancellation(&ginkgoTest{}) })
+	It("rejects malformed workbook XML", func() { testXLSXRejectsMalformedWorkbookXML(&ginkgoTest{}) })
+	It("rejects oversized XLSX files", func() { testXLSXRejectsOversizedFileBeforeOpeningWorkbook(&ginkgoTest{}) })
+	It("rejects malformed MIME and appendix names", func() { testStrategiesRejectMalformedMIMEAndAppendixNames(&ginkgoTest{}) })
+	It("rejects invalid workbook parts", func() { testValidateWorkbookPartRejectsMultipleRootsAndText(&ginkgoTest{}) })
+	It("uses report appendix precedence", func() { testParserStrategiesUseReportAppendixPrecedence(&ginkgoTest{}) })
+	It("handles workspace exports and ambiguous appendices", func() { testParserStrategiesHandleWorkspaceExportsAndRejectAmbiguousAppendices(&ginkgoTest{}) })
+	It("matches MIME types and export extensions", func() { testMatchesFormatUsesMIMEAndExportExtensions(&ginkgoTest{}) })
+})

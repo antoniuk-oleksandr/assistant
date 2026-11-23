@@ -3,12 +3,12 @@ package drive_test
 import (
 	"context"
 	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"testing"
 
 	"github.com/alex/assistent/internal/adapters/drive"
 	"github.com/alex/assistent/internal/domain/submission"
@@ -17,11 +17,35 @@ import (
 	"golang.org/x/oauth2"
 )
 
+type materialretrieverGinkgoTest struct{}
+
+func (*materialretrieverGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*materialretrieverGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*materialretrieverGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*materialretrieverGinkgoTest) Helper()                  {}
+func (*materialretrieverGinkgoTest) Fatal(args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprint(args...))
+}
+func (*materialretrieverGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*materialretrieverGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*materialretrieverGinkgoTest) Error(args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprint(args...))
+}
+func (*materialretrieverGinkgoTest) Run(name string, fn func(*materialretrieverGinkgoTest)) bool {
+	By(name)
+	fn(&materialretrieverGinkgoTest{})
+	return true
+}
+
 func fixtureToken() oauth2.TokenSource {
 	return oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "test-token"})
 }
 
-func TestRetrieveSavesDriveDownloadsAndWorkspaceExports(t *testing.T) {
+func testRetrieveSavesDriveDownloadsAndWorkspaceExports(t *materialretrieverGinkgoTest) {
 	const docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 	const xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 	for _, tt := range []struct{ name, mime, exportMIME, extension string }{
@@ -33,7 +57,7 @@ func TestRetrieveSavesDriveDownloadsAndWorkspaceExports(t *testing.T) {
 		{"Google Docs", "application/vnd.google-apps.document", docx, ".docx"},
 		{"Google Sheets", "application/vnd.google-apps.spreadsheet", xlsx, ".xlsx"},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *materialretrieverGinkgoTest) {
 			g := NewWithT(t)
 			const source = "https://drive.google.com/file/d/file-1/view"
 			const contents = "\x00\xfftest file"
@@ -94,7 +118,7 @@ func TestRetrieveSavesDriveDownloadsAndWorkspaceExports(t *testing.T) {
 	}
 }
 
-func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing.T) {
+func testRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *materialretrieverGinkgoTest) {
 	const metadata = `{"id":"file-1","mimeType":"application/pdf"}`
 	for _, tt := range []struct {
 		name, metadata            string
@@ -118,7 +142,7 @@ func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing
 		{"download missing", metadata, 200, 404, submission.NotFound},
 		{"truncated download", metadata, 200, 200, submission.Failed},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
+		t.Run(tt.name, func(t *materialretrieverGinkgoTest) {
 			g := NewWithT(t)
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Query().Has("fields") {
@@ -160,3 +184,11 @@ func TestRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t *testing
 		})
 	}
 }
+
+var _ = Describe("material_retriever legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &materialretrieverGinkgoTest{}
+		testRetrieveSavesDriveDownloadsAndWorkspaceExports(t)
+		testRetrieveRecordsProviderAndDownloadFailuresWithoutSavingAFile(t)
+	})
+})

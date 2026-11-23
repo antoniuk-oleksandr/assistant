@@ -8,89 +8,79 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
-	"testing"
 
 	"github.com/alex/assistent/internal/platform/config"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	"golang.org/x/oauth2"
 )
 
-func TestGoogleDriveTemplateUploaderImportsWorkbook(t *testing.T) {
-	templatePath := t.TempDir() + "/template.xlsx"
-	if err := os.WriteFile(templatePath, []byte("xlsx bytes"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !strings.Contains(r.URL.RawQuery, "uploadType=multipart") {
-			t.Fatalf("request = %s %s", r.Method, r.URL.String())
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer token" {
-			t.Fatalf("authorization = %q", got)
-		}
-		body, err := io.ReadAll(r.Body)
-		if err != nil || !strings.Contains(string(body), "xlsx bytes") {
-			t.Fatalf("multipart body did not contain template: %v", err)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": "sheet-123"})
-	}))
-	defer server.Close()
+var _ = Describe("Google Drive template uploader", func() {
+	It("imports a workbook", func() {
+		templatePath := GinkgoT().TempDir() + "/template.xlsx"
+		Expect(os.WriteFile(templatePath, []byte("xlsx bytes"), 0600)).To(Succeed())
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost || !strings.Contains(r.URL.RawQuery, "uploadType=multipart") {
+				Expect(r.Method).To(Equal(http.MethodPost))
+				Expect(r.URL.RawQuery).To(ContainSubstring("uploadType=multipart"))
+			}
+			if got := r.Header.Get("Authorization"); got != "Bearer token" {
+				Expect(got).To(Equal("Bearer token"))
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil || !strings.Contains(string(body), "xlsx bytes") {
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(body)).To(ContainSubstring("xlsx bytes"))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "sheet-123"})
+		}))
+		defer server.Close()
 
-	uploader := &googleDriveTemplateUploader{
-		endpoint: server.URL,
-		client:   oauth2.NewClient(context.Background(), oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})),
-	}
-	id, err := uploader.UploadSpreadsheet(context.Background(), "Report", templatePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id != "sheet-123" {
-		t.Fatalf("id = %q", id)
-	}
-}
+		uploader := &googleDriveTemplateUploader{
+			endpoint: server.URL,
+			client:   oauth2.NewClient(context.Background(), oauth2.StaticTokenSource(&oauth2.Token{AccessToken: "token"})),
+		}
+		id, err := uploader.UploadSpreadsheet(context.Background(), "Report", templatePath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(id).To(Equal("sheet-123"))
+	})
 
-func TestGoogleDriveTemplateUploaderReportsUploadFailures(t *testing.T) {
-	uploader := &googleDriveTemplateUploader{endpoint: "http://127.0.0.1:1", client: http.DefaultClient}
-	if _, err := uploader.UploadSpreadsheet(context.Background(), "Report", "/does/not/exist.xlsx"); err == nil || !strings.Contains(err.Error(), "open report template") {
-		t.Fatalf("missing file error = %v", err)
-	}
-	templatePath := t.TempDir() + "/template.xlsx"
-	if err := os.WriteFile(templatePath, []byte("xlsx"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := uploader.UploadSpreadsheet(context.Background(), "Report", templatePath); err == nil {
-		t.Fatal("transport failure unexpectedly succeeded")
-	}
-	for name, handler := range map[string]http.Handler{
-		"http error": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusBadGateway)
-			_, _ = w.Write([]byte("bad gateway"))
-		}),
-		"invalid json": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("not-json")) }),
-		"empty id":     http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) }),
-	} {
-		t.Run(name, func(t *testing.T) {
+	It("reports upload failures", func() {
+		uploader := &googleDriveTemplateUploader{endpoint: "http://127.0.0.1:1", client: http.DefaultClient}
+		_, err := uploader.UploadSpreadsheet(context.Background(), "Report", "/does/not/exist.xlsx")
+		Expect(err).To(MatchError(ContainSubstring("open report template")))
+		templatePath := GinkgoT().TempDir() + "/template.xlsx"
+		Expect(os.WriteFile(templatePath, []byte("xlsx"), 0600)).To(Succeed())
+		_, err = uploader.UploadSpreadsheet(context.Background(), "Report", templatePath)
+		Expect(err).To(HaveOccurred())
+		for name, handler := range map[string]http.Handler{
+			"http error": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadGateway)
+				_, _ = w.Write([]byte("bad gateway"))
+			}),
+			"invalid json": http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("not-json")) }),
+			"empty id":     http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(`{}`)) }),
+		} {
+			By(name)
 			server := httptest.NewServer(handler)
 			defer server.Close()
 			candidate := &googleDriveTemplateUploader{endpoint: server.URL, client: server.Client()}
-			if _, err := candidate.UploadSpreadsheet(context.Background(), "Report", templatePath); err == nil {
-				t.Fatal("upload unexpectedly succeeded")
-			}
-		})
-	}
-}
+			_, err := candidate.UploadSpreadsheet(context.Background(), "Report", templatePath)
+			Expect(err).To(HaveOccurred())
+		}
+	})
 
-func TestNewGoogleDriveTemplateUploaderValidatesConfiguration(t *testing.T) {
-	if uploader, err := newGoogleDriveTemplateUploader(config.DriveConfig{}); err != nil || uploader != nil {
-		t.Fatalf("empty config = %#v, %v", uploader, err)
-	}
-	if _, err := newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id"}); err == nil {
-		t.Fatal("partial config accepted")
-	}
-	if _, err := newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh", BaseURL: "://bad"}); err == nil {
-		t.Fatal("invalid URL accepted")
-	}
-	uploader, err := newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh", BaseURL: "http://localhost:1234/v3"})
-	if err != nil || uploader == nil {
-		t.Fatalf("valid config = %#v, %v", uploader, err)
-	}
-}
+	It("validates configuration", func() {
+		uploader, err := newGoogleDriveTemplateUploader(config.DriveConfig{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(uploader).To(BeNil())
+		_, err = newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id"})
+		Expect(err).To(HaveOccurred())
+		_, err = newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh", BaseURL: "://bad"})
+		Expect(err).To(HaveOccurred())
+		uploader, err = newGoogleDriveTemplateUploader(config.DriveConfig{ClientID: "id", ClientSecret: "secret", RefreshToken: "refresh", BaseURL: "http://localhost:1234/v3"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(uploader).NotTo(BeNil())
+	})
+})

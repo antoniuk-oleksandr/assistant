@@ -1,13 +1,34 @@
 package googlefiles_test
 
 import (
+	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"testing"
 
 	"github.com/alex/assistent/internal/adapters/googlefiles"
 	. "github.com/onsi/gomega"
 )
 
-func TestParseGoogleFileReference(t *testing.T) {
+type referenceGinkgoTest struct{}
+
+func (*referenceGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*referenceGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*referenceGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*referenceGinkgoTest) Helper()                  {}
+func (*referenceGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*referenceGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*referenceGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*referenceGinkgoTest) Run(name string, fn func(*referenceGinkgoTest)) bool {
+	By(name)
+	fn(&referenceGinkgoTest{})
+	return true
+}
+
+func testParseGoogleFileReference(t *referenceGinkgoTest) {
 	const id = "file_1-abc"
 	for _, tc := range []struct{ name, raw, id, key string }{
 		{"Drive path", "https://drive.google.com/file/d/" + id + "/view?resourcekey=key-1", id, "key-1"},
@@ -26,8 +47,20 @@ func TestParseGoogleFileReference(t *testing.T) {
 		{"embedded credentials", "https://fixture@drive.google.com/file/d/" + id + "/view", "", ""},
 		{"insecure scheme", "http://drive.google.com/file/d/" + id + "/view", "", ""},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.name, func(t *referenceGinkgoTest) {
 			NewWithT(t).Expect(googlefiles.ParseURL(tc.raw)).To(Equal(googlefiles.Reference{ID: tc.id, ResourceKey: tc.key}))
 		})
 	}
 }
+
+func TestReferenceGinkgoSuite(t *testing.T) {
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "reference")
+}
+
+var _ = Describe("reference legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &referenceGinkgoTest{}
+		testParseGoogleFileReference(t)
+	})
+})

@@ -1,42 +1,37 @@
 package mappers
 
 import (
-	"testing"
-
 	"github.com/alex/assistent/internal/domain/submission"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
-func TestMaterialParsingRoundTripsAndHandlesNil(t *testing.T) {
-	if value, err := EncodeMaterialParsing(nil); err != nil || value != nil {
-		t.Fatalf("EncodeMaterialParsing(nil) = %v, %v", value, err)
-	}
-	if value, err := DecodeMaterialParsing(nil); err != nil || value != nil {
-		t.Fatalf("DecodeMaterialParsing(nil) = %v, %v", value, err)
-	}
+var _ = Describe("Material parsing mapping", func() {
+	It("round trips values and handles nil or invalid JSON", func() {
+		value, err := EncodeMaterialParsing(nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(value).To(BeNil())
+		decodedNil, err := DecodeMaterialParsing(nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(decodedNil).To(BeNil())
 
-	parsed := &submission.ParseResult{ParserType: "xlsx", Issue: "warning"}
-	encoded, err := EncodeMaterialParsing(parsed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decoded, err := DecodeMaterialParsing(encoded)
-	if err != nil || decoded.ParserType != parsed.ParserType || decoded.Issue != parsed.Issue {
-		t.Fatalf("round trip = %#v, %v", decoded, err)
-	}
-	if _, err := DecodeMaterialParsing(new(string)); err == nil {
-		t.Fatal("invalid JSON unexpectedly decoded")
-	}
+		parsed := &submission.ParseResult{ParserType: "xlsx", Issue: "warning"}
+		encoded, err := EncodeMaterialParsing(parsed)
+		Expect(err).NotTo(HaveOccurred())
+		decoded, err := DecodeMaterialParsing(encoded)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(decoded.ParserType).To(Equal(parsed.ParserType))
+		Expect(decoded.Issue).To(Equal(parsed.Issue))
+		_, err = DecodeMaterialParsing(new(string))
+		Expect(err).To(HaveOccurred())
 
-	outcome := submission.MaterialParse{Result: *parsed}
-	data, err := EncodeMaterialParse(outcome)
-	if err != nil {
-		t.Fatal(err)
-	}
-	decodedOutcome, err := DecodeMaterialParse(data)
-	if err != nil || decodedOutcome.Result.ParserType != outcome.Result.ParserType {
-		t.Fatalf("outcome round trip = %#v, %v", decodedOutcome, err)
-	}
-	if _, err := DecodeMaterialParse("{"); err == nil {
-		t.Fatal("invalid outcome JSON unexpectedly decoded")
-	}
-}
+		outcome := submission.MaterialParse{Result: *parsed}
+		data, err := EncodeMaterialParse(outcome)
+		Expect(err).NotTo(HaveOccurred())
+		decodedOutcome, err := DecodeMaterialParse(data)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(decodedOutcome.Result.ParserType).To(Equal(outcome.Result.ParserType))
+		_, err = DecodeMaterialParse("{")
+		Expect(err).To(HaveOccurred())
+	})
+})

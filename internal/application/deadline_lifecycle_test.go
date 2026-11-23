@@ -2,13 +2,14 @@ package application
 
 import (
 	"context"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
 
 type lifecycleDeliveryRepository struct{ items []report.Delivery }
@@ -46,36 +47,31 @@ func (p *lifecycleDeliveryProvider) Deliver(context.Context, report.Result, stri
 	return nil
 }
 
-func TestDeadlineLifecycleUsesFakeClockAndPersistsDuplicateSafeNotifications(t *testing.T) {
-	deadline := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
-	item := task.Task{ID: 9, Title: "Department report", DueAt: deadline.Format(time.RFC3339), CourseID: "course-1", ExternalID: "task-9"}
-	threeDays := deadline.Add(-72 * time.Hour)
-	if got := task.DeterminePhase(item, threeDays); got != task.PhaseThreeDaysBefore {
-		t.Fatalf("three-day phase = %q", got)
-	}
-	if got := task.DeterminePhase(item, deadline.Add(-24*time.Hour)); got != task.PhaseOneDayBefore {
-		t.Fatalf("one-day phase = %q", got)
-	}
+var _ = Describe("deadline lifecycle", func() {
+	It("uses a fake clock and persists duplicate-safe notifications", func() {
+		deadline := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+		item := task.Task{ID: 9, Title: "Department report", DueAt: deadline.Format(time.RFC3339), CourseID: "course-1", ExternalID: "task-9"}
+		threeDays := deadline.Add(-72 * time.Hour)
+		Expect(task.DeterminePhase(item, threeDays)).To(Equal(task.PhaseThreeDaysBefore))
+		Expect(task.DeterminePhase(item, deadline.Add(-24*time.Hour))).To(Equal(task.PhaseOneDayBefore))
 
-	reminderRepository := &reminderPollingRepository{}
-	reminderProvider := &reminderPollingProvider{}
-	reminders := NewReminderServiceWithClock(reminderRepository, []ports.ReminderProvider{reminderProvider}, func() time.Time { return threeDays })
-	target := ports.ReminderTarget{PersonID: "teacher-1", Channel: "email", Destination: "teacher@example.com", TaskTitle: item.Title}
-	if got, err := reminders.Schedule(context.Background(), item, nil, []ports.ReminderTarget{target}, 72*time.Hour); err != nil || len(got) != 1 {
-		t.Fatalf("initial reminder got=%#v err=%v", got, err)
-	}
-	if got, err := reminders.Schedule(context.Background(), item, []submission.Submission{{SubmitterID: "teacher-1", State: submission.Submitted}}, []ports.ReminderTarget{target}, 72*time.Hour); err != nil || len(got) != 0 {
-		t.Fatalf("late submission reminder got=%#v err=%v", got, err)
-	}
+		reminderRepository := &reminderPollingRepository{}
+		reminderProvider := &reminderPollingProvider{}
+		reminders := NewReminderServiceWithClock(reminderRepository, []ports.ReminderProvider{reminderProvider}, func() time.Time { return threeDays })
+		target := ports.ReminderTarget{PersonID: "teacher-1", Channel: "email", Destination: "teacher@example.com", TaskTitle: item.Title}
+		got, err := reminders.Schedule(context.Background(), item, nil, []ports.ReminderTarget{target}, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(HaveLen(1))
+		got, err = reminders.Schedule(context.Background(), item, []submission.Submission{{SubmitterID: "teacher-1", State: submission.Submitted}}, []ports.ReminderTarget{target}, 72*time.Hour)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got).To(BeEmpty())
 
-	deliveryProvider := &lifecycleDeliveryProvider{}
-	deliveries := NewDeliveryService(&lifecycleDeliveryRepository{}, []ports.ResultDeliveryProvider{deliveryProvider})
-	result := report.Result{ID: 12, TaskID: item.ID}
-	deliveryTarget := ports.DeliveryTarget{Channel: "email", Destination: "head@example.com"}
-	if _, err := deliveries.Deliver(context.Background(), result, []ports.DeliveryTarget{deliveryTarget}); err != nil {
-		t.Fatal(err)
-	}
-	if deliveryProvider.calls != 1 {
-		t.Fatalf("delivery calls = %d", deliveryProvider.calls)
-	}
-}
+		deliveryProvider := &lifecycleDeliveryProvider{}
+		deliveries := NewDeliveryService(&lifecycleDeliveryRepository{}, []ports.ResultDeliveryProvider{deliveryProvider})
+		result := report.Result{ID: 12, TaskID: item.ID}
+		deliveryTarget := ports.DeliveryTarget{Channel: "email", Destination: "head@example.com"}
+		_, err = deliveries.Deliver(context.Background(), result, []ports.DeliveryTarget{deliveryTarget})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deliveryProvider.calls).To(Equal(1))
+	})
+})

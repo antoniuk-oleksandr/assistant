@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
-	"testing"
+	"fmt"
 	"time"
 
 	"github.com/alex/assistent/internal/adapters/storage"
@@ -17,7 +17,19 @@ import (
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
 	"github.com/alex/assistent/internal/domain/teacher"
+	. "github.com/onsi/ginkgo/v2"
 )
+
+type ginkgoTest struct{}
+
+func (*ginkgoTest) Fatal(args ...any)                 { Fail(fmt.Sprint(args...)) }
+func (*ginkgoTest) Fatalf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Errorf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Run(name string, fn func(*ginkgoTest)) bool {
+	By(name)
+	fn(&ginkgoTest{})
+	return true
+}
 
 var errStorageDriver = errors.New("storage driver failure")
 
@@ -38,7 +50,7 @@ func (failingStorageConn) QueryContext(context.Context, string, []driver.NamedVa
 	return nil, errStorageDriver
 }
 
-func TestSQLiteRepositoriesWrapDriverFailures(t *testing.T) {
+func testSQLiteRepositoriesWrapDriverFailures(t *ginkgoTest) {
 	driverName := "assistent-failing-storage-driver"
 	sql.Register(driverName, failingStorageDriver{})
 	db, err := sql.Open(driverName, "")
@@ -240,3 +252,7 @@ func TestSQLiteRepositoriesWrapDriverFailures(t *testing.T) {
 		t.Fatal("pairing Consume succeeded")
 	}
 }
+
+var _ = Describe("SQLite repository driver failures", func() {
+	It("wraps driver failures", func() { testSQLiteRepositoriesWrapDriverFailures(&ginkgoTest{}) })
+})

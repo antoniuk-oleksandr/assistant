@@ -3,8 +3,9 @@ package database_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	. "github.com/onsi/ginkgo/v2"
 	"path/filepath"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/adapters/storage"
@@ -15,7 +16,28 @@ import (
 	"go.uber.org/fx"
 )
 
-func TestSQLiteMigratesExistingMaterialRowsAndPersistsSizeAcrossRestart(t *testing.T) {
+type materialmigrationGinkgoTest struct{}
+
+func (*materialmigrationGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*materialmigrationGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*materialmigrationGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*materialmigrationGinkgoTest) Helper()                  {}
+func (*materialmigrationGinkgoTest) Fatal(args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprint(args...))
+}
+func (*materialmigrationGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*materialmigrationGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*materialmigrationGinkgoTest) Run(name string, fn func(*materialmigrationGinkgoTest)) bool {
+	By(name)
+	fn(&materialmigrationGinkgoTest{})
+	return true
+}
+
+func testSQLiteMigratesExistingMaterialRowsAndPersistsSizeAcrossRestart(t *materialmigrationGinkgoTest) {
 	g := NewWithT(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -82,3 +104,10 @@ VALUES (1, 1, 'submission-1', 'submitted', '2026-11-19T10:00:00Z', '2026-11-19T1
 	_, reopened := start()
 	g.Expect(readMaterial(reopened)).To(Equal(material))
 }
+
+var _ = Describe("material_migration legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &materialmigrationGinkgoTest{}
+		testSQLiteMigratesExistingMaterialRowsAndPersistsSizeAcrossRestart(t)
+	})
+})

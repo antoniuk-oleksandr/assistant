@@ -3,14 +3,26 @@ package application
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/alex/assistent/internal/domain/ports"
 	"github.com/alex/assistent/internal/domain/submission"
 	"github.com/alex/assistent/internal/domain/task"
+	. "github.com/onsi/ginkgo/v2"
 )
+
+type ginkgoTest struct{}
+
+func (*ginkgoTest) Fatal(args ...any)                 { Fail(fmt.Sprint(args...)) }
+func (*ginkgoTest) Fatalf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Errorf(format string, args ...any) { Fail(fmt.Sprintf(format, args...)) }
+func (*ginkgoTest) Run(name string, fn func(*ginkgoTest)) bool {
+	By(name)
+	fn(&ginkgoTest{})
+	return true
+}
 
 type schedulerBindings struct {
 	unbound        string
@@ -152,7 +164,7 @@ func (schedulerSubmissionOnlySource) ListSubmissions(context.Context, string) ([
 	return nil, nil
 }
 
-func TestNextEventForTaskUsesExactDeadlineOffsets(t *testing.T) {
+func testNextEventForTaskUsesExactDeadlineOffsets(t *ginkgoTest) {
 	deadline := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	windows := task.DeadlineWindows{PreliminaryBefore: 2 * time.Minute, RefreshBefore: time.Minute}
 	tests := []struct {
@@ -166,7 +178,7 @@ func TestNextEventForTaskUsesExactDeadlineOffsets(t *testing.T) {
 		{"final", task.PhaseOneDayBefore, task.PhaseDeadlineReached, deadline},
 	}
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+		t.Run(test.name, func(t *ginkgoTest) {
 			phase, at, ok := nextEventForTask(test.current, deadline, windows)
 			if !ok || phase != test.want || !at.Equal(test.at) {
 				t.Fatalf("nextEventForTask() = (%q, %s, %t), want (%q, %s, true)", phase, at, ok, test.want, test.at)
@@ -175,7 +187,7 @@ func TestNextEventForTaskUsesExactDeadlineOffsets(t *testing.T) {
 	}
 }
 
-func TestNextEventForTaskDoesNotScheduleTerminalPhases(t *testing.T) {
+func testNextEventForTaskDoesNotScheduleTerminalPhases(t *ginkgoTest) {
 	deadline := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	for _, phase := range []task.Phase{task.PhaseDeadlineReached, task.PhaseCompleted} {
 		if _, _, ok := nextEventForTask(phase, deadline, task.DefaultDeadlineWindows); ok {
@@ -184,7 +196,7 @@ func TestNextEventForTaskDoesNotScheduleTerminalPhases(t *testing.T) {
 	}
 }
 
-func TestNextEventForTaskUsesDefaultsForInvalidWindows(t *testing.T) {
+func testNextEventForTaskUsesDefaultsForInvalidWindows(t *ginkgoTest) {
 	deadline := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	phase, at, ok := nextEventForTask(task.PhaseDiscovery, deadline, task.DeadlineWindows{})
 	if !ok || phase != task.PhaseThreeDaysBefore || !at.Equal(deadline.Add(-task.DefaultDeadlineWindows.PreliminaryBefore)) {
@@ -196,7 +208,7 @@ func TestNextEventForTaskUsesDefaultsForInvalidWindows(t *testing.T) {
 	}
 }
 
-func TestNextDeadlineEventSkipsExpiredAndChoosesEarliest(t *testing.T) {
+func testNextDeadlineEventSkipsExpiredAndChoosesEarliest(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	bindings := []task.Binding{
 		{Task: task.Task{ExternalID: "expired", DueAt: now.Add(-time.Hour).Format(time.RFC3339)}},
@@ -210,14 +222,14 @@ func TestNextDeadlineEventSkipsExpiredAndChoosesEarliest(t *testing.T) {
 	}
 }
 
-func TestNextDeadlineEventSkipsTerminalPhases(t *testing.T) {
+func testNextDeadlineEventSkipsTerminalPhases(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	if _, ok := nextDeadlineEvent([]task.Binding{{Task: task.Task{DueAt: now.Add(time.Hour).Format(time.RFC3339), Phase: task.PhaseCompleted}}}, now, task.DefaultDeadlineWindows); ok {
 		t.Fatal("terminal phase unexpectedly scheduled")
 	}
 }
 
-func TestDeadlineEventDisablesTaskWithoutFetching(t *testing.T) {
+func testDeadlineEventDisablesTaskWithoutFetching(t *ginkgoTest) {
 	bindings := &schedulerBindings{}
 	service := &PollingService{bindings: bindings}
 	event := deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "task-7"}}, phase: task.PhaseDeadlineReached}
@@ -229,7 +241,7 @@ func TestDeadlineEventDisablesTaskWithoutFetching(t *testing.T) {
 	}
 }
 
-func TestSchedulerLoadsParticipantRosterBeforeFetchingSubmissions(t *testing.T) {
+func testSchedulerLoadsParticipantRosterBeforeFetchingSubmissions(t *ginkgoTest) {
 	participants := &schedulerParticipants{}
 	service := &PollingService{
 		participants: participants,
@@ -244,7 +256,7 @@ func TestSchedulerLoadsParticipantRosterBeforeFetchingSubmissions(t *testing.T) 
 	}
 }
 
-func TestSchedulerReportsParticipantRefreshFailureAndRegistersCourse(t *testing.T) {
+func testSchedulerReportsParticipantRefreshFailureAndRegistersCourse(t *ginkgoTest) {
 	source := &schedulerRegistrarSource{}
 	service := &PollingService{source: source, participants: failingParticipantRepository{}, bindings: &schedulerBindings{}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}}
 	event := deadlineEvent{binding: task.Binding{Task: task.Task{ID: 1, ExternalID: "task", CourseID: "course"}}, phase: task.PhaseThreeDaysBefore}
@@ -256,7 +268,7 @@ func TestSchedulerReportsParticipantRefreshFailureAndRegistersCourse(t *testing.
 	}
 }
 
-func TestSchedulerUsesClockAndReturnsWhenContextIsCanceled(t *testing.T) {
+func testSchedulerUsesClockAndReturnsWhenContextIsCanceled(t *ginkgoTest) {
 	service := &PollingService{bindings: &schedulerBindings{}, clock: nil}
 	if got := service.currentTime(); got.IsZero() {
 		t.Fatal("currentTime returned zero time")
@@ -274,14 +286,14 @@ func TestSchedulerUsesClockAndReturnsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
-func TestSchedulerReturnsActiveBindingErrors(t *testing.T) {
+func testSchedulerReturnsActiveBindingErrors(t *ginkgoTest) {
 	service := &PollingService{bindings: &schedulerBindings{activeErr: context.Canceled}}
 	if err := service.RunScheduled(context.Background()); err == nil {
 		t.Fatal("RunScheduled() ignored active binding error")
 	}
 }
 
-func TestSchedulerReturnsExpiredBindingErrors(t *testing.T) {
+func testSchedulerReturnsExpiredBindingErrors(t *ginkgoTest) {
 	service := &PollingService{bindings: &schedulerBindings{
 		activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "expired", DueAt: "2026-11-21T11:00:00Z"}}}},
 		unbindErr:      errors.New("unbind failed"),
@@ -291,7 +303,7 @@ func TestSchedulerReturnsExpiredBindingErrors(t *testing.T) {
 	}
 }
 
-func TestSchedulerLogsEventFailureAndStopsWhenCanceled(t *testing.T) {
+func testSchedulerLogsEventFailureAndStopsWhenCanceled(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	bindings := &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "failed-event", CourseID: "course", DueAt: now.Format(time.RFC3339), Phase: task.PhaseDiscovery}}}, {}}}
 	service := &PollingService{bindings: bindings, source: failingSubmissionSource{err: errors.New("submission provider failed")}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}, clock: func() time.Time { return now }}
@@ -305,7 +317,7 @@ func TestSchedulerLogsEventFailureAndStopsWhenCanceled(t *testing.T) {
 	}
 }
 
-func TestSchedulerReturnsImmediatelyForCanceledEventContext(t *testing.T) {
+func testSchedulerReturnsImmediatelyForCanceledEventContext(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	service := &PollingService{bindings: &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "canceled-event", CourseID: "course", DueAt: now.Format(time.RFC3339), Phase: task.PhaseDiscovery}}}}}, source: failingSubmissionSource{err: errors.New("submission provider failed")}, tasks: &schedulerTaskRepository{}, submissions: &schedulerSubmissionRepository{}, clock: func() time.Time { return now }}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -315,7 +327,7 @@ func TestSchedulerReturnsImmediatelyForCanceledEventContext(t *testing.T) {
 	}
 }
 
-func TestSchedulerHandlesDeadlineReachedAndRegistrationFailures(t *testing.T) {
+func testSchedulerHandlesDeadlineReachedAndRegistrationFailures(t *ginkgoTest) {
 	bindings := &schedulerBindings{}
 	service := &PollingService{bindings: bindings}
 	if err := service.executeDeadlineEvent(context.Background(), deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "deadline"}}, phase: task.PhaseDeadlineReached}); err != nil {
@@ -339,7 +351,7 @@ func TestSchedulerHandlesDeadlineReachedAndRegistrationFailures(t *testing.T) {
 	}
 }
 
-func TestRefreshParticipantRosterAllowsMissingOptionalDependencies(t *testing.T) {
+func testRefreshParticipantRosterAllowsMissingOptionalDependencies(t *ginkgoTest) {
 	service := &PollingService{}
 	if err := service.refreshParticipantRoster(context.Background(), task.Task{ExternalID: "task"}); err != nil {
 		t.Fatal(err)
@@ -350,7 +362,7 @@ func TestRefreshParticipantRosterAllowsMissingOptionalDependencies(t *testing.T)
 	}
 }
 
-func TestSchedulerDisablesExpiredBindingsAndContinues(t *testing.T) {
+func testSchedulerDisablesExpiredBindingsAndContinues(t *ginkgoTest) {
 	bindings := &schedulerBindings{activeSequence: [][]task.Binding{
 		{{Task: task.Task{ExternalID: "expired", DueAt: "2026-11-21T11:00:00Z"}}},
 		{},
@@ -368,7 +380,7 @@ func TestSchedulerDisablesExpiredBindingsAndContinues(t *testing.T) {
 	}
 }
 
-func TestSchedulerWaitsForFutureEventUntilCanceled(t *testing.T) {
+func testSchedulerWaitsForFutureEventUntilCanceled(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	bindings := &schedulerBindings{activeSequence: [][]task.Binding{{
 		{Task: task.Task{ExternalID: "future", DueAt: now.Add(time.Hour).Format(time.RFC3339)}},
@@ -381,7 +393,7 @@ func TestSchedulerWaitsForFutureEventUntilCanceled(t *testing.T) {
 	}
 }
 
-func TestSchedulerProcessesDueDeadlineEvent(t *testing.T) {
+func testSchedulerProcessesDueDeadlineEvent(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	bindings := &schedulerBindings{activeSequence: [][]task.Binding{{{Task: task.Task{ExternalID: "due", DueAt: now.Format(time.RFC3339), Phase: task.PhaseOneDayBefore}}}, {}}}
 	service := &PollingService{bindings: bindings, clock: func() time.Time { return now }}
@@ -395,7 +407,7 @@ func TestSchedulerProcessesDueDeadlineEvent(t *testing.T) {
 	}
 }
 
-func TestSchedulerPropagatesUnbindAndParticipantFailures(t *testing.T) {
+func testSchedulerPropagatesUnbindAndParticipantFailures(t *ginkgoTest) {
 	service := &PollingService{bindings: &schedulerBindings{unbindErr: context.Canceled}}
 	event := deadlineEvent{binding: task.Binding{Task: task.Task{ExternalID: "task"}}, phase: task.PhaseDeadlineReached}
 	if err := service.executeDeadlineEvent(context.Background(), event); err == nil {
@@ -411,7 +423,7 @@ func TestSchedulerPropagatesUnbindAndParticipantFailures(t *testing.T) {
 	}
 }
 
-func TestSchedulerReportsExpiredUnbindAndScheduledProcessingErrors(t *testing.T) {
+func testSchedulerReportsExpiredUnbindAndScheduledProcessingErrors(t *ginkgoTest) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	service := &PollingService{bindings: &schedulerBindings{unbindErr: errors.New("unbind failed")}}
 	if err := service.disableExpiredBindings(context.Background(), []task.Binding{{Task: task.Task{ExternalID: "expired", DueAt: now.Add(-time.Hour).Format(time.RFC3339)}}}, now); err == nil {
@@ -424,7 +436,7 @@ func TestSchedulerReportsExpiredUnbindAndScheduledProcessingErrors(t *testing.T)
 	}
 }
 
-func TestSchedulerRefreshTaskPersistsSubmissions(t *testing.T) {
+func testSchedulerRefreshTaskPersistsSubmissions(t *ginkgoTest) {
 	repository := &schedulerSubmissionRepository{}
 	service := &PollingService{
 		source:      schedulerParticipantSource{},
@@ -449,7 +461,7 @@ func TestSchedulerRefreshTaskPersistsSubmissions(t *testing.T) {
 	}
 }
 
-func TestSchedulerExecutesReportPhaseAndPersistsIt(t *testing.T) {
+func testSchedulerExecutesReportPhaseAndPersistsIt(t *ginkgoTest) {
 	repository := &schedulerSubmissionRepository{}
 	tasks := &schedulerTaskRepository{}
 	service := &PollingService{
@@ -487,7 +499,7 @@ func (submissionSourceWithItems) ListSubmissions(context.Context, string) ([]sub
 	return []submission.Submission{{ExternalID: "submission", State: submission.Submitted}}, nil
 }
 
-func TestSchedulerReportsBindingAndParticipantErrors(t *testing.T) {
+func testSchedulerReportsBindingAndParticipantErrors(t *ginkgoTest) {
 	service := &PollingService{bindings: &schedulerBindings{activeErr: context.Canceled}}
 	if err := service.disableExpiredBindings(context.Background(), nil, time.Now()); err != nil {
 		t.Fatal(err)
@@ -504,3 +516,32 @@ func TestSchedulerReportsBindingAndParticipantErrors(t *testing.T) {
 		t.Fatalf("nil participant source should be ignored: %v", err)
 	}
 }
+
+var _ = Describe("deadline scheduler", func() {
+	It("runs the scheduler test cases", func() {
+		t := &ginkgoTest{}
+		testNextEventForTaskUsesExactDeadlineOffsets(t)
+		testNextEventForTaskDoesNotScheduleTerminalPhases(t)
+		testNextEventForTaskUsesDefaultsForInvalidWindows(t)
+		testNextDeadlineEventSkipsExpiredAndChoosesEarliest(t)
+		testNextDeadlineEventSkipsTerminalPhases(t)
+		testDeadlineEventDisablesTaskWithoutFetching(t)
+		testSchedulerLoadsParticipantRosterBeforeFetchingSubmissions(t)
+		testSchedulerReportsParticipantRefreshFailureAndRegistersCourse(t)
+		testSchedulerUsesClockAndReturnsWhenContextIsCanceled(t)
+		testSchedulerReturnsActiveBindingErrors(t)
+		testSchedulerReturnsExpiredBindingErrors(t)
+		testSchedulerLogsEventFailureAndStopsWhenCanceled(t)
+		testSchedulerReturnsImmediatelyForCanceledEventContext(t)
+		testSchedulerHandlesDeadlineReachedAndRegistrationFailures(t)
+		testRefreshParticipantRosterAllowsMissingOptionalDependencies(t)
+		testSchedulerDisablesExpiredBindingsAndContinues(t)
+		testSchedulerWaitsForFutureEventUntilCanceled(t)
+		testSchedulerProcessesDueDeadlineEvent(t)
+		testSchedulerPropagatesUnbindAndParticipantFailures(t)
+		testSchedulerReportsExpiredUnbindAndScheduledProcessingErrors(t)
+		testSchedulerRefreshTaskPersistsSubmissions(t)
+		testSchedulerExecutesReportPhaseAndPersistsIt(t)
+		testSchedulerReportsBindingAndParticipantErrors(t)
+	})
+})

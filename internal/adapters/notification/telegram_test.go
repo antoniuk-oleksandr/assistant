@@ -6,221 +6,183 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"testing"
 
 	"github.com/alex/assistent/internal/domain/notification"
 	"github.com/alex/assistent/internal/domain/report"
 	"github.com/alex/assistent/internal/domain/scenario"
 	"github.com/alex/assistent/internal/platform/config"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 )
-
-func TestTelegramProviderSendsReminderAndDelivery(t *testing.T) {
-	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/botsecret/sendMessage") {
-			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if provider.Name() != "telegram" {
-		t.Fatalf("Name() = %q", provider.Name())
-	}
-	reminder := notification.Reminder{Destination: "chat", Subject: "subject", Message: "message"}
-	if err := provider.SendReminder(context.Background(), reminder); err != nil {
-		t.Fatal(err)
-	}
-	if err := provider.Deliver(context.Background(), reportResult(), "chat"); err != nil {
-		t.Fatal(err)
-	}
-	if err := provider.SendReportReady(context.Background(), "chat", "same report message"); err != nil {
-		t.Fatal(err)
-	}
-	if requests != 3 {
-		t.Fatalf("requests = %d, want 3", requests)
-	}
-}
-
-func TestTelegramProviderSendsReportReadyThroughConfiguredChatID(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "admin-chat"})
-	if err := provider.SendReportReady(context.Background(), "", "Sheet: https://sheet.example"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(requestBody, `"chat_id":"admin-chat"`) || !strings.Contains(requestBody, `Sheet: https://sheet.example`) {
-		t.Fatalf("request body = %s", requestBody)
-	}
-}
-
-func TestTelegramProviderSendsDirectMessage(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if err := provider.SendMessage(context.Background(), "chat-7", "connected"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(requestBody, `"chat_id":"chat-7"`) || !strings.Contains(requestBody, "connected") {
-		t.Fatalf("request body = %s", requestBody)
-	}
-}
-
-func TestTelegramProviderUsesConfiguredChatIDWhenDestinationIsEmpty(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "-1001234567890"})
-	if err := provider.SendReminder(context.Background(), notification.Reminder{Subject: "subject", Message: "message"}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(requestBody, `"chat_id":"-1001234567890"`) {
-		t.Fatalf("request body = %s", requestBody)
-	}
-}
 
 func reportResult() report.Result {
 	return report.Result{Data: scenario.ReportData{TaskID: 42}}
 }
 
-func TestTelegramProviderRejectsMissingTokenAndHTTPFailure(t *testing.T) {
-	provider := NewTelegramProvider(config.TelegramConfig{})
-	if err := provider.SendReminder(context.Background(), notification.Reminder{}); err == nil {
-		t.Fatal("missing token unexpectedly succeeded")
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	server.Close()
-	provider = NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if err := provider.SendReminder(context.Background(), notification.Reminder{}); err == nil {
-		t.Fatal("closed server unexpectedly succeeded")
-	}
-}
-
-func TestTelegramProviderReadsPrivateMessagesAndContacts(t *testing.T) {
-	var requestBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/botsecret/getUpdates" {
-			if r.URL.Query().Get("offset") != "7" || r.URL.Query().Get("timeout") != "10" {
-				t.Fatalf("query=%s", r.URL.RawQuery)
+var _ = Describe("Telegram provider", func() {
+	It("sends reminders and deliveries", func() {
+		var requests int
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			if r.Method != http.MethodPost || !strings.HasSuffix(r.URL.Path, "/botsecret/sendMessage") {
+				Expect(r.Method).To(Equal(http.MethodPost))
+				Expect(r.URL.Path).To(HaveSuffix("/botsecret/sendMessage"))
 			}
-			_, _ = io.WriteString(w, `{"ok":true,"result":[{"update_id":7,"message":{"text":"/start pair_token","chat":{"id":42,"type":"private"}}}]}`)
-			return
-		}
-		body, _ := io.ReadAll(r.Body)
-		requestBody = string(body)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	updates, err := provider.GetUpdates(context.Background(), 7, 10)
-	if err != nil || len(updates) != 1 || updates[0].ChatID != "42" || updates[0].Text != "/start pair_token" {
-		t.Fatalf("updates=%#v err=%v", updates, err)
-	}
-	if requestBody != "" {
-		t.Fatalf("unexpected send request body=%s", requestBody)
-	}
-}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		Expect(provider.Name()).To(Equal("telegram"))
+		reminder := notification.Reminder{Destination: "chat", Subject: "subject", Message: "message"}
+		Expect(provider.SendReminder(context.Background(), reminder)).To(Succeed())
+		Expect(provider.Deliver(context.Background(), reportResult(), "chat")).To(Succeed())
+		Expect(provider.SendReportReady(context.Background(), "chat", "same report message")).To(Succeed())
+		Expect(requests).To(Equal(3))
+	})
 
-func TestTelegramProviderRejectsUnsuccessfulUpdatesResponse(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, `{"ok":false,"result":[]}`)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if _, err := provider.GetUpdates(context.Background(), 0, 1); err == nil {
-		t.Fatal("unsuccessful Telegram response unexpectedly succeeded")
-	}
-}
+	It("sends report-ready messages through the configured chat ID", func() {
+		var requestBody string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			requestBody = string(body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "admin-chat"})
+		Expect(provider.SendReportReady(context.Background(), "", "Sheet: https://sheet.example")).To(Succeed())
+		Expect(requestBody).To(ContainSubstring(`"chat_id":"admin-chat"`))
+		Expect(requestBody).To(ContainSubstring(`Sheet: https://sheet.example`))
+	})
 
-func TestTelegramProviderRejectsMalformedUpdatesAndMarkup(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/botsecret/getUpdates" {
-			_, _ = io.WriteString(w, "not-json")
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if _, err := provider.GetUpdates(context.Background(), 0, 1); err == nil {
-		t.Fatal("malformed updates unexpectedly succeeded")
-	}
-	if err := provider.sendWithMarkup(context.Background(), "chat", "message", "not-json"); err == nil {
-		t.Fatal("malformed markup unexpectedly succeeded")
-	}
-}
+	It("sends direct messages", func() {
+		var requestBody string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			requestBody = string(body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		Expect(provider.SendMessage(context.Background(), "chat-7", "connected")).To(Succeed())
+		Expect(requestBody).To(ContainSubstring(`"chat_id":"chat-7"`))
+		Expect(requestBody).To(ContainSubstring("connected"))
+	})
 
-func TestTelegramProviderSendsReplyMarkupAndRejectsMissingUpdateToken(t *testing.T) {
-	var body string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		payload, _ := io.ReadAll(r.Body)
-		body = string(payload)
-		w.WriteHeader(http.StatusOK)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if err := provider.sendWithMarkup(context.Background(), "chat", "message", `{"inline_keyboard":[]}`); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(body, "reply_markup") {
-		t.Fatalf("markup payload = %s", body)
-	}
-	if _, err := NewTelegramProvider(config.TelegramConfig{}).GetUpdates(context.Background(), 0, 1); err == nil {
-		t.Fatal("missing token unexpectedly succeeded")
-	}
-}
+	It("uses the configured chat ID when the destination is empty", func() {
+		var requestBody string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			requestBody = string(body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL, ChatID: "-1001234567890"})
+		Expect(provider.SendReminder(context.Background(), notification.Reminder{Subject: "subject", Message: "message"})).To(Succeed())
+		Expect(requestBody).To(ContainSubstring(`"chat_id":"-1001234567890"`))
+	})
 
-func TestTelegramProviderRejectsCanceledRequests(t *testing.T) {
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: "http://127.0.0.1:1"})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := provider.SendMessage(ctx, "chat", "message"); err == nil {
-		t.Fatal("canceled request unexpectedly succeeded")
-	}
-}
+	It("rejects missing tokens and HTTP failures", func() {
+		provider := NewTelegramProvider(config.TelegramConfig{})
+		Expect(provider.SendReminder(context.Background(), notification.Reminder{})).To(HaveOccurred())
+		server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		server.Close()
+		provider = NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		Expect(provider.SendReminder(context.Background(), notification.Reminder{})).To(HaveOccurred())
+	})
 
-func TestTelegramProviderReportsTelegramHTTPStatusFailures(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}))
-	defer server.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
-	if _, err := provider.GetUpdates(context.Background(), 0, 1); err == nil || !strings.Contains(err.Error(), "405") {
-		t.Fatalf("GetUpdates() error = %v", err)
-	}
-	if err := provider.SendMessage(context.Background(), "chat", "message"); err == nil || !strings.Contains(err.Error(), "405") {
-		t.Fatalf("SendMessage() error = %v", err)
-	}
-}
+	It("reads private messages and contacts", func() {
+		var requestBody string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/botsecret/getUpdates" {
+				if r.URL.Query().Get("offset") != "7" || r.URL.Query().Get("timeout") != "10" {
+					Expect(r.URL.Query().Get("offset")).To(Equal("7"))
+					Expect(r.URL.Query().Get("timeout")).To(Equal("10"))
+				}
+				_, _ = io.WriteString(w, `{"ok":true,"result":[{"update_id":7,"message":{"text":"/start pair_token","chat":{"id":42,"type":"private"}}}]}`)
+				return
+			}
+			body, _ := io.ReadAll(r.Body)
+			requestBody = string(body)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		updates, err := provider.GetUpdates(context.Background(), 7, 10)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(updates).To(HaveLen(1))
+		Expect(updates[0].ChatID).To(Equal("42"))
+		Expect(updates[0].Text).To(Equal("/start pair_token"))
+		Expect(requestBody).To(BeEmpty())
+	})
 
-func TestTelegramProviderReportsInvalidURLsAndTransportFailures(t *testing.T) {
-	invalid := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: "http://[::1"})
-	if _, err := invalid.GetUpdates(context.Background(), 0, 1); err == nil {
-		t.Fatal("invalid Telegram URL unexpectedly succeeded")
-	}
-	if err := invalid.SendMessage(context.Background(), "chat", "message"); err == nil {
-		t.Fatal("invalid Telegram send URL unexpectedly succeeded")
-	}
-	closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	base := closed.URL
-	closed.Close()
-	provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: base})
-	if _, err := provider.GetUpdates(context.Background(), 0, 1); err == nil {
-		t.Fatal("Telegram transport failure was ignored")
-	}
-}
+	It("rejects unsuccessful update responses", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, `{"ok":false,"result":[]}`)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		_, err := provider.GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects malformed updates and markup", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/botsecret/getUpdates" {
+				_, _ = io.WriteString(w, "not-json")
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		_, err := provider.GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(HaveOccurred())
+		Expect(provider.sendWithMarkup(context.Background(), "chat", "message", "not-json")).To(HaveOccurred())
+	})
+
+	It("sends reply markup and rejects missing update tokens", func() {
+		var body string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			payload, _ := io.ReadAll(r.Body)
+			body = string(payload)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		Expect(provider.sendWithMarkup(context.Background(), "chat", "message", `{"inline_keyboard":[]}`)).To(Succeed())
+		Expect(body).To(ContainSubstring("reply_markup"))
+		_, err := NewTelegramProvider(config.TelegramConfig{}).GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("rejects canceled requests", func() {
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: "http://127.0.0.1:1"})
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		Expect(provider.SendMessage(ctx, "chat", "message")).To(HaveOccurred())
+	})
+
+	It("reports Telegram HTTP status failures", func() {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}))
+		defer server.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: server.URL})
+		_, err := provider.GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(MatchError(ContainSubstring("405")))
+		Expect(provider.SendMessage(context.Background(), "chat", "message")).To(MatchError(ContainSubstring("405")))
+	})
+
+	It("reports invalid URLs and transport failures", func() {
+		invalid := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: "http://[::1"})
+		_, err := invalid.GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(HaveOccurred())
+		Expect(invalid.SendMessage(context.Background(), "chat", "message")).To(HaveOccurred())
+		closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+		base := closed.URL
+		closed.Close()
+		provider := NewTelegramProvider(config.TelegramConfig{Token: "secret", BaseURL: base})
+		_, err = provider.GetUpdates(context.Background(), 0, 1)
+		Expect(err).To(HaveOccurred())
+	})
+})

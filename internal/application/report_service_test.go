@@ -3,6 +3,7 @@ package application_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/alex/assistent/internal/application"
@@ -11,6 +12,25 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
+
+type reportserviceGinkgoTest struct{}
+
+func (*reportserviceGinkgoTest) TempDir() string          { return GinkgoT().TempDir() }
+func (*reportserviceGinkgoTest) Setenv(key, value string) { GinkgoT().Setenv(key, value) }
+func (*reportserviceGinkgoTest) Cleanup(fn func())        { DeferCleanup(fn) }
+func (*reportserviceGinkgoTest) Helper()                  {}
+func (*reportserviceGinkgoTest) Fatal(args ...any)        { Expect(false).To(BeTrue(), fmt.Sprint(args...)) }
+func (*reportserviceGinkgoTest) Fatalf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*reportserviceGinkgoTest) Errorf(format string, args ...any) {
+	Expect(false).To(BeTrue(), fmt.Sprintf(format, args...))
+}
+func (*reportserviceGinkgoTest) Run(name string, fn func(*reportserviceGinkgoTest)) bool {
+	By(name)
+	fn(&reportserviceGinkgoTest{})
+	return true
+}
 
 func TestApplicationSpecs(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -70,7 +90,7 @@ func (r *reportData) List(context.Context, string, string) ([]scenario.CourseDat
 	return r.items, r.err
 }
 
-func TestReportServiceUsesTheBuiltInWorkflow(t *testing.T) {
+func testReportServiceUsesTheBuiltInWorkflow(t *reportserviceGinkgoTest) {
 	ctx := context.Background()
 	repo := &reportScenarioRepo{}
 	bindings := &reportBindings{items: []task.Binding{{Task: task.Task{ExternalID: "task-1", CourseID: "course-1", Title: "Report"}, Status: "active"}}}
@@ -101,7 +121,7 @@ func TestReportServiceUsesTheBuiltInWorkflow(t *testing.T) {
 	}
 }
 
-func TestReportServicePropagatesAndReportsUnavailableDependencies(t *testing.T) {
+func testReportServicePropagatesAndReportsUnavailableDependencies(t *reportserviceGinkgoTest) {
 	ctx := context.Background()
 	repo := &reportScenarioRepo{createErr: errors.New("create failed")}
 	service := application.NewReportService(repo, scenario.NewRegistry(scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"}), nil, nil, nil)
@@ -156,7 +176,7 @@ func TestReportServicePropagatesAndReportsUnavailableDependencies(t *testing.T) 
 	}
 }
 
-func TestReportServiceConfigureStopsAtEachFailedStep(t *testing.T) {
+func testReportServiceConfigureStopsAtEachFailedStep(t *reportserviceGinkgoTest) {
 	ctx := context.Background()
 	registry := scenario.NewRegistry(scenario.Implementation{Name: "science-report", Type: "ScienceReportScenario"})
 	createFailed := &reportScenarioRepo{createErr: errors.New("create")}
@@ -172,3 +192,12 @@ func TestReportServiceConfigureStopsAtEachFailedStep(t *testing.T) {
 		t.Fatalf("Configure course error = %v", err)
 	}
 }
+
+var _ = Describe("report_service legacy tests", func() {
+	It("runs the converted standard-library cases", func() {
+		t := &reportserviceGinkgoTest{}
+		testReportServiceUsesTheBuiltInWorkflow(t)
+		testReportServicePropagatesAndReportsUnavailableDependencies(t)
+		testReportServiceConfigureStopsAtEachFailedStep(t)
+	})
+})
